@@ -1516,8 +1516,28 @@ function renderClienteView(data){
 let pedVeics=[{}];
 function renderClienteLive(id){
   const f=MEM[id]; if(!f) return;
-  renderClienteView(clienteData(f));                 // monta o acompanhamento
-  if(!f.cadastrado) injetarFormPedido(id,f);         // pedido ainda aberto -> mostra formulário
+  if(f.cadastrado){
+    renderClienteView(clienteData(f));   // frete cadastrado -> libera o ACOMPANHAMENTO
+  } else {
+    renderPedidoPage(id,f);              // ainda é pedido -> mostra SÓ o formulário
+  }
+}
+function renderPedidoPage(id,f){
+  const tabs=document.querySelector('.tabs'); if(tabs) tabs.style.display='none';
+  $('#linkModal').style.display='none';
+  $('#viewFicha').style.display='none'; $('#viewRelatorio').style.display='none';
+  const vf=$('#viewFinanceiro'); if(vf) vf.style.display='none';
+  const v=$('#viewCliente'); v.style.display='';
+  v.innerHTML=`<div class="cli-page">
+    <div class="cli-hero">
+      <img src="${logoAtual()}" alt="OBS Transportes">
+      <h1>Pedido de Frete</h1>
+      <p style="opacity:.9;font-size:14px;margin:0">Preencha seus dados para solicitarmos o seu transporte</p>
+    </div>
+    <p class="hint" style="text-align:center;margin:0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
+  </div>`;
+  injetarFormPedido(id,f);
+  window.scrollTo(0,0);
 }
 function campoCli(id,label,campo,val,ph){ return `<div class="field"><label>${label}</label><input id="pc_${campo}" value="${escA(val)}" placeholder="${ph||''}"></div>`; }
 function renderPedVeics(){
