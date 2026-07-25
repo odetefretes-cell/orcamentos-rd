@@ -83,8 +83,8 @@
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:bold;color:#fff}
   .badge.s-andamento{background:#e6a100}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#c0392b}
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#c0392b;font-weight:bold}
-  .hist-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:820px){.hist-wrap{grid-template-columns:1fr}}
+  .hist-wrap{display:grid;grid-template-columns:1fr;gap:14px}
+  .hist-col{border:1px solid var(--linha);border-radius:8px;padding:10px;background:#fbfcfe}
   .hist-col label{font-size:11px;font-weight:600;color:#7a8794}
   .hist-box{border:1px solid var(--linha);border-radius:7px;background:#fbfcfe;max-height:150px;overflow:auto;padding:6px;margin:4px 0}
   .hist-item{border-bottom:1px dashed #e2e8ef;padding:4px 2px;font-size:12.5px}
@@ -548,7 +548,8 @@
     <div class="acts">
       <button class="btn-ghost" onclick="fecharLink()">Fechar</button>
       <button class="btn-ghost" onclick="abrirPrevia()">Abrir prévia</button>
-      <button class="btn-primary" onclick="copiarLink()">📋 Copiar link</button>
+      <button class="btn-ghost" onclick="copiarLink()">📋 Copiar link</button>
+      <button class="btn-ok" onclick="enviarWhatsApp()">🟢 Enviar pelo WhatsApp</button>
     </div>
   </div>
 </div>
@@ -1018,7 +1019,7 @@ function cardFrete(f){
 
       <div class="fld col4"><div class="hist-wrap">
         <div class="hist-col">
-          <label>🗒️ Atualização interna (histórico da operadora)</label>
+          <label>🗒️ Atualização (andamento do transporte) — uso interno</label>
           <div class="hist-box">${histBox(histOf(f,'interno'))}</div>
           <div class="hist-add">
             <textarea id="newInt_${id}" placeholder="Escreva a atualização interna..."></textarea>
@@ -1026,13 +1027,13 @@ function cardFrete(f){
           </div>
         </div>
         <div class="hist-col">
-          <label>📢 Atualização para o CLIENTE (aparece no link)</label>
+          <label>📢 Atualização (envio ao cliente) — vai direto para o link do cliente</label>
           <div class="hist-box">${histBox(histOf(f,'cliente'))}</div>
           <div class="hist-add">
             <textarea id="newCli_${id}" placeholder="Ex.: Veículo coletado; em rota para o destino..."></textarea>
             <button class="btn-ok" style="padding:7px 12px" onclick="addAtualizacao('${id}','cliente')">Adicionar</button>
           </div>
-          <button class="btn-ghost" style="margin-top:6px;width:100%" onclick="gerarLinkCliente('${id}')">🔗 Gerar link de acompanhamento do cliente</button>
+          <button class="btn-ghost" style="margin-top:6px;width:100%" onclick="gerarLinkCliente('${id}')">🔗 Gerar link do cliente / Enviar por WhatsApp</button>
         </div>
       </div></div>
 
@@ -1105,16 +1106,26 @@ function gerarLinkCliente(id){
       ? 'A cada nova atualização para o cliente, gere o link novamente para refletir as novidades.'
       : '⚠️ Para o cliente conseguir abrir, a página precisa estar publicada na internet (ex.: GitHub Pages). Localmente o link serve só para prévia.';
   }
-  $('#linkInfo').textContent = `Frete Nº ${f.numero||''} · ${up(f.clienteEmpresa||'')}. Envie este link ao cliente (WhatsApp) para ele acompanhar o transporte.`;
+  linkAtual=link;
+  waMsg=`Olá! 🚚 Aqui você acompanha em tempo real o transporte do seu veículo (Frete Nº ${f.numero||''}) com a OBS Transportes:\n${link}`;
+  let tel=(f.telefone||'').replace(/\D/g,'');
+  if(tel && tel.length<=11) tel='55'+tel;   // acrescenta DDI do Brasil se faltar
+  waPhone=tel;
+  $('#linkInfo').textContent = `Frete Nº ${f.numero||''} · ${up(f.clienteEmpresa||'')}. Envie o link ao cliente pelo WhatsApp — cada nova “atualização (envio ao cliente)” aparece nele automaticamente.`;
   $('#linkAviso').innerHTML = aviso;
   const inp=$('#linkInput'); inp.value=link;
   $('#linkModal').style.display='flex'; inp.select();
 }
+let linkAtual='', waMsg='', waPhone='';
 function copiarLink(){
   const inp=$('#linkInput'); inp.select();
   navigator.clipboard?.writeText(inp.value).then(()=>flash('Link copiado ✔'),()=>{ document.execCommand('copy'); flash('Link copiado ✔'); });
 }
 function abrirPrevia(){ window.open($('#linkInput').value,'_blank'); }
+function enviarWhatsApp(){
+  const url='https://wa.me/'+(waPhone||'')+'?text='+encodeURIComponent(waMsg||$('#linkInput').value);
+  window.open(url,'_blank');
+}
 function fecharLink(){ $('#linkModal').style.display='none'; }
 
 // ---- página do cliente (quando a URL tem #t=) ----
