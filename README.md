@@ -74,6 +74,18 @@ Detalhes:
   - **Para o cliente conseguir abrir**, a página precisa estar **publicada na internet**
     (ex.: GitHub Pages). A cada nova atualização para o cliente, gere o link de novo.
 
+## Modo compartilhado (nuvem) — fila única em tempo real
+
+Por padrão os dados ficam **no navegador de cada computador** (modo local). Para que
+todas as operadoras vejam a **mesma fila em tempo real** e o **link do cliente atualize
+sozinho**, ative o **modo nuvem** com o Firebase (grátis). Passo a passo em
+**[`CONFIGURAR-NUVEM.md`](CONFIGURAR-NUVEM.md)**.
+
+Depois de ativado:
+- Fila **única** que todas veem ao vivo; ao **puxar**, o frete some da fila das outras na hora.
+- Link do cliente **ao vivo**: cada atualização aparece sozinha, sem reenviar o link.
+- O topo do Relatório mostra o modo atual (**Modo local** ou **☁ Compartilhado**).
+
 ## Prestadores (ficha interna)
 
 Na seção **8 · Prestadores** você lança até 4 motoristas/transportadoras

@@ -515,7 +515,7 @@
   <!-- ===================== RELATÓRIO / OPERADORAS ===================== -->
   <div id="viewRelatorio" style="display:none">
     <div class="card">
-      <h2>Relatório de fretes — Área das operadoras</h2>
+      <h2>Relatório de fretes — Área das operadoras <span id="modoBadge" style="float:right;font-size:12px;font-weight:normal;color:#8592a1"></span></h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Todo frete emitido entra na <b>FILA</b>. Cada operadora <b>puxa</b> a demanda para o seu controle e acompanha até a conclusão (status, atualização e pagamentos salvam sozinhos). O <b>atendente</b> da ficha é o responsável pela venda.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -717,8 +717,54 @@ const DRAFT='obs_frete_rascunho';   // frete que está sendo editado agora
 const DB='obs_fretes';              // { id: {dados..., _id, _salvoEm} }
 let idAtual=null;
 
-function lerDB(){ try{ return JSON.parse(localStorage.getItem(DB))||{}; }catch(_){ return {}; } }
-function gravarDB(db){ localStorage.setItem(DB, JSON.stringify(db)); }
+/* ============================================================
+   CAMADA DE DADOS — 2 modos:
+   • LOCAL (padrão): guarda no navegador deste computador.
+   • NUVEM (compartilhado, tempo real): preencha FIREBASE_CONFIG
+     abaixo com os dados do seu projeto Firebase (veja o README).
+     Assim NATALY e YASMIN veem a MESMA fila em tempo real e o
+     link do cliente atualiza sozinho.
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  // apiKey: "...", authDomain: "...", projectId: "...",
+  // storageBucket: "...", messagingSenderId: "...", appId: "..."
+};
+const CLOUD_ON = !!(FIREBASE_CONFIG && FIREBASE_CONFIG.projectId);
+let MEM={}, LAST={}, _fb=null, clienteLiveId=null;
+
+function loadLocal(){ try{ return JSON.parse(localStorage.getItem(DB))||{}; }catch(_){ return {}; } }
+function lerDB(){ return MEM; }
+function gravarDB(_){
+  if(CLOUD_ON && _fb) cloudSync();
+  else localStorage.setItem(DB, JSON.stringify(MEM));
+}
+function cloudSync(){
+  const {fs,doc,setDoc,deleteDoc}=_fb;
+  for(const id in MEM){ if(JSON.stringify(MEM[id])!==JSON.stringify(LAST[id])) setDoc(doc(fs,'fretes',id), MEM[id]); }
+  for(const id in LAST){ if(!(id in MEM)) deleteDoc(doc(fs,'fretes',id)); }
+  LAST=JSON.parse(JSON.stringify(MEM));
+}
+async function initData(){
+  if(CLOUD_ON){
+    try{
+      const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const fsMod =await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const app=appMod.initializeApp(FIREBASE_CONFIG);
+      const fs=fsMod.getFirestore(app);
+      _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc};
+      setModo('☁ Compartilhado (tempo real)');
+      fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
+        MEM={}; snap.forEach(d=>MEM[d.id]=d.data()); LAST=JSON.parse(JSON.stringify(MEM));
+        atualizarHist();
+        const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
+        if(clienteLiveId!=null && MEM[clienteLiveId]) renderClienteView(clienteData(MEM[clienteLiveId]));
+      }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); });
+    }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); setModo('⚠ Sem nuvem — modo local'); }
+  } else {
+    MEM=loadLocal(); setModo('Modo local (este computador)');
+  }
+}
+function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
 
 // campos de acompanhamento (editados no relatório, preservados ao regravar a ficha)
 const TRACK=['operadora','status','averbacao','atualizacao','pago1','dataPago1','pago2','dataPago2'];
@@ -1035,19 +1081,28 @@ function addAtualizacao(id,tipo){
 }
 
 // ---- link de acompanhamento do cliente ----
-function gerarLinkCliente(id){
-  const f=lerDB()[id]; if(!f) return;
-  const data={ n:f.numero||'', v:veicResumo(f), o:up(f.origem||''), d:up(f.destino||''),
+function clienteData(f){
+  return { n:f.numero||'', v:veicResumo(f), o:up(f.origem||''), d:up(f.destino||''),
     st:statusDe(f), prev:up(f.previsaoEntrega||''), cli:up(f.clienteEmpresa||''),
     h:histOf(f,'cliente').map(x=>({t:x.ts,x:x.texto})) };
-  const enc=btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+}
+function gerarLinkCliente(id){
+  const f=lerDB()[id]; if(!f) return;
   const base=location.origin+location.pathname;
-  const link=base+'#t='+enc;
   const online = location.protocol==='http:'||location.protocol==='https:';
-  $('#linkInfo').textContent = `Frete Nº ${f.numero||''} · ${data.cli}. Envie este link ao cliente (WhatsApp) para ele acompanhar o transporte.`;
-  $('#linkAviso').innerHTML = online
-    ? 'A cada nova atualização para o cliente, gere o link novamente para refletir as novidades.'
-    : '⚠️ Para o cliente conseguir abrir, a página precisa estar publicada na internet (ex.: GitHub Pages). Localmente o link serve só para prévia.';
+  let link, aviso;
+  if(CLOUD_ON){                                    // modo compartilhado: link AO VIVO
+    link=base+'#f='+encodeURIComponent(id);
+    aviso='🔴 Link ao vivo: atualiza sozinho a cada nova atualização para o cliente.';
+  } else {                                         // modo local: link é uma "foto" do momento
+    const enc=btoa(unescape(encodeURIComponent(JSON.stringify(clienteData(f)))));
+    link=base+'#t='+enc;
+    aviso = online
+      ? 'A cada nova atualização para o cliente, gere o link novamente para refletir as novidades.'
+      : '⚠️ Para o cliente conseguir abrir, a página precisa estar publicada na internet (ex.: GitHub Pages). Localmente o link serve só para prévia.';
+  }
+  $('#linkInfo').textContent = `Frete Nº ${f.numero||''} · ${up(f.clienteEmpresa||'')}. Envie este link ao cliente (WhatsApp) para ele acompanhar o transporte.`;
+  $('#linkAviso').innerHTML = aviso;
   const inp=$('#linkInput'); inp.value=link;
   $('#linkModal').style.display='flex'; inp.select();
 }
@@ -1098,7 +1153,22 @@ function renderClienteView(data){
   </div>`;
   window.scrollTo(0,0);
 }
-window.addEventListener('hashchange', ()=>{ if(location.hash.startsWith('#t=')) entrarModoCliente(); });
+function entrarModoClienteLive(){
+  clienteLiveId = decodeURIComponent(location.hash.slice(3));
+  if(CLOUD_ON){
+    if(MEM[clienteLiveId]) renderClienteView(clienteData(MEM[clienteLiveId]));  // já sincronizado
+    // senão, o onSnapshot renderiza assim que os dados chegarem
+  } else {
+    // sem nuvem não há como ler ao vivo; mostra aviso amigável
+    renderClienteView({ n:'', v:'', o:'', d:'', st:'ANDAMENTO', prev:'', cli:'',
+      h:[{t:new Date().toISOString(), x:'Este link de acompanhamento ao vivo requer a versão publicada online. Fale com a OBS Transportes.'}] });
+  }
+}
+function rotearHash(){
+  if(location.hash.startsWith('#t=')) entrarModoCliente();
+  else if(location.hash.startsWith('#f=')) entrarModoClienteLive();
+}
+window.addEventListener('hashchange', rotearHash);
 function setFrete(id,campo,valor){
   const db=lerDB(); if(!db[id]) return;
   db[id][campo]=valor; db[id]._salvoEm=new Date().toISOString();
@@ -1117,14 +1187,15 @@ function switchView(v){
 
 // inicialização
 (function init(){
+  initData();                 // local: preenche MEM já; nuvem: conecta e sincroniza
   const raw=localStorage.getItem(DRAFT);
   if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
   renderVeic();
   atualizarHist();
   aplicarLogo();
   render();
-  // se a URL trouxer dados do cliente (#t=), abre a página de acompanhamento
-  if(location.hash.startsWith('#t=')) entrarModoCliente();
+  // se a URL trouxer acompanhamento do cliente (#t= foto / #f= ao vivo)
+  rotearHash();
 })();
 </script>
 </body>
