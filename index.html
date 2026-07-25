@@ -1229,7 +1229,17 @@ function devolverFila(id){
 const IMPOSTO_PCT=0.12;
 function somaVeicValor(f){ const vs=Array.isArray(f.veiculos)?f.veiculos:[]; return vs.reduce((t,v)=>t+num(v.valor),0)+ (Array.isArray(f.veiculos)?0:num(f.valorVeiculo)); }
 function impostoDe(f){ return f.impostoOn ? IMPOSTO_PCT*num(f.valorFrete) : 0; }
-function seguroDe(f){ return num(f.seguro); }
+
+// ---- Seguro RCTR-C (taxa por UF origem -> UF destino, sobre o valor do veículo) ----
+const UFS=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RO','RR','RS','SC','SP','SE','TO'];
+function ufDe(txt){ const m=(txt||'').toUpperCase().trim().match(/([A-Z]{2})\s*$/); return (m&&UFS.includes(m[1]))?m[1]:''; }
+// SEGURO_TX[origemUF][destinoUF] = percentual (ex.: 0.16 = 0,16% sobre o valor do veículo).
+// Preenchido com a tabela oficial RCTR-C (a preencher a partir do arquivo).
+const SEGURO_TX = {};
+function taxaSeguro(f){ const o=ufDe(f.origem), d=ufDe(f.destino); return (o&&d&&SEGURO_TX[o]&&SEGURO_TX[o][d]!=null)?SEGURO_TX[o][d]:null; }
+function seguroSugerido(f){ const tx=taxaSeguro(f); return tx==null?null:(tx/100)*somaVeicValor(f); }
+// usa o valor digitado; se vazio, usa o sugerido pela tabela
+function seguroDe(f){ if(f.seguro!=null && f.seguro!=='') return num(f.seguro); const s=seguroSugerido(f); return s==null?0:s; }
 function lucroDe(f){ return num(f.valorFrete) - somaPrest(f) - impostoDe(f) - seguroDe(f); }
 function recebidoDe(f){ return num(f.pago1)+num(f.pago2); }
 function abertoDe(f){ return num(f.valorFrete)-recebidoDe(f); }
@@ -1287,7 +1297,7 @@ function renderFinanceiro(){
     return `<tr><td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td>
       <td>${moeda(f.valorFrete)}</td><td>− ${moeda(pr)}</td>
       <td><label class="chk"><input type="checkbox" ${f.impostoOn?'checked':''} onchange="toggleImposto('${f._id}',this.checked)"> 12%</label> ${f.impostoOn?('− '+moeda(imp)):'<span class="hint">—</span>'}</td>
-      <td><input inputmode="decimal" value="${escA(f.seguro)}" placeholder="0,00" onchange="setFin('${f._id}','seguro',this.value)"></td>
+      <td><input inputmode="decimal" value="${escA(f.seguro)}" placeholder="${seguroSugerido(f)!=null?('auto '+moeda(seguroSugerido(f))):'0,00'}" onchange="setFin('${f._id}','seguro',this.value)" title="${taxaSeguro(f)!=null?('Taxa RCTR-C '+ufDe(f.origem)+'→'+ufDe(f.destino)+': '+taxaSeguro(f)+'%'):'Sem taxa na tabela — digite manual'}"></td>
       <td class="${lu<0?'saldo-neg':'saldo-pos'}"><b>${moeda(lu)}</b></td></tr>`;
   }).join('');
   $('#finLucro').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Valor frete</th><th>Prestadores</th><th>Imposto</th><th>Seguro (R$)</th><th>Lucro</th></tr></thead><tbody>${linhasL||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum frete com valor.</td></tr>'}</tbody>`;
