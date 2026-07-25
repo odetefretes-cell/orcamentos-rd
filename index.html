@@ -1540,6 +1540,28 @@ function renderPedidoPage(id,f){
   window.scrollTo(0,0);
 }
 function campoCli(id,label,campo,val,ph){ return `<div class="field"><label>${label}</label><input id="pc_${campo}" value="${escA(val)}" placeholder="${ph||''}"></div>`; }
+function cidadeDe(txt){ return (txt||'').replace(/\s+[A-Za-z]{2}\s*$/,'').trim(); }   // remove a UF do fim
+// busca endereço pelo CEP (ViaCEP) e preenche o FATURAMENTO
+async function buscarCep(){
+  const cepEl=document.getElementById('pc_cep'); if(!cepEl) return;
+  const cep=(cepEl.value||'').replace(/\D/g,''); const msg=document.getElementById('cepMsg');
+  if(cep.length!==8){ if(msg) msg.textContent=''; return; }
+  if(msg) msg.textContent='buscando…';
+  try{
+    const r=await fetch('https://viacep.com.br/ws/'+cep+'/json/'); const d=await r.json();
+    if(d.erro){ if(msg){ msg.style.color='#c0392b'; msg.textContent='CEP não encontrado.'; } return; }
+    const setF=(k,v)=>{ const el=document.getElementById('pc_'+k); if(el && v) el.value=v; };
+    setF('endereco', d.logradouro); setF('bairro', d.bairro); setF('cidade', d.localidade); setF('uf', d.uf);
+    if(msg){ msg.style.color='var(--ok)'; msg.textContent='✓ endereço preenchido'; }
+  }catch(e){ if(msg){ msg.style.color='#c0392b'; msg.textContent='Não consegui buscar o CEP agora.'; } }
+}
+// preenche remetente/destinatário como BASE, com a cidade/UF de origem/destino
+function usarBase(qual){
+  const pref = qual==='coleta' ? 'coleta' : 'entrega';
+  const rota = (document.getElementById(qual==='coleta'?'pc_origem':'pc_destino')?.value)||'';
+  const setF=(suf,v)=>{ const el=document.getElementById('pc_'+pref+suf); if(el) el.value=v; };
+  setF('Endereco','BASE'); setF('Bairro','BASE'); setF('Cidade',up(cidadeDe(rota))); setF('Uf',up(ufDe(rota)));
+}
 function renderPedVeics(){
   const w=document.getElementById('pedVeicsWrap'); if(!w) return;
   w.innerHTML=pedVeics.map((v,i)=>`<div style="border:1px solid var(--linha);border-radius:8px;padding:8px;margin-bottom:6px">
@@ -1579,7 +1601,11 @@ function injetarFormPedido(id,f){
       ${campoCli(id,'RG / IE','rgIe',f.rgIe)}
       ${campoCli(id,'Telefone (WhatsApp)*','telefone',f.telefone)}
       ${campoCli(id,'E-mail','email',f.email)}
-      ${campoCli(id,'CEP','cep',f.cep)}
+      <div class="field"><label>CEP <span class="hint">(preenche o endereço)</span></label>
+        <div style="display:flex;gap:6px">
+          <input id="pc_cep" value="${escA(f.cep)}" placeholder="00000-000" inputmode="numeric" onblur="buscarCep()" style="flex:1">
+          <button type="button" class="btn-ghost" style="padding:6px 12px" onclick="buscarCep()">🔍</button>
+        </div><span class="hint" id="cepMsg"></span></div>
       ${campoCli(id,'Endereço','endereco',f.endereco)}
       ${campoCli(id,'Bairro','bairro',f.bairro)}
       ${campoCli(id,'Cidade','cidade',f.cidade)}
@@ -1587,7 +1613,8 @@ function injetarFormPedido(id,f){
     </div>
 
     <div class="sec-cli">📤 REMETENTE (coleta)</div>
-    <p class="hint" style="margin:0 0 6px">Deixe em branco se for o mesmo do faturamento.</p>
+    <p class="hint" style="margin:0 0 6px">Deixe em branco se for o mesmo do faturamento, ou use o botão abaixo se a coleta for na base.</p>
+    <button type="button" class="btn-ghost" style="margin-bottom:8px" onclick="usarBase('coleta')">📍 Coleta na BASE (cidade de origem)</button>
     <div class="grid g2">
       ${campoCli(id,'Nome / Contato','coletaNome',f.coletaNome)}
       ${campoCli(id,'CPF / CNPJ','coletaCpf',f.coletaCpf)}
@@ -1600,7 +1627,8 @@ function injetarFormPedido(id,f){
     </div>
 
     <div class="sec-cli">📥 DESTINATÁRIO (entrega)</div>
-    <p class="hint" style="margin:0 0 6px">Deixe em branco se for o mesmo do faturamento.</p>
+    <p class="hint" style="margin:0 0 6px">Deixe em branco se for o mesmo do faturamento, ou use o botão abaixo se a entrega for na base.</p>
+    <button type="button" class="btn-ghost" style="margin-bottom:8px" onclick="usarBase('entrega')">📍 Entrega na BASE (cidade de destino)</button>
     <div class="grid g2">
       ${campoCli(id,'Nome / Contato','entregaNome',f.entregaNome)}
       ${campoCli(id,'CPF / CNPJ','entregaCpf',f.entregaCpf)}
