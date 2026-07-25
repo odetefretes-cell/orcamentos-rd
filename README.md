@@ -29,11 +29,18 @@ e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
 ## Histórico de fretes
 
 - **💾 Salvar frete** — guarda o frete no histórico deste navegador (por nº e cliente).
+- **🔎 Buscar** — filtre a lista por **nº, cliente, placa, origem ou destino**.
 - **Fretes salvos** (lista) — escolha um frete salvo para **recarregar** todos os dados.
 - **＋ Novo frete** — começa um frete em branco.
 - **🗑️ Excluir** — remove do histórico o frete que está aberto.
 - O que você digita fica guardado como **rascunho automático**: se fechar sem salvar,
   ao reabrir o formulário continua preenchido.
+
+## Logo da empresa
+
+- **🖼️ Escolher logo** — envie a imagem do logo (PNG/JPG). Ele passa a aparecer no
+  cabeçalho da Autorização **e** do Contrato, e continua salvo para os próximos fretes.
+- **Remover logo** — volta ao cabeçalho só com o nome.
 
 ## Backup / passar para outro computador
 

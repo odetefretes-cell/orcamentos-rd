@@ -119,13 +119,26 @@
   <!-- ===================== HISTÓRICO ===================== -->
   <div class="toolbar no-print" style="top:64px">
     <label style="font-size:13px;font-weight:600;color:#4a5a6b">Fretes salvos:</label>
-    <select id="hist" onchange="carregarFrete(this.value)" style="min-width:280px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+    <input id="histBusca" oninput="atualizarHist()" placeholder="🔎 buscar nº, cliente ou placa…"
+           style="width:220px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+    <select id="hist" onchange="carregarFrete(this.value)" style="min-width:260px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
       <option value="">— novo frete —</option>
     </select>
     <button class="btn-ghost" onclick="novoFrete()">＋ Novo frete</button>
     <button class="btn-ghost" onclick="excluirFrete()">🗑️ Excluir</button>
     <span class="spacer"></span>
     <span class="status" id="hstatus"></span>
+  </div>
+
+  <!-- ===================== LOGO / CONFIG ===================== -->
+  <div class="toolbar no-print" style="top:118px">
+    <label style="font-size:13px;font-weight:600;color:#4a5a6b">Logo da empresa (aparece nos documentos):</label>
+    <button class="btn-ghost" onclick="document.getElementById('logoInput').click()">🖼️ Escolher logo</button>
+    <input id="logoInput" type="file" accept="image/*" style="display:none" onchange="carregarLogo(this)">
+    <button class="btn-ghost" onclick="removerLogo()">Remover logo</button>
+    <img id="logoPreview" alt="" style="height:34px;max-width:160px;object-fit:contain;display:none;border:1px solid var(--linha);border-radius:6px;padding:2px;background:#fff">
+    <span class="spacer"></span>
+    <span class="status" id="logoStatus"></span>
   </div>
 
   <!-- ===================== FORMULÁRIO ===================== -->
@@ -244,7 +257,10 @@
     <section class="page" id="doc-auth">
       <div class="doc-tag no-print">PÁGINA 1 · CONTROLE INTERNO</div>
       <div class="doc-head">
-        <div class="co">OBS TRANSPORTES<small>Odete Barbosa Santos Transportes · CNPJ 08.165.584/0001-67 · IE 635.532.351.110</small></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <img class="logo-doc" alt="" style="display:none">
+          <div class="co">OBS TRANSPORTES<small>Odete Barbosa Santos Transportes · CNPJ 08.165.584/0001-67 · IE 635.532.351.110</small></div>
+        </div>
         <div class="meta">Nº <b id="a_num">—</b><br>Atendente: <span id="a_atend">—</span><br>Data: <span id="a_data">—</span></div>
       </div>
       <div class="doc-title">AUTORIZAÇÃO DE TRANSPORTE</div>
@@ -288,6 +304,12 @@
     <!-- ---------- PÁGINA 3 · CONTRATO (cliente) ---------- -->
     <section class="page" id="doc-contrato">
       <div class="doc-tag no-print">PÁGINA 3 · CONTRATO PARA O CLIENTE</div>
+      <div class="doc-head">
+        <div style="display:flex;align-items:center;gap:10px">
+          <img class="logo-doc" alt="" style="display:none">
+          <div class="co">OBS TRANSPORTES<small>Odete Barbosa Santos Transportes · CNPJ 08.165.584/0001-67 · IE 635.532.351.110</small></div>
+        </div>
+      </div>
       <div class="doc-title" style="margin-top:0">CONTRATO DE TRANSPORTE DE VEÍCULOS</div>
 
       <table class="box">
@@ -464,13 +486,19 @@ function salvar(){
 }
 function atualizarHist(){
   const db=lerDB(); const sel=$('#hist');
-  const itens=Object.values(db).sort((a,b)=>(b._salvoEm||'').localeCompare(a._salvoEm||''));
+  const q=($('#histBusca')?.value||'').trim().toLowerCase();
+  let itens=Object.values(db).sort((a,b)=>(b._salvoEm||'').localeCompare(a._salvoEm||''));
+  const total=itens.length;
+  if(q) itens=itens.filter(f=>[f.numero,f.clienteEmpresa,f.placa,f.origem,f.destino]
+        .map(x=>(x||'').toString().toLowerCase()).join(' ').includes(q));
   sel.innerHTML='<option value="">— novo frete —</option>'+itens.map(f=>{
     const dt=f._salvoEm?new Date(f._salvoEm).toLocaleDateString('pt-BR'):'';
-    const rot=`Nº ${f.numero||'s/nº'} — ${(f.clienteEmpresa||'sem cliente')}${dt?(' — '+dt):''}`;
+    const rot=`Nº ${f.numero||'s/nº'} — ${(f.clienteEmpresa||'sem cliente')}${f.placa?(' · '+f.placa):''}${dt?(' — '+dt):''}`;
     return `<option value="${f._id}"${f._id===idAtual?' selected':''}>${rot.replace(/</g,'&lt;')}</option>`;
   }).join('');
-  $('#hstatus').textContent = itens.length ? (itens.length+' frete(s) salvo(s)') : 'nenhum frete salvo ainda';
+  $('#hstatus').textContent = total
+    ? (q ? `${itens.length} de ${total} frete(s)` : `${total} frete(s) salvo(s)`)
+    : 'nenhum frete salvo ainda';
 }
 function carregarFrete(id){
   if(!id){ novoFrete(); return; }
@@ -509,6 +537,27 @@ function importarJSON(inp){
 }
 let t; function flash(m){ const s=$('#status'); s.textContent=m; clearTimeout(t); t=setTimeout(()=>s.textContent='',3000); }
 
+// ---- logo da empresa (fixo, aparece em todos os documentos) ----
+const LOGO='obs_logo';
+function carregarLogo(inp){
+  const f=inp.files[0]; if(!f) return;
+  if(f.size > 1.5*1024*1024){ alert('Imagem muito grande (máx. ~1,5 MB). Use uma menor.'); inp.value=''; return; }
+  const r=new FileReader();
+  r.onload=e=>{ localStorage.setItem(LOGO, e.target.result); aplicarLogo(); flash('Logo atualizado ✔'); };
+  r.readAsDataURL(f); inp.value='';
+}
+function removerLogo(){ localStorage.removeItem(LOGO); aplicarLogo(); flash('Logo removido'); }
+function aplicarLogo(){
+  const src=localStorage.getItem(LOGO);
+  const prev=$('#logoPreview');
+  document.querySelectorAll('.logo-doc').forEach(img=>{
+    if(src){ img.src=src; img.style.display='block'; img.style.height='42px'; img.style.maxWidth='150px'; img.style.objectFit='contain'; }
+    else { img.removeAttribute('src'); img.style.display='none'; }
+  });
+  if(src){ prev.src=src; prev.style.display='block'; } else { prev.removeAttribute('src'); prev.style.display='none'; }
+  $('#logoStatus').textContent = src ? 'logo definido' : 'sem logo';
+}
+
 // rascunho automático: guarda o que está sendo digitado (não perde ao recarregar)
 form.addEventListener('input', ()=>{ if(!idAtual) localStorage.setItem(DRAFT, JSON.stringify(dados())); });
 
@@ -517,6 +566,7 @@ form.addEventListener('input', ()=>{ if(!idAtual) localStorage.setItem(DRAFT, JS
   const raw=localStorage.getItem(DRAFT);
   if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
   atualizarHist();
+  aplicarLogo();
   render();
 })();
 </script>
