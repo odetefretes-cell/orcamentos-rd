@@ -38,6 +38,23 @@ e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
 - O que você digita fica guardado como **rascunho automático**: se fechar sem salvar,
   ao reabrir o formulário continua preenchido.
 
+## Relatório · Área das operadoras
+
+Aba **📋 Relatório · Operadoras** (no topo). Cada operadora acompanha os fretes
+sob sua responsabilidade até a conclusão — como no relatório em planilha:
+
+- **Filtro por operadora** (NATALY, YASMIN…) e por **status** (Andamento, Concluído, Cancelado).
+- **Busca** por nº, cliente, placa, origem ou destino.
+- **Resumo** no topo: total de fretes, em andamento, concluídos, cancelados e **total em aberto**.
+- Cada frete é um **card colorido pelo status**, onde a operadora edita direto
+  (salva sozinho): **Status**, **Nº averbação**, **Atualização** (andamento do transporte),
+  **Pago 1 / Pago 2**. O sistema calcula **Em aberto** (frete − pago) e
+  **Saldo do frete** (pago − prestadores).
+- Botão **Abrir ficha** leva o frete de volta para gerar/reimprimir os documentos.
+
+Os fretes que aparecem aqui são os que você **salvou** na aba *Nova Ficha* (o campo
+*Atendente* define a operadora responsável).
+
 ## Prestadores (ficha interna)
 
 Na seção **8 · Prestadores** você lança até 4 motoristas/transportadoras
