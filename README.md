@@ -1,2 +1,49 @@
-# orcamentos-rd
-crm
+# orçamentos-rd · OBS Transportes
+
+Ferramenta interna para **preencher automaticamente** a **Autorização de Transporte**
+(controle interno) e o **Contrato de Transporte de Veículos** (envio ao cliente),
+a partir das informações coletadas no WhatsApp (ChatGuru).
+
+Substitui o preenchimento manual da planilha `CADASTRO DE FRETES`: você digita uma vez,
+e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
+
+## Como usar
+
+1. Abra o arquivo **`index.html`** no navegador (Chrome, Edge, etc.) — é só dar dois cliques,
+   não precisa instalar nada e funciona sem internet.
+2. Preencha o formulário com o que o cliente enviou pelo WhatsApp:
+   - **Dados do frete** (nº, atendente, data, responsável)
+   - **Veículo** (marca/modelo, placa, chassi, ano, cor, valor)
+   - **Trajeto e frete** (origem, destino, valor, forma de pagamento, prazo)
+   - **Contratante** (nome, CPF/CNPJ, telefone, endereço…)
+   - **Coleta** e **Entrega** — só quando o cliente acionar (se ficar em branco,
+     repete os dados do contratante — base × base)
+   - **Checklist de documentos** recebidos (doc do veículo, CNH/RG, comprovante…)
+3. As duas páginas são montadas **em tempo real** logo abaixo do formulário.
+4. Clique em:
+   - **🖨️ Imprimir / PDF (os 2)** — gera a Autorização + o Contrato
+   - **Só Autorização (pág. 1)** — apenas o controle interno
+   - **Só Contrato (pág. 3)** — apenas o documento do cliente
+   - No diálogo de impressão, escolha **"Salvar como PDF"** para enviar ao cliente.
+
+## Salvar e reaproveitar
+
+- **💾 Salvar** — guarda o frete atual neste navegador (continua lá se fechar e abrir de novo).
+- **Exportar** — baixa um arquivo `frete-XXXX.json` com todos os dados (para backup ou
+  passar para outro computador).
+- **Importar** — carrega um `.json` exportado antes.
+- **Limpar** — zera o formulário para começar um novo frete.
+
+## O que já vem preenchido (empresa contratada)
+
+- **ODETE BARBOSA SANTOS TRANSPORTES (OBS TRANSPORTES)**
+- CNPJ: 08.165.584/0001-67 · IE: 635.532.351.110
+- Av. Padre Anchieta, 176 — Jordanópolis — São Bernardo do Campo / SP
+- Fones: (11) 4352-4103 · (11) 4352-1524
+
+## Observações
+
+- Os dados ficam **somente no seu navegador** (nada é enviado para a internet).
+- O contrato separa **marca** e **modelo** automaticamente quando você usa a barra `/`
+  no campo *Marca / Modelo* (ex.: `HONDA/NXR150 BROS`).
+- Valores aceitam `2339.80` ou `2.339,80`; ambos viram `R$ 2.339,80`.

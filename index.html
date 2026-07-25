@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OBS Transportes · Autorização de Transporte + Contrato</title>
+<style>
+  :root{
+    --azul:#12395c; --azul2:#1d5c91; --amarelo:#ffd23f; --amarelo-bg:#fff7d6;
+    --linha:#c8d0da; --cinza:#f4f6f9; --texto:#1a2330; --ok:#1c8a4d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;color:var(--texto);background:#eef1f5}
+  h1,h2,h3{margin:0}
+  a{color:var(--azul2)}
+
+  /* ---------- App shell ---------- */
+  .topbar{background:var(--azul);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .topbar .logo{font-weight:bold;font-size:20px;letter-spacing:.5px}
+  .topbar .sub{opacity:.85;font-size:13px}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px}
+
+  .toolbar{position:sticky;top:0;z-index:20;background:#fff;border:1px solid var(--linha);border-radius:10px;
+           padding:12px;margin-bottom:18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+           box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  button{font-family:inherit;font-size:14px;border:none;border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600}
+  .btn-primary{background:var(--azul);color:#fff}
+  .btn-primary:hover{background:var(--azul2)}
+  .btn-ghost{background:var(--cinza);color:var(--texto);border:1px solid var(--linha)}
+  .btn-ghost:hover{background:#e8edf3}
+  .btn-ok{background:var(--ok);color:#fff}
+  .toolbar .spacer{flex:1}
+  .status{font-size:12px;color:#5a6b7d}
+
+  /* ---------- Form ---------- */
+  .card{background:#fff;border:1px solid var(--linha);border-radius:10px;margin-bottom:16px;overflow:hidden}
+  .card > h2{background:var(--cinza);border-bottom:1px solid var(--linha);padding:11px 16px;font-size:15px;color:var(--azul)}
+  .card .body{padding:14px 16px}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field.col2{grid-column:span 2}
+  .field label{font-size:12px;font-weight:600;color:#4a5a6b}
+  .field input,.field select,.field textarea{font-family:inherit;font-size:14px;padding:8px 9px;border:1px solid var(--linha);
+           border-radius:7px;background:#fff;color:var(--texto)}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--amarelo);border-color:var(--amarelo)}
+  .field textarea{resize:vertical;min-height:46px}
+  .hint{font-size:11px;color:#8592a1}
+  .checks{display:flex;flex-direction:column;gap:9px}
+  .checks label{display:flex;gap:9px;align-items:flex-start;font-size:14px;cursor:pointer;
+           background:var(--amarelo-bg);border:1px solid #f0e2a0;border-radius:8px;padding:9px 11px}
+  .checks input{margin-top:2px;width:17px;height:17px;accent-color:var(--ok)}
+  @media(max-width:820px){.g2,.g3,.g4{grid-template-columns:1fr}.field.col2{grid-column:auto}}
+
+  /* ---------- Documentos (impressão) ---------- */
+  .docs{display:flex;flex-direction:column;align-items:center;gap:26px}
+  .page{background:#fff;width:210mm;min-height:296mm;padding:12mm 12mm;border:1px solid var(--linha);
+        box-shadow:0 3px 14px rgba(0,0,0,.12);font-size:11px;color:#111}
+  .page .doc-tag{position:absolute;margin-top:-8mm;font-size:10px;color:#8592a1;font-weight:bold;letter-spacing:1px}
+  .doc-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid var(--azul);padding-bottom:6px;margin-bottom:8px}
+  .doc-head .co{font-size:16px;font-weight:bold;color:var(--azul)}
+  .doc-head .co small{display:block;font-weight:normal;color:#444;font-size:10px}
+  .doc-head .meta{text-align:right;font-size:11px}
+  .doc-head .meta b{font-size:15px}
+  .doc-title{background:var(--azul);color:#fff;text-align:center;font-weight:bold;font-size:13px;padding:5px;letter-spacing:1px;margin:6px 0}
+
+  table.box{width:100%;border-collapse:collapse;margin-bottom:7px}
+  table.box td{border:1px solid #333;padding:3px 5px;vertical-align:top}
+  table.box td.lbl{background:#eef2f6;font-weight:bold;white-space:nowrap;width:1%}
+  .sec{background:#dbe4ec;font-weight:bold;text-align:center;padding:3px;border:1px solid #333;margin:0}
+  .val{min-height:13px}
+  .note{font-size:10px;color:#333;margin:6px 0;line-height:1.35}
+  .sign{display:flex;justify-content:space-around;gap:30px;margin-top:26px;text-align:center;font-size:11px}
+  .sign .line{border-top:1px solid #333;padding-top:4px;width:46%}
+  .docck{display:flex;gap:16px;flex-wrap:wrap;font-size:11px}
+  .docck span{display:inline-flex;gap:5px;align-items:center}
+  .ck{display:inline-block;width:12px;height:12px;border:1px solid #333;text-align:center;line-height:11px;font-weight:bold}
+
+  /* Print */
+  @media print{
+    body{background:#fff}
+    .no-print{display:none !important}
+    .wrap{max-width:none;padding:0;margin:0}
+    .docs{gap:0}
+    .page{width:auto;min-height:auto;box-shadow:none;border:none;margin:0;padding:8mm 9mm;page-break-after:always}
+    .page:last-child{page-break-after:auto}
+    body.only-auth #doc-contrato{display:none}
+    body.only-auth #doc-auth{page-break-after:auto}
+    body.only-contrato #doc-auth{display:none}
+    body.only-contrato #doc-contrato{page-break-after:auto}
+    @page{size:A4 portrait;margin:8mm}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar no-print">
+  <span class="logo">OBS TRANSPORTES</span>
+  <span class="sub">Autorização de Transporte + Contrato · preenchimento automático</span>
+</div>
+
+<div class="wrap">
+
+  <!-- ===================== TOOLBAR ===================== -->
+  <div class="toolbar no-print">
+    <button class="btn-primary" onclick="imprimir('both')">🖨️ Imprimir / PDF (os 2)</button>
+    <button class="btn-ghost" onclick="imprimir('auth')">Só Autorização (pág. 1)</button>
+    <button class="btn-ghost" onclick="imprimir('contrato')">Só Contrato (pág. 3)</button>
+    <span class="spacer"></span>
+    <button class="btn-ok" onclick="salvar()">💾 Salvar</button>
+    <button class="btn-ghost" onclick="exportarJSON()">Exportar</button>
+    <button class="btn-ghost" onclick="document.getElementById('imp').click()">Importar</button>
+    <input id="imp" type="file" accept="application/json" style="display:none" onchange="importarJSON(this)">
+    <button class="btn-ghost" onclick="limpar()">Limpar</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <!-- ===================== FORMULÁRIO ===================== -->
+  <form id="form" class="no-print" oninput="render()">
+
+    <div class="card">
+      <h2>1 · Dados do frete</h2>
+      <div class="body grid g4">
+        <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="Ex.: 1531"></div>
+        <div class="field"><label>Atendente</label><input name="atendente" placeholder="Ex.: YASMIM"></div>
+        <div class="field"><label>Data do fechamento</label><input type="date" name="dataFechamento"></div>
+        <div class="field"><label>Resp. pelo frete</label><input name="respFrete" placeholder="Ex.: BRUNO CESAR"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 · Veículo</h2>
+      <div class="body grid g3">
+        <div class="field col2"><label>Marca / Modelo</label><input name="veiculo" placeholder="Ex.: HONDA/NXR150 BROS"><span class="hint">Use a barra "/" entre marca e modelo (o contrato separa automaticamente).</span></div>
+        <div class="field"><label>Placa</label><input name="placa" placeholder="Ex.: FID1G22"></div>
+        <div class="field"><label>Chassi</label><input name="chassi" placeholder="Ex.: 9C2KD0540DR136550"></div>
+        <div class="field"><label>Ano FAB/MOD</label><input name="anoFabMod" placeholder="Ex.: 2013/2013"></div>
+        <div class="field"><label>Cor</label><input name="cor" placeholder="Ex.: PRETA"></div>
+        <div class="field"><label>Valor do veículo (R$)</label><input name="valorVeiculo" inputmode="decimal" placeholder="Ex.: 12400"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3 · Trajeto e frete</h2>
+      <div class="body grid g3">
+        <div class="field"><label>Origem (Cidade UF)</label><input name="origem" placeholder="Ex.: BAURU SP"></div>
+        <div class="field"><label>Destino (Cidade UF)</label><input name="destino" placeholder="Ex.: NATAL RN"></div>
+        <div class="field"><label>Valor total do frete (R$)</label><input name="valorFrete" inputmode="decimal" placeholder="Ex.: 2339.80"></div>
+        <div class="field"><label>Forma de pagamento</label>
+          <select name="formaPgto">
+            <option value="">—</option>
+            <option>TRANSFERENCIA</option><option>PIX</option><option>Boleto (Empresa)</option>
+            <option>Dinheiro</option><option>Depósito</option><option>Cartão</option>
+          </select>
+        </div>
+        <div class="field"><label>Frete pago?</label>
+          <select name="fretePago"><option>NÃO</option><option>SIM</option></select>
+        </div>
+        <div class="field"><label>Previsão de entrega</label><input name="previsaoEntrega" placeholder="Ex.: 10 A 15 DIAS APÓS EMBARQUE"></div>
+        <div class="field"><label>Equipamento</label><input name="equipamentos" placeholder="CEGONHA - CARRETA" value="CEGONHA - CARRETA"></div>
+        <div class="field col2"><label>Observações do frete (prazo, condições)</label><textarea name="observacoes" placeholder="Ex.: 10 A 15 DIAS APÓS EMBARQUE / FRETE BASE X BASE"></textarea></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4 · Contratante (dados para faturamento)</h2>
+      <div class="body grid g4">
+        <div class="field col2"><label>Nome / Cliente / Empresa</label><input name="clienteEmpresa" placeholder="Ex.: BRUNO CESAR GOUVEIA GOMES"></div>
+        <div class="field"><label>CPF / CNPJ</label><input name="cpfCnpj" placeholder="Ex.: 401.840.078-01"></div>
+        <div class="field"><label>RG / IE</label><input name="rgIe"></div>
+        <div class="field"><label>Telefone</label><input name="telefone" placeholder="Ex.: (14) 99163-6750"></div>
+        <div class="field"><label>E-mail</label><input name="email"></div>
+        <div class="field"><label>CEP</label><input name="cep"></div>
+        <div class="field"><label>Bairro</label><input name="bairro"></div>
+        <div class="field col2"><label>Endereço</label><input name="endereco" placeholder="Rua, número, complemento"></div>
+        <div class="field"><label>Cidade</label><input name="cidade"></div>
+        <div class="field"><label>UF</label><input name="uf" maxlength="2" placeholder="SP"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>5 · Coleta (opcional — só se o cliente acionar)</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Deixe em branco para repetir os dados do contratante (base × base).</p>
+        <div class="grid g4">
+          <div class="field col2"><label>Nome / Contato</label><input name="coletaNome"></div>
+          <div class="field"><label>CPF / CNPJ</label><input name="coletaCpf"></div>
+          <div class="field"><label>Telefone</label><input name="coletaTel"></div>
+          <div class="field"><label>CEP</label><input name="coletaCep"></div>
+          <div class="field"><label>Bairro</label><input name="coletaBairro"></div>
+          <div class="field col2"><label>Endereço</label><input name="coletaEndereco"></div>
+          <div class="field"><label>Cidade</label><input name="coletaCidade"></div>
+          <div class="field"><label>UF</label><input name="coletaUf" maxlength="2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>6 · Entrega (opcional — só se o cliente acionar)</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Deixe em branco para repetir os dados do contratante (base × base).</p>
+        <div class="grid g4">
+          <div class="field col2"><label>Nome / Contato</label><input name="entregaNome"></div>
+          <div class="field"><label>CPF / CNPJ</label><input name="entregaCpf"></div>
+          <div class="field"><label>Telefone</label><input name="entregaTel"></div>
+          <div class="field"><label>CEP</label><input name="entregaCep"></div>
+          <div class="field"><label>Bairro</label><input name="entregaBairro"></div>
+          <div class="field col2"><label>Endereço</label><input name="entregaEndereco"></div>
+          <div class="field"><label>Cidade</label><input name="entregaCidade"></div>
+          <div class="field"><label>UF</label><input name="entregaUf" maxlength="2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>7 · Documentos recebidos via WhatsApp (ChatGuru)</h2>
+      <div class="body checks">
+        <label><input type="checkbox" name="docVeiculo"> Foto do documento do veículo (CRLV)</label>
+        <label><input type="checkbox" name="docCnhRg"> Foto da CNH ou RG (Contratante)</label>
+        <label><input type="checkbox" name="docComprovante"> Foto do comprovante de residência</label>
+        <label><input type="checkbox" name="docColeta"> (Opcional) Endereço e contato de coleta</label>
+        <label><input type="checkbox" name="docEntrega"> (Opcional) Endereço e contato de entrega</label>
+      </div>
+    </div>
+  </form>
+
+  <!-- ===================== DOCUMENTOS ===================== -->
+  <div class="docs">
+
+    <!-- ---------- PÁGINA 1 · AUTORIZAÇÃO (controle interno) ---------- -->
+    <section class="page" id="doc-auth">
+      <div class="doc-tag no-print">PÁGINA 1 · CONTROLE INTERNO</div>
+      <div class="doc-head">
+        <div class="co">OBS TRANSPORTES<small>Odete Barbosa Santos Transportes · CNPJ 08.165.584/0001-67 · IE 635.532.351.110</small></div>
+        <div class="meta">Nº <b id="a_num">—</b><br>Atendente: <span id="a_atend">—</span><br>Data: <span id="a_data">—</span></div>
+      </div>
+      <div class="doc-title">AUTORIZAÇÃO DE TRANSPORTE</div>
+
+      <table class="box">
+        <tr><td class="lbl">Veículo</td><td id="a_veic" class="val"></td><td class="lbl">Placa</td><td id="a_placa" class="val"></td><td class="lbl">Chassi</td><td id="a_chassi" class="val"></td></tr>
+        <tr><td class="lbl">Valor do veículo</td><td id="a_valorv" class="val"></td><td class="lbl">Ano FAB/MOD</td><td id="a_ano" class="val"></td><td class="lbl">Cor</td><td id="a_cor" class="val"></td></tr>
+        <tr><td class="lbl">Origem</td><td id="a_orig" class="val"></td><td class="lbl">Frete fechado dia</td><td id="a_dataf" class="val"></td><td class="lbl">Resp. frete</td><td id="a_resp" class="val"></td></tr>
+        <tr><td class="lbl">Destino</td><td id="a_dest" class="val"></td><td class="lbl">Total do frete</td><td id="a_valorf" class="val"></td><td class="lbl">Forma pgto</td><td id="a_forma" class="val"></td></tr>
+        <tr><td class="lbl">Observações</td><td id="a_obs" class="val" colspan="5"></td></tr>
+      </table>
+
+      <div class="sec">DADOS PARA FATURAMENTO</div>
+      <table class="box">
+        <tr><td class="lbl">Cliente / Empresa</td><td id="a_cli" class="val" colspan="3"></td><td class="lbl">CPF/CNPJ</td><td id="a_cpf" class="val"></td></tr>
+        <tr><td class="lbl">Telefone</td><td id="a_tel" class="val"></td><td class="lbl">RG/IE</td><td id="a_rg" class="val"></td><td class="lbl">E-mail</td><td id="a_email" class="val"></td></tr>
+        <tr><td class="lbl">Endereço</td><td id="a_end" class="val" colspan="3"></td><td class="lbl">Bairro</td><td id="a_bairro" class="val"></td></tr>
+        <tr><td class="lbl">Cidade</td><td id="a_cid" class="val"></td><td class="lbl">UF</td><td id="a_uf" class="val"></td><td class="lbl">CEP</td><td id="a_cep" class="val"></td></tr>
+      </table>
+
+      <table class="box" style="margin-bottom:0">
+        <tr><td class="sec" style="border:1px solid #333">REMETENTE (COLETA)</td><td class="sec" style="border:1px solid #333">DESTINATÁRIO (ENTREGA)</td></tr>
+        <tr>
+          <td style="border:1px solid #333;padding:0"><div id="a_reme"></div></td>
+          <td style="border:1px solid #333;padding:0"><div id="a_dest2"></div></td>
+        </tr>
+      </table>
+
+      <div class="sec" style="margin-top:7px">CHECKLIST DE DOCUMENTOS (WhatsApp / ChatGuru)</div>
+      <table class="box"><tr><td style="border:1px solid #333"><div class="docck" id="a_docs"></div></td></tr></table>
+
+      <div class="note"><b>Observação:</b> A Empresa não se responsabiliza por qualquer objeto deixado no interior do veículo.
+      Uma vez que o transporte é contratado, destina-se exclusivamente ao veículo.</div>
+
+      <div class="sign">
+        <div class="line">Data: ____/____/______<br>Responsável pelo transporte</div>
+        <div class="line">Nome / CPF do responsável pelo transporte</div>
+      </div>
+    </section>
+
+    <!-- ---------- PÁGINA 3 · CONTRATO (cliente) ---------- -->
+    <section class="page" id="doc-contrato">
+      <div class="doc-tag no-print">PÁGINA 3 · CONTRATO PARA O CLIENTE</div>
+      <div class="doc-title" style="margin-top:0">CONTRATO DE TRANSPORTE DE VEÍCULOS</div>
+
+      <table class="box">
+        <tr><td class="lbl">Origem</td><td id="c_orig" class="val"></td><td class="lbl">Responsáveis pela contratação</td><td id="c_resp" class="val"></td></tr>
+        <tr><td class="lbl">Destino</td><td id="c_dest" class="val"></td><td class="lbl">Data da contratação</td><td id="c_data" class="val"></td></tr>
+      </table>
+
+      <div class="sec">CONTRATANTE</div>
+      <table class="box">
+        <tr><td class="lbl">Contratante</td><td id="c_cli" class="val" colspan="3"></td><td class="lbl">CNPJ/CPF</td><td id="c_cpf" class="val"></td></tr>
+        <tr><td class="lbl">Endereço</td><td id="c_end" class="val" colspan="3"></td><td class="lbl">Bairro</td><td id="c_bairro" class="val"></td></tr>
+        <tr><td class="lbl">Cidade / UF</td><td id="c_cid" class="val"></td><td class="lbl">Fones</td><td id="c_fone" class="val" colspan="3"></td></tr>
+      </table>
+
+      <div class="sec">CONTRATADO</div>
+      <table class="box">
+        <tr><td class="lbl">Contratado</td><td class="val">ODETE BARBOSA SANTOS TRANSPORTES (OBS TRANSPORTES)</td><td class="lbl">CNPJ</td><td class="val">08.165.584/0001-67</td></tr>
+        <tr><td class="lbl">Endereço</td><td class="val">AVENIDA PADRE ANCHIETA, 176</td><td class="lbl">Bairro</td><td class="val">JORDANÓPOLIS</td></tr>
+        <tr><td class="lbl">Cidade / UF</td><td class="val">SÃO BERNARDO DO CAMPO / SP</td><td class="lbl">Fones</td><td class="val">(11) 4352-4103 · (11) 4352-1524</td></tr>
+      </table>
+
+      <div class="sec">DADOS DO VEÍCULO</div>
+      <table class="box">
+        <tr><td class="lbl">Marca</td><td class="lbl">Modelo</td><td class="lbl">Ano/Mod</td><td class="lbl">Cor</td><td class="lbl">Placa</td><td class="lbl">Chassi</td></tr>
+        <tr><td id="c_marca" class="val"></td><td id="c_modelo" class="val"></td><td id="c_ano" class="val"></td><td id="c_cor" class="val"></td><td id="c_placa" class="val"></td><td id="c_chassi" class="val"></td></tr>
+      </table>
+
+      <table class="box">
+        <tr><td class="lbl">Data embarque</td><td id="c_embarque" class="val">À DEFINIR</td><td class="lbl">Previsão de entrega</td><td id="c_prev" class="val"></td></tr>
+        <tr><td class="lbl">Valor do frete</td><td id="c_valorf" class="val"></td><td class="lbl">Forma de pgto</td><td id="c_forma" class="val"></td></tr>
+        <tr><td class="lbl">Frete pago</td><td id="c_pago" class="val"></td><td class="lbl">Equipamento</td><td id="c_equip" class="val"></td></tr>
+        <tr><td class="lbl">Local de carregamento</td><td id="c_carreg" class="val"></td><td class="lbl">Local de descarregamento</td><td id="c_descar" class="val"></td></tr>
+        <tr><td class="lbl">Observações</td><td id="c_obs" class="val" colspan="3"></td></tr>
+      </table>
+      <div class="note" style="text-align:center">(Data de embarque sujeita a alteração e a imprevistos nas estradas.)</div>
+
+      <div class="note"><b>*LIGAR COM ANTECEDÊNCIA PARA O CLIENTE, POIS O MESMO PRECISA SE PROGRAMAR PARA RECEBER E/OU ENTREGAR O VEÍCULO.*</b></div>
+
+      <p style="text-align:right;margin:14px 0 0">SÃO BERNARDO DO CAMPO, <span id="c_hoje"></span></p>
+
+      <div class="sign">
+        <div class="line">ODETE BARBOSA SANTOS · OBS TRANSPORTES<br>
+          <small>Razão Social: Odete Barbosa Santos Transportes<br>CNPJ: 08.165.584/0001-67 · IE: 635.532.351.110</small></div>
+        <div class="line">CONTRATANTE<br>Nome: <span id="c_assnome"></span><br>CPF/CNPJ: <span id="c_asscpf"></span></div>
+      </div>
+    </section>
+  </div>
+
+  <p class="no-print status" style="text-align:center;margin:22px 0">
+    OBS Transportes · ferramenta interna de preenchimento. Os dados ficam apenas neste navegador.
+  </p>
+</div>
+
+<script>
+const $  = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const form = $('#form');
+
+// ---- helpers ----
+const up = v => (v||'').toString().toUpperCase();
+function moeda(v){
+  if(v===''||v==null) return '';
+  let s = String(v).trim().replace(/[R$\s]/g,'');
+  if(s.includes(',')){            // formato BR: "2.339,80" -> ponto é milhar, vírgula é decimal
+    s = s.replace(/\./g,'').replace(',','.');
+  }                               // sem vírgula: "2339.80" ou "2339" -> ponto já é decimal
+  const n = parseFloat(s.replace(/[^\d.-]/g,''));
+  if(isNaN(n)) return up(v);
+  return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+function dataBR(v){
+  if(!v) return '';
+  const p = v.split('-');
+  return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : v;
+}
+function hojeBR(){
+  const d=new Date();
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+}
+function dados(){
+  const d={};
+  new FormData(form).forEach((v,k)=>d[k]=v);
+  $$('#form input[type=checkbox]').forEach(c=>d[c.name]=c.checked);
+  return d;
+}
+function set(id,v){ const el=document.getElementById(id); if(el) el.textContent = v||''; }
+
+// bloco remetente/destinatário da autorização
+function blocoPessoa(nome,cpf,tel,end,bairro,cid,uf,cep){
+  const row=(l,v)=>`<tr><td style="border:1px solid #333;background:#eef2f6;font-weight:bold;padding:2px 5px;white-space:nowrap">${l}</td><td style="border:1px solid #333;padding:2px 5px">${v||''}</td></tr>`;
+  return `<table style="width:100%;border-collapse:collapse">
+    ${row('Nome',nome)}${row('CPF/CNPJ',cpf)}${row('Telefone',tel)}
+    ${row('Endereço',end)}${row('Bairro',bairro)}${row('Cidade / UF',(cid?cid:'')+(uf?(' / '+uf):''))}${row('CEP',cep)}
+  </table>`;
+}
+
+function render(){
+  const d = dados();
+
+  // coleta/entrega herdam do contratante quando vazias (base × base)
+  const cN=d.coletaNome||d.clienteEmpresa, cC=d.coletaCpf||d.cpfCnpj, cT=d.coletaTel||d.telefone,
+        cE=d.coletaEndereco||'BASE', cB=d.coletaBairro||'BASE', cCi=d.coletaCidade||d.cidade,
+        cU=d.coletaUf||d.uf, cCe=d.coletaCep||d.cep;
+  const eN=d.entregaNome||d.clienteEmpresa, eC=d.entregaCpf||d.cpfCnpj, eT=d.entregaTel||d.telefone,
+        eE=d.entregaEndereco||'BASE', eB=d.entregaBairro||'BASE', eCi=d.entregaCidade||d.cidade,
+        eU=d.entregaUf||d.uf, eCe=d.entregaCep||d.cep;
+
+  // ---- Página 1 · Autorização ----
+  set('a_num', d.numero); set('a_atend', up(d.atendente)); set('a_data', dataBR(d.dataFechamento));
+  set('a_veic', up(d.veiculo)); set('a_placa', up(d.placa)); set('a_chassi', up(d.chassi));
+  set('a_valorv', moeda(d.valorVeiculo)); set('a_ano', d.anoFabMod); set('a_cor', up(d.cor));
+  set('a_orig', up(d.origem)); set('a_dataf', dataBR(d.dataFechamento)); set('a_resp', up(d.respFrete));
+  set('a_dest', up(d.destino)); set('a_valorf', moeda(d.valorFrete)); set('a_forma', up(d.formaPgto));
+  set('a_obs', up(d.observacoes));
+  set('a_cli', up(d.clienteEmpresa)); set('a_cpf', d.cpfCnpj); set('a_tel', d.telefone);
+  set('a_rg', d.rgIe); set('a_email', d.email); set('a_end', up(d.endereco)); set('a_bairro', up(d.bairro));
+  set('a_cid', up(d.cidade)); set('a_uf', up(d.uf)); set('a_cep', d.cep);
+  $('#a_reme').innerHTML = blocoPessoa(up(cN),cC,cT,up(cE),up(cB),up(cCi),up(cU),cCe);
+  $('#a_dest2').innerHTML = blocoPessoa(up(eN),eC,eT,up(eE),up(eB),up(eCi),up(eU),eCe);
+
+  const ck = (on,txt)=>`<span><span class="ck">${on?'X':'&nbsp;'}</span>${txt}</span>`;
+  $('#a_docs').innerHTML =
+    ck(d.docVeiculo,'Doc. do veículo (CRLV)') + ck(d.docCnhRg,'CNH ou RG') +
+    ck(d.docComprovante,'Comprovante de residência') + ck(d.docColeta,'Coleta') + ck(d.docEntrega,'Entrega');
+
+  // ---- Página 3 · Contrato ----
+  const marca = (d.veiculo||'').includes('/') ? d.veiculo.split('/')[0] : d.veiculo;
+  const modelo = (d.veiculo||'').includes('/') ? d.veiculo.split('/').slice(1).join('/') : '';
+  set('c_orig', up(d.origem)); set('c_resp', up(d.clienteEmpresa));
+  set('c_dest', up(d.destino)); set('c_data', dataBR(d.dataFechamento));
+  set('c_cli', up(d.clienteEmpresa)); set('c_cpf', d.cpfCnpj);
+  set('c_end', up(d.endereco)); set('c_bairro', up(d.bairro));
+  set('c_cid', up(d.cidade)+(d.uf?(' / '+up(d.uf)):'')); set('c_fone', d.telefone);
+  set('c_marca', up(marca)); set('c_modelo', up(modelo)); set('c_ano', d.anoFabMod);
+  set('c_cor', up(d.cor)); set('c_placa', up(d.placa)); set('c_chassi', up(d.chassi));
+  set('c_prev', up(d.previsaoEntrega||d.observacoes)); set('c_valorf', moeda(d.valorFrete));
+  set('c_forma', up(d.formaPgto)||'TRANSFERENCIA'); set('c_pago', up(d.fretePago));
+  set('c_equip', up(d.equipamentos)); set('c_carreg', up(d.origem)); set('c_descar', up(d.destino));
+  set('c_obs', up(d.observacoes));
+  set('c_hoje', hojeBR());
+  set('c_assnome', up(d.clienteEmpresa)); set('c_asscpf', d.cpfCnpj);
+}
+
+// ---- impressão ----
+function imprimir(qual){
+  document.body.classList.remove('only-auth','only-contrato');
+  if(qual==='auth') document.body.classList.add('only-auth');
+  if(qual==='contrato') document.body.classList.add('only-contrato');
+  setTimeout(()=>window.print(),50);
+}
+window.onafterprint = ()=>document.body.classList.remove('only-auth','only-contrato');
+
+// ---- persistência ----
+const KEY='obs_frete_atual';
+function salvar(){ localStorage.setItem(KEY, JSON.stringify(dados())); flash('Salvo neste navegador ✔'); }
+function carregar(){
+  const raw=localStorage.getItem(KEY); if(!raw) return;
+  aplicar(JSON.parse(raw));
+}
+function aplicar(d){
+  Object.entries(d).forEach(([k,v])=>{
+    const el=form.elements[k]; if(!el) return;
+    if(el.type==='checkbox') el.checked=!!v; else el.value=v;
+  });
+  render();
+}
+function limpar(){ if(confirm('Limpar todos os campos?')){ form.reset(); render(); flash('Formulário limpo'); } }
+function exportarJSON(){
+  const d=dados(); const nome=(d.numero?('frete-'+d.numero):'frete')+'.json';
+  const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=nome; a.click();
+  flash('Exportado: '+nome);
+}
+function importarJSON(inp){
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=e=>{ try{ aplicar(JSON.parse(e.target.result)); flash('Importado ✔'); }catch(_){ alert('Arquivo inválido'); } };
+  r.readAsText(f); inp.value='';
+}
+let t; function flash(m){ const s=$('#status'); s.textContent=m; clearTimeout(t); t=setTimeout(()=>s.textContent='',3000); }
+
+carregar();
+render();
+</script>
+</body>
+</html>
