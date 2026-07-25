@@ -198,6 +198,7 @@
     <button class="btn-ghost" onclick="imprimir('contrato')">Só Contrato (pág. 3)</button>
     <span class="spacer"></span>
     <button class="btn-ok" onclick="salvar()">💾 Salvar frete</button>
+    <button class="btn-ghost" onclick="novoPedidoLink()">🔗 Cliente preencher (novo pedido)</button>
     <button class="btn-ghost" onclick="exportarJSON()">Exportar</button>
     <button class="btn-ghost" onclick="document.getElementById('imp').click()">Importar</button>
     <input id="imp" type="file" accept="application/json" style="display:none" onchange="importarJSON(this)">
@@ -888,6 +889,9 @@ function cloudSync(){
   LAST=JSON.parse(JSON.stringify(MEM));
 }
 async function initData(){
+  const hash=location.hash;
+  const liveId = hash.startsWith('#f=') ? decodeURIComponent(hash.slice(3)) : null;
+  const isSnap = hash.startsWith('#t=');
   if(CLOUD_ON){
     try{
       const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
@@ -895,14 +899,25 @@ async function initData(){
       const app=appMod.initializeApp(FIREBASE_CONFIG);
       const fs=fsMod.getFirestore(app);
       _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc};
-      setModo('☁ Compartilhado (tempo real)');
-      fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
-        MEM={}; snap.forEach(d=>MEM[d.id]=d.data()); LAST=JSON.parse(JSON.stringify(MEM));
-        atualizarHist(); atualizarProxNum();
-        const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
-        const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
-        if(clienteLiveId!=null && MEM[clienteLiveId]) renderClienteView(clienteData(MEM[clienteLiveId]));
-      }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); });
+      if(liveId){
+        // CLIENTE (link ao vivo): lê SÓ o próprio documento — não baixa os demais fretes
+        clienteLiveId=liveId;
+        fsMod.onSnapshot(fsMod.doc(fs,'fretes',liveId), snap=>{
+          if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); renderClienteLive(liveId); }
+          else renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
+        });
+      } else if(isSnap){
+        // acompanhamento por "foto" (#t=): dados vêm da URL; não precisa de leitura
+      } else {
+        // APP DA EQUIPE: sincroniza a coleção inteira
+        setModo('☁ Compartilhado (tempo real)');
+        fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
+          MEM={}; snap.forEach(d=>MEM[d.id]=d.data()); LAST=JSON.parse(JSON.stringify(MEM));
+          atualizarHist(); atualizarProxNum();
+          const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
+          const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
+        }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); });
+      }
     }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); setModo('⚠ Sem nuvem — modo local'); }
   } else {
     MEM=loadLocal(); setModo('Modo local (este computador)');
@@ -934,6 +949,7 @@ function salvar(){
   // — tudo que não vem do formulário fica intacto ao regravar a ficha
   Object.keys(prev).forEach(k=>{ if(d[k]===undefined) d[k]=prev[k]; });
   if(!d.status) d.status='ANDAMENTO';
+  d.cadastrado=true;   // equipe emitiu o cadastro -> encerra a edição do cliente (vira acompanhamento)
   d._id=id; d._salvoEm=new Date().toISOString();
   db[id]=d; gravarDB(db);
   idAtual=id;
@@ -1146,6 +1162,7 @@ function cardFrete(f){
       <div class="top">
         <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
         <div style="display:flex;gap:8px;align-items:center">
+          ${f.pedido?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO DO CLIENTE</span>':''}
           <span class="badge" style="background:#8a6d00">🕓 NA FILA</span>
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
         </div>
@@ -1169,6 +1186,7 @@ function cardFrete(f){
       <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>
+        ${(f.pedido&&!f.cadastrado)?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO</span>':''}
         <span class="badge s-${k}">${esc(st)}</span>
         ${atrasado(f)?`<span class="badge atraso">⚠ ${horasSemAtualizacao(f)}h sem atualização</span>`:''}
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="devolverFila('${id}')" title="Voltar para a fila">↩ Fila</button>
@@ -1416,11 +1434,16 @@ function gerarLinkCliente(id){
       : '⚠️ Para o cliente conseguir abrir, a página precisa estar publicada na internet (ex.: GitHub Pages). Localmente o link serve só para prévia.';
   }
   linkAtual=link;
-  waMsg=`Olá! 🚚 Aqui você acompanha em tempo real o transporte do seu veículo (Frete Nº ${f.numero||''}) com a OBS Transportes:\n${link}`;
+  const ehPedido = !f.cadastrado;
+  waMsg = ehPedido
+    ? `Olá! 🚚 Aqui é a OBS Transportes. Para darmos andamento ao seu frete, preencha os dados do seu transporte neste link (depois é o mesmo link para acompanhar):\n${link}`
+    : `Olá! 🚚 Acompanhe em tempo real o transporte do seu veículo (Frete Nº ${f.numero||''}) com a OBS Transportes:\n${link}`;
   let tel=(f.telefone||'').replace(/\D/g,'');
   if(tel && tel.length<=11) tel='55'+tel;   // acrescenta DDI do Brasil se faltar
   waPhone=tel;
-  $('#linkInfo').textContent = `Frete Nº ${f.numero||''} · ${up(f.clienteEmpresa||'')}. Envie o link ao cliente pelo WhatsApp — cada nova “atualização (envio ao cliente)” aparece nele automaticamente.`;
+  $('#linkInfo').textContent = ehPedido
+    ? `Envie este link ao cliente pelo WhatsApp para ele preencher o pedido. Depois de cadastrado, o MESMO link vira o acompanhamento do transporte.`
+    : `Frete Nº ${f.numero||''} · ${up(f.clienteEmpresa||'')}. Envie o link ao cliente — cada nova “atualização (envio ao cliente)” aparece nele automaticamente.`;
   $('#linkAviso').innerHTML = aviso;
   const inp=$('#linkInput'); inp.value=link;
   $('#linkModal').style.display='flex'; inp.select();
@@ -1477,15 +1500,82 @@ function renderClienteView(data){
   </div>`;
   window.scrollTo(0,0);
 }
+// página do cliente AO VIVO: acompanhamento + (se ainda não cadastrado) formulário do pedido
+let pedVeics=[{}];
+function renderClienteLive(id){
+  const f=MEM[id]; if(!f) return;
+  renderClienteView(clienteData(f));                 // monta o acompanhamento
+  if(!f.cadastrado) injetarFormPedido(id,f);         // pedido ainda aberto -> mostra formulário
+}
+function campoCli(id,label,campo,val,ph){ return `<div class="field"><label>${label}</label><input id="pc_${campo}" value="${escA(val)}" placeholder="${ph||''}"></div>`; }
+function renderPedVeics(){
+  const w=document.getElementById('pedVeicsWrap'); if(!w) return;
+  w.innerHTML=pedVeics.map((v,i)=>`<div style="border:1px solid var(--linha);border-radius:8px;padding:8px;margin-bottom:6px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><strong style="font-size:12px;color:var(--azul)">Veículo ${i+1}</strong>
+    <button type="button" class="btn-ghost" style="padding:2px 8px;font-size:12px" onclick="pedDelVeic(${i})" ${pedVeics.length<=1?'disabled':''}>remover</button></div>
+    <div class="grid g2">
+      <div class="field"><label>Marca / Modelo</label><input data-pvi="${i}" data-pvf="modelo" value="${escA(v.modelo)}" placeholder="Ex.: HONDA/CIVIC"></div>
+      <div class="field"><label>Placa</label><input data-pvi="${i}" data-pvf="placa" value="${escA(v.placa)}"></div>
+      <div class="field"><label>Ano</label><input data-pvi="${i}" data-pvf="ano" value="${escA(v.ano)}"></div>
+      <div class="field"><label>Cor</label><input data-pvi="${i}" data-pvf="cor" value="${escA(v.cor)}"></div>
+    </div></div>`).join('');
+  w.querySelectorAll('input[data-pvi]').forEach(inp=>inp.addEventListener('input',()=>{ pedVeics[+inp.dataset.pvi][inp.dataset.pvf]=inp.value; }));
+}
+function pedAddVeic(){ if(pedVeics.length<20){ pedVeics.push({}); renderPedVeics(); } }
+function pedDelVeic(i){ pedVeics.splice(i,1); if(!pedVeics.length)pedVeics=[{}]; renderPedVeics(); }
+function injetarFormPedido(id,f){
+  pedVeics = (Array.isArray(f.veiculos)&&f.veiculos.length)?f.veiculos.map(v=>({...v})):[{}];
+  const page=document.querySelector('#viewCliente .cli-page'); if(!page) return;
+  const enviado=!!f.pedido;
+  const box=document.createElement('div'); box.className='cli-info'; box.style.marginTop='16px';
+  box.innerHTML=`<h2 style="font-size:16px;color:var(--azul);margin-bottom:4px">📝 Complete os dados do seu transporte</h2>
+    <p class="hint" style="margin-top:0">Preencha para agilizar seu frete. ${enviado?'<b style=\"color:var(--ok)\">✔ Dados já enviados — você pode ajustar e salvar de novo.</b>':''}</p>
+    <div class="grid g2">
+      ${campoCli(id,'Nome / Empresa*','clienteEmpresa',f.clienteEmpresa)}
+      ${campoCli(id,'CPF / CNPJ','cpfCnpj',f.cpfCnpj)}
+      ${campoCli(id,'Telefone (WhatsApp)*','telefone',f.telefone)}
+      ${campoCli(id,'E-mail','email',f.email)}
+      ${campoCli(id,'CEP','cep',f.cep)}
+      ${campoCli(id,'Endereço','endereco',f.endereco)}
+      ${campoCli(id,'Bairro','bairro',f.bairro)}
+      ${campoCli(id,'Cidade','cidade',f.cidade)}
+      ${campoCli(id,'UF','uf',f.uf)}
+    </div>
+    <div class="grid g2" style="margin-top:8px">
+      ${campoCli(id,'Origem (cidade UF)*','origem',f.origem,'Ex.: BAURU SP')}
+      ${campoCli(id,'Destino (cidade UF)*','destino',f.destino,'Ex.: NATAL RN')}
+    </div>
+    <div style="margin-top:10px"><strong style="font-size:13px;color:#4a5a6b">Veículo(s)</strong>
+      <div id="pedVeicsWrap" style="margin-top:6px"></div>
+      <button type="button" class="btn-ghost" onclick="pedAddVeic()">＋ Adicionar veículo</button>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Observações</label><input id="pc_observacoes" value="${escA(f.observacoes)}" placeholder="Alguma informação adicional"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button class="btn-ok" style="padding:10px 18px;font-size:15px" onclick="salvarPedidoCliente('${id}')">📨 Enviar meus dados</button>
+      <span class="status" id="pedMsg"></span>
+    </div>`;
+  page.appendChild(box);
+  renderPedVeics();
+}
+function salvarPedidoCliente(id){
+  const f=MEM[id]; if(!f){ return; }
+  const g=k=>{ const el=document.getElementById('pc_'+k); return el?el.value.trim():''; };
+  if(!g('clienteEmpresa') || !g('telefone') || !g('origem') || !g('destino')){
+    const m=$('#pedMsg'); if(m){ m.style.color='#c0392b'; m.textContent='Preencha nome, telefone, origem e destino.'; } return;
+  }
+  ['clienteEmpresa','cpfCnpj','telefone','email','cep','endereco','bairro','cidade','uf','origem','destino','observacoes'].forEach(k=>f[k]=g(k));
+  f.veiculos = pedVeics.map(v=>({...v}));
+  f.pedido=true; f._salvoEm=new Date().toISOString(); if(!f.pedidoEm) f.pedidoEm=f._salvoEm;
+  MEM[id]=f; gravarDB();
+  const m=$('#pedMsg'); if(m){ m.style.color='var(--ok)'; m.textContent='✔ Enviado! Recebemos seus dados.'; }
+}
 function entrarModoClienteLive(){
   clienteLiveId = decodeURIComponent(location.hash.slice(3));
   if(CLOUD_ON){
-    if(MEM[clienteLiveId]) renderClienteView(clienteData(MEM[clienteLiveId]));  // já sincronizado
-    // senão, o onSnapshot renderiza assim que os dados chegarem
+    if(MEM[clienteLiveId]) renderClienteLive(clienteLiveId);   // já sincronizado; senão, onSnapshot chama
   } else {
-    // sem nuvem não há como ler ao vivo; mostra aviso amigável
     renderClienteView({ n:'', v:'', o:'', d:'', st:'ANDAMENTO', prev:'', cli:'',
-      h:[{t:new Date().toISOString(), x:'Este link de acompanhamento ao vivo requer a versão publicada online. Fale com a OBS Transportes.'}] });
+      h:[{t:new Date().toISOString(), x:'Este link requer a versão publicada online. Fale com a OBS Transportes.'}] });
   }
 }
 function rotearHash(){
@@ -1499,6 +1589,15 @@ function setFrete(id,campo,valor){
   gravarDB(db); renderRelatorio(); atualizarHist();
 }
 function abrirFicha(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); }
+// cria um pedido em branco e mostra o link para o cliente preencher (mesmo link do acompanhamento)
+function novoPedidoLink(){
+  if(!CLOUD_ON){ alert('O link de pedido do cliente funciona na versão publicada (nuvem).'); }
+  const id='ped'+Date.now();
+  MEM[id]={_id:id, numero:'', pedido:true, cadastrado:false, status:'ANDAMENTO', operadora:'', pedidoEm:new Date().toISOString(), _salvoEm:new Date().toISOString()};
+  gravarDB(); atualizarHist();
+  const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
+  gerarLinkCliente(id);
+}
 
 function switchView(v){
   $('#viewFicha').style.display     = v==='ficha'?'':'none';

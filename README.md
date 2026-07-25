@@ -61,6 +61,20 @@ Detalhes:
   **Saldo** (pago − prestadores). Botão **↩ Fila** devolve o frete para a fila e
   **Abrir ficha** volta para reimprimir os documentos.
 
+### Pedido de frete pelo cliente (mesmo link do acompanhamento)
+
+Na aba Nova Ficha, o botão **🔗 Cliente preencher (novo pedido)** cria um pedido em
+branco e gera **um link** para enviar ao cliente (WhatsApp).
+
+- O cliente abre o link e **preenche os próprios dados** (nome, contato, endereço,
+  veículo(s), origem/destino) — vira um **pedido de frete**.
+- O pedido cai na **FILA de vocês** com o selo **📥 PEDIDO DO CLIENTE**; a operadora
+  puxa, revisa e emite o cadastro + contrato (ao **Salvar frete**, o pedido é
+  considerado cadastrado).
+- **É o mesmo link**: depois de cadastrado, aquele link do cliente deixa de mostrar o
+  formulário e passa a mostrar o **acompanhamento do transporte** (andamento ao vivo).
+- Privacidade: a página do cliente carrega **apenas o pedido dele**, não os demais fretes.
+
 ### Atualizações e link de acompanhamento do cliente
 
 - **Histórico de atualizações internas** — cada anotação é registrada com data/hora,
