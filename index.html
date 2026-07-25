@@ -235,7 +235,7 @@
     <div class="card">
       <h2>1 · Dados do frete</h2>
       <div class="body grid g4">
-        <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="Ex.: 1531"></div>
+        <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="vazio = automático"><span class="hint" id="proxNumHint"></span></div>
         <div class="field"><label>Atendente / Vendedor(a)</label><input name="atendente" placeholder="Responsável pela venda"></div>
         <div class="field"><label>Data do fechamento</label><input type="date" name="dataFechamento"></div>
         <div class="field"><label>Resp. pelo frete</label><input name="respFrete" placeholder="Ex.: BRUNO CESAR"></div>
@@ -835,6 +835,7 @@ function render(){
   set('c_obs', up(d.observacoes));
   set('c_hoje', hojeBR());
   set('c_assnome', up(d.clienteEmpresa)); set('c_asscpf', d.cpfCnpj);
+  atualizarProxNum();
 }
 
 // ---- impressão (com nome de PDF automático) ----
@@ -897,8 +898,9 @@ async function initData(){
       setModo('☁ Compartilhado (tempo real)');
       fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
         MEM={}; snap.forEach(d=>MEM[d.id]=d.data()); LAST=JSON.parse(JSON.stringify(MEM));
-        atualizarHist();
+        atualizarHist(); atualizarProxNum();
         const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
+        const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
         if(clienteLiveId!=null && MEM[clienteLiveId]) renderClienteView(clienteData(MEM[clienteLiveId]));
       }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); });
     }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); setModo('⚠ Sem nuvem — modo local'); }
@@ -908,8 +910,24 @@ async function initData(){
 }
 function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
 
+// numeração sequencial: próximo = maior número existente + 1
+function proximoNumero(){
+  const nums=Object.values(lerDB()).map(f=>parseInt(String(f.numero||'').replace(/\D/g,''),10)).filter(n=>!isNaN(n));
+  return (nums.length?Math.max(...nums):0)+1;
+}
+function atualizarProxNum(){
+  const el=$('#proxNumHint'); if(!el) return;
+  const numEl=form.elements['numero'];
+  el.textContent = (!idAtual && numEl && !numEl.value.trim()) ? ('Próximo automático: '+proximoNumero()) : '';
+}
 function salvar(){
   const d=dados();
+  // frete novo sem número -> numeração automática sequencial (evita colisão)
+  if(!idAtual && !String(d.numero||'').trim()){
+    let n=proximoNumero(); while(lerDB()['n'+n]) n++;
+    d.numero=String(n);
+    if(form.elements['numero']) form.elements['numero'].value=d.numero;
+  }
   const id = idAtual || (d.numero ? 'n'+d.numero : 'id'+Date.now());
   const db=lerDB(); const prev=db[id]||{};
   // preserva TODOS os campos que só existem no banco (acompanhamento/financeiro/histórico)
@@ -920,8 +938,8 @@ function salvar(){
   db[id]=d; gravarDB(db);
   idAtual=id;
   localStorage.removeItem(DRAFT);
-  atualizarHist();
-  flash('Frete salvo no histórico ✔');
+  atualizarHist(); atualizarProxNum();
+  flash('Frete Nº '+(d.numero||'')+' salvo ✔');
 }
 function atualizarHist(){
   const db=lerDB(); const sel=$('#hist');
