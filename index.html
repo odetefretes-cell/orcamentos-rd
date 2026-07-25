@@ -1098,7 +1098,7 @@ function gerarLinkCliente(id){
   let link, aviso;
   if(CLOUD_ON){                                    // modo compartilhado: link AO VIVO
     link=base+'#f='+encodeURIComponent(id);
-    aviso='🔴 Link ao vivo: atualiza sozinho a cada nova atualização para o cliente.';
+    aviso='✅ Envie este link ao cliente <b>uma única vez</b>. Ele é fixo e <b>ao vivo</b>: cada nova “Atualização (envio ao cliente)” aparece sozinha no mesmo link, sem precisar reenviar.';
   } else {                                         // modo local: link é uma "foto" do momento
     const enc=btoa(unescape(encodeURIComponent(JSON.stringify(clienteData(f)))));
     link=base+'#t='+enc;
