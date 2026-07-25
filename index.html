@@ -252,6 +252,43 @@
         <label><input type="checkbox" name="docEntrega"> (Opcional) Endereço e contato de entrega</label>
       </div>
     </div>
+
+    <div class="card">
+      <h2>8 · Prestadores (motorista / transportadora) — só na ficha interna</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Até 4 prestadores. Aparecem apenas na Autorização (controle interno), não no contrato do cliente.</p>
+        <div id="prestadores">
+          <div class="grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;font-size:11px;font-weight:600;color:#4a5a6b;margin-bottom:4px">
+            <div>Empresa / Motorista</div><div>Telefone</div><div>Data de saída</div><div>Valor (R$)</div><div>Status</div>
+          </div>
+          <!-- 4 linhas -->
+          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;margin-bottom:6px">
+            <input name="prestEmpresa1" placeholder="Empresa / Motorista"><input name="prestTel1" placeholder="Telefone">
+            <input type="date" name="prestSaida1"><input name="prestValor1" inputmode="decimal" placeholder="0,00">
+            <input name="prestStatus1" placeholder="Ex.: EM ROTA" list="statusList">
+          </div>
+          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;margin-bottom:6px">
+            <input name="prestEmpresa2" placeholder="Empresa / Motorista"><input name="prestTel2" placeholder="Telefone">
+            <input type="date" name="prestSaida2"><input name="prestValor2" inputmode="decimal" placeholder="0,00">
+            <input name="prestStatus2" placeholder="Ex.: EM ROTA" list="statusList">
+          </div>
+          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;margin-bottom:6px">
+            <input name="prestEmpresa3" placeholder="Empresa / Motorista"><input name="prestTel3" placeholder="Telefone">
+            <input type="date" name="prestSaida3"><input name="prestValor3" inputmode="decimal" placeholder="0,00">
+            <input name="prestStatus3" placeholder="Ex.: EM ROTA" list="statusList">
+          </div>
+          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px">
+            <input name="prestEmpresa4" placeholder="Empresa / Motorista"><input name="prestTel4" placeholder="Telefone">
+            <input type="date" name="prestSaida4"><input name="prestValor4" inputmode="decimal" placeholder="0,00">
+            <input name="prestStatus4" placeholder="Ex.: EM ROTA" list="statusList">
+          </div>
+          <datalist id="statusList">
+            <option>AGUARDANDO</option><option>CONFIRMADO</option><option>EM ROTA</option>
+            <option>ENTREGUE</option><option>PAGO</option><option>CANCELADO</option>
+          </datalist>
+        </div>
+      </div>
+    </div>
   </form>
 
   <!-- ===================== DOCUMENTOS ===================== -->
@@ -295,6 +332,15 @@
 
       <div class="sec" style="margin-top:7px">CHECKLIST DE DOCUMENTOS (WhatsApp / ChatGuru)</div>
       <table class="box"><tr><td style="border:1px solid #333"><div class="docck" id="a_docs"></div></td></tr></table>
+
+      <div class="sec" style="margin-top:7px">PRESTADORES (MOTORISTA / TRANSPORTADORA)</div>
+      <table class="box">
+        <thead><tr>
+          <td class="lbl">Empresa / Motorista</td><td class="lbl">Telefone</td>
+          <td class="lbl">Data de saída</td><td class="lbl">Valor</td><td class="lbl">Status</td>
+        </tr></thead>
+        <tbody id="a_prest"></tbody>
+      </table>
 
       <div class="note"><b>Observação:</b> A Empresa não se responsabiliza por qualquer objeto deixado no interior do veículo.
       Uma vez que o transporte é contratado, destina-se exclusivamente ao veículo.</div>
@@ -459,6 +505,17 @@ function render(){
     ck(d.docVeiculo,'Doc. do veículo (CRLV)') + ck(d.docCnhRg,'CNH ou RG') +
     ck(d.docComprovante,'Comprovante de residência') + ck(d.docColeta,'Coleta') + ck(d.docEntrega,'Entrega');
 
+  // Prestadores (mostra linhas preenchidas; se nenhuma, deixa 2 em branco p/ escrever à mão)
+  const esc=s=>(s||'').toString().replace(/</g,'&lt;');
+  let linhas=[];
+  for(let i=1;i<=4;i++){
+    const emp=d['prestEmpresa'+i], tel=d['prestTel'+i], sai=d['prestSaida'+i], val=d['prestValor'+i], st=d['prestStatus'+i];
+    if(emp||tel||sai||val||st)
+      linhas.push(`<tr><td>${esc(up(emp))}</td><td>${esc(tel)}</td><td>${dataBR(sai)}</td><td>${moeda(val)}</td><td>${esc(up(st))}</td></tr>`);
+  }
+  if(!linhas.length) linhas=['<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>','<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>'];
+  $('#a_prest').innerHTML=linhas.join('');
+
   // ---- Página 3 · Contrato ----
   const marca = (d.veiculo||'').includes('/') ? d.veiculo.split('/')[0] : d.veiculo;
   const modelo = (d.veiculo||'').includes('/') ? d.veiculo.split('/').slice(1).join('/') : '';
@@ -561,8 +618,21 @@ function importarJSON(inp){
 }
 let t; function flash(m){ const s=$('#status'); s.textContent=m; clearTimeout(t); t=setTimeout(()=>s.textContent='',3000); }
 
-// ---- logo da empresa (fixo, aparece em todos os documentos) ----
+// ---- logo da empresa (aparece em todos os documentos) ----
 const LOGO='obs_logo';
+// Logo padrão (SVG) — recriação da marca OBS TRANSPORTES; aparece sozinho.
+// Você pode substituir pelo PNG oficial em "Escolher logo" (fica salvo).
+const DEFAULT_LOGO='data:image/svg+xml;utf8,'+encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='108' viewBox='0 0 360 108'>
+     <g fill='none' stroke='#e2001a' stroke-linecap='round'>
+       <path d='M80 16 A 40 40 0 1 0 96 86' stroke-width='13'/>
+       <path d='M72 36 A 23 23 0 1 0 86 72' stroke-width='12'/>
+       <path d='M67 50 A 10 10 0 1 0 78 63' stroke-width='9'/>
+     </g>
+     <text x='122' y='50' font-family='Arial, sans-serif' font-size='44' font-weight='bold' fill='#1a1a1a'>OBS</text>
+     <text x='122' y='92' font-family='Arial, sans-serif' font-size='30' font-weight='bold' fill='#e2001a' letter-spacing='1'>TRANSPORTES</text>
+   </svg>`);
+function logoAtual(){ return localStorage.getItem(LOGO) || DEFAULT_LOGO; }
 function carregarLogo(inp){
   const f=inp.files[0]; if(!f) return;
   if(f.size > 1.5*1024*1024){ alert('Imagem muito grande (máx. ~1,5 MB). Use uma menor.'); inp.value=''; return; }
@@ -570,16 +640,15 @@ function carregarLogo(inp){
   r.onload=e=>{ localStorage.setItem(LOGO, e.target.result); aplicarLogo(); flash('Logo atualizado ✔'); };
   r.readAsDataURL(f); inp.value='';
 }
-function removerLogo(){ localStorage.removeItem(LOGO); aplicarLogo(); flash('Logo removido'); }
+function removerLogo(){ localStorage.removeItem(LOGO); aplicarLogo(); flash('Voltou ao logo padrão'); }
 function aplicarLogo(){
-  const src=localStorage.getItem(LOGO);
-  const prev=$('#logoPreview');
+  const src=logoAtual();
+  const personalizado=!!localStorage.getItem(LOGO);
   document.querySelectorAll('.logo-doc').forEach(img=>{
-    if(src){ img.src=src; img.style.display='block'; img.style.height='42px'; img.style.maxWidth='150px'; img.style.objectFit='contain'; }
-    else { img.removeAttribute('src'); img.style.display='none'; }
+    img.src=src; img.style.display='block'; img.style.height='46px'; img.style.maxWidth='170px'; img.style.objectFit='contain';
   });
-  if(src){ prev.src=src; prev.style.display='block'; } else { prev.removeAttribute('src'); prev.style.display='none'; }
-  $('#logoStatus').textContent = src ? 'logo definido' : 'sem logo';
+  const prev=$('#logoPreview'); prev.src=src; prev.style.display='block';
+  $('#logoStatus').textContent = personalizado ? 'logo personalizado' : 'logo padrão';
 }
 
 // rascunho automático: guarda o que está sendo digitado (não perde ao recarregar)

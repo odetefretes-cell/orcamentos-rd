@@ -36,11 +36,19 @@ e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
 - O que você digita fica guardado como **rascunho automático**: se fechar sem salvar,
   ao reabrir o formulário continua preenchido.
 
+## Prestadores (ficha interna)
+
+Na seção **8 · Prestadores** você lança até 4 motoristas/transportadoras
+(Empresa/Motorista, Telefone, Data de saída, Valor e Status). Eles aparecem
+**apenas na Autorização** (controle interno), nunca no contrato do cliente.
+
 ## Logo da empresa
 
-- **🖼️ Escolher logo** — envie a imagem do logo (PNG/JPG). Ele passa a aparecer no
-  cabeçalho da Autorização **e** do Contrato, e continua salvo para os próximos fretes.
-- **Remover logo** — volta ao cabeçalho só com o nome.
+- Já vem um **logo padrão OBS Transportes** que aparece sozinho no cabeçalho da
+  Autorização **e** do Contrato.
+- **🖼️ Escolher logo** — para usar o **logo oficial em imagem** (PNG/JPG), com encaixe
+  perfeito. Ele fica salvo para os próximos fretes.
+- **Remover logo** — volta ao logo padrão.
 
 ## Backup / passar para outro computador
 
