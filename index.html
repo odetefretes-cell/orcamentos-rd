@@ -1614,8 +1614,8 @@ function injetarFormPedido(id,f){
 function docUpload(id,f,tipo,label){
   const url=(f.docs&&f.docs[tipo])||'';
   return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-    <label class="btn-ghost" style="cursor:pointer;margin:0">📷 ${esc(label)}
-      <input type="file" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="enviarDoc('${id}','${tipo}',this)">
+    <label class="btn-ghost" style="cursor:pointer;margin:0">📎 ${esc(label)}
+      <input type="file" accept="image/*,application/pdf" style="display:none" onchange="enviarDoc('${id}','${tipo}',this)">
     </label>
     <span class="status" id="docst_${tipo}">${url?('✓ enviado — <a href="'+url+'" target="_blank">ver</a>'):'nenhum arquivo'}</span>
   </div>`;
