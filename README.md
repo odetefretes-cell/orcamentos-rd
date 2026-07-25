@@ -60,6 +60,12 @@ Ao clicar em imprimir, o navegador já sugere o nome do arquivo automaticamente
 - Av. Padre Anchieta, 176 — Jordanópolis — São Bernardo do Campo / SP
 - Fones: (11) 4352-4103 · (11) 4352-1524
 
+## Cláusulas do contrato
+
+O Contrato (página 3) já traz o **texto jurídico completo** retirado da planilha —
+cláusulas **1 DO OBJETO, 2 DO SERVIÇO, 3 DO SEGURO** (inclui a apólice ALLIANZ) e
+**4 DO PRAZO** — impresso automaticamente acima das assinaturas, em uma única página A4.
+
 ## Observações
 
 - Os dados ficam **somente no seu navegador** (nada é enviado para a internet).
