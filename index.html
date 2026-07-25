@@ -539,6 +539,29 @@
 
 </div>
 
+<div id="fipeModal" class="modal no-print" style="display:none">
+  <div class="sheet">
+    <h3>🔎 Tabela FIPE — valor do veículo</h3>
+    <p class="hint" style="margin:0 0 8px">Escolha tipo → marca → modelo → ano. O sistema preenche marca/modelo, ano e valor do veículo.</p>
+    <div class="grid g2">
+      <div class="field"><label>Tipo</label>
+        <select id="fipeTipo" onchange="fipeLoadMarcas()">
+          <option value="carros">Carro</option>
+          <option value="motos">Moto</option>
+          <option value="caminhoes">Caminhão</option>
+        </select></div>
+      <div class="field"><label>Marca</label><select id="fipeMarca" onchange="fipeLoadModelos()"><option>—</option></select></div>
+      <div class="field"><label>Modelo</label><select id="fipeModelo" onchange="fipeLoadAnos()"><option>—</option></select></div>
+      <div class="field"><label>Ano</label><select id="fipeAno" onchange="fipeConsultar()"><option>—</option></select></div>
+    </div>
+    <p id="fipeResultado" style="margin:10px 0;font-size:13px"></p>
+    <div class="acts">
+      <button class="btn-ghost" onclick="fecharFipe()">Cancelar</button>
+      <button class="btn-ok" id="fipeUsar" onclick="fipeUsar()" disabled>Usar este valor</button>
+    </div>
+  </div>
+</div>
+
 <div id="linkModal" class="modal no-print" style="display:none">
   <div class="sheet">
     <h3>🔗 Link de acompanhamento do cliente</h3>
@@ -614,7 +637,10 @@ function renderVeic(){
     <div class="veic-row" style="border:1px solid var(--linha);border-radius:8px;padding:10px;margin-bottom:8px;background:#fbfcfe">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <strong style="font-size:12px;color:var(--azul)">Veículo ${i+1}</strong>
-        <button type="button" class="btn-ghost" style="padding:3px 10px;font-size:12px" onclick="removeVeiculo(${i})" ${veiculos.length<=1?'disabled':''}>✕ remover</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn-ok" style="padding:3px 10px;font-size:12px" onclick="abrirFipe(${i})">🔎 Buscar FIPE</button>
+          <button type="button" class="btn-ghost" style="padding:3px 10px;font-size:12px" onclick="removeVeiculo(${i})" ${veiculos.length<=1?'disabled':''}>✕ remover</button>
+        </div>
       </div>
       <div class="grid g3">
         <div class="field col2"><label>Marca / Modelo</label><input data-i="${i}" data-f="modelo" value="${escA(v.modelo)}" placeholder="Ex.: HONDA/NXR150 BROS"></div>
@@ -637,6 +663,69 @@ function addVeiculo(){
 function removeVeiculo(i){
   veiculos.splice(i,1); if(!veiculos.length) veiculos=[{}];
   renderVeic(); salvarRascunho(); render();
+}
+
+// ---- consulta Tabela FIPE (API pública) ----
+const FIPE_BASE='https://parallelum.com.br/fipe/api/v1';
+let fipeIdx=null, fipeResult=null;
+function abrirFipe(idx){
+  fipeIdx=idx; fipeResult=null;
+  $('#fipeUsar').disabled=true; $('#fipeResultado').textContent='';
+  $('#fipeMarca').innerHTML='<option>—</option>'; $('#fipeModelo').innerHTML='<option>—</option>'; $('#fipeAno').innerHTML='<option>—</option>';
+  $('#fipeModal').style.display='flex';
+  fipeLoadMarcas();
+}
+function fecharFipe(){ $('#fipeModal').style.display='none'; }
+async function fipeGet(url){ const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+function fipeErro(){ $('#fipeResultado').innerHTML='⚠️ Não consegui consultar a FIPE agora (internet ou serviço indisponível). Tente de novo em instantes ou preencha o valor manualmente.'; }
+async function fipeLoadMarcas(){
+  const tipo=$('#fipeTipo').value;
+  $('#fipeResultado').textContent='Carregando marcas...';
+  try{
+    const data=await fipeGet(`${FIPE_BASE}/${tipo}/marcas`);
+    $('#fipeMarca').innerHTML='<option value="">Selecione a marca</option>'+data.map(m=>`<option value="${m.codigo}">${esc(m.nome)}</option>`).join('');
+    $('#fipeModelo').innerHTML='<option value="">—</option>'; $('#fipeAno').innerHTML='<option value="">—</option>';
+    $('#fipeResultado').textContent=''; $('#fipeUsar').disabled=true;
+  }catch(e){ fipeErro(); }
+}
+async function fipeLoadModelos(){
+  const tipo=$('#fipeTipo').value, marca=$('#fipeMarca').value; if(!marca) return;
+  $('#fipeResultado').textContent='Carregando modelos...';
+  try{
+    const data=await fipeGet(`${FIPE_BASE}/${tipo}/marcas/${marca}/modelos`);
+    $('#fipeModelo').innerHTML='<option value="">Selecione o modelo</option>'+data.modelos.map(m=>`<option value="${m.codigo}">${esc(m.nome)}</option>`).join('');
+    $('#fipeAno').innerHTML='<option value="">—</option>'; $('#fipeResultado').textContent=''; $('#fipeUsar').disabled=true;
+  }catch(e){ fipeErro(); }
+}
+async function fipeLoadAnos(){
+  const tipo=$('#fipeTipo').value, marca=$('#fipeMarca').value, modelo=$('#fipeModelo').value; if(!modelo) return;
+  $('#fipeResultado').textContent='Carregando anos...';
+  try{
+    const data=await fipeGet(`${FIPE_BASE}/${tipo}/marcas/${marca}/modelos/${modelo}/anos`);
+    $('#fipeAno').innerHTML='<option value="">Selecione o ano</option>'+data.map(a=>`<option value="${a.codigo}">${esc(a.nome)}</option>`).join('');
+    $('#fipeResultado').textContent=''; $('#fipeUsar').disabled=true;
+  }catch(e){ fipeErro(); }
+}
+async function fipeConsultar(){
+  const tipo=$('#fipeTipo').value, marca=$('#fipeMarca').value, modelo=$('#fipeModelo').value, ano=$('#fipeAno').value;
+  if(!ano) return;
+  $('#fipeResultado').textContent='Consultando valor...'; $('#fipeUsar').disabled=true;
+  try{
+    const d=await fipeGet(`${FIPE_BASE}/${tipo}/marcas/${marca}/modelos/${modelo}/anos/${ano}`);
+    fipeResult=d;
+    $('#fipeResultado').innerHTML=`<b>${esc(d.Marca)} ${esc(d.Modelo)}</b> — ${esc(String(d.AnoModelo))} · ${esc(d.Combustivel||'')}<br>Valor FIPE: <b style="color:var(--ok)">${esc(d.Valor)}</b> <span style="color:#8592a1">(ref. ${esc(d.MesReferencia||'')} · cód. ${esc(d.CodigoFipe||'')})</span>`;
+    $('#fipeUsar').disabled=false;
+  }catch(e){ fipeErro(); }
+}
+function fipeUsar(){
+  if(fipeResult==null || fipeIdx==null) return;
+  const d=fipeResult;
+  const anoTxt = (d.AnoModelo && Number(d.AnoModelo)<32000) ? String(d.AnoModelo) : '0KM';
+  veiculos[fipeIdx].modelo = `${d.Marca}/${d.Modelo}`.toUpperCase();
+  veiculos[fipeIdx].ano = anoTxt;
+  veiculos[fipeIdx].valor = String(num(d.Valor));
+  renderVeic(); salvarRascunho(); render();
+  fecharFipe(); flash('Valor FIPE preenchido ✔');
 }
 
 function render(){
