@@ -1682,7 +1682,16 @@ async function enviarDoc(id,tipo,inp){
     const url=await _fb.getDownloadURL(r);
     const f=MEM[id]; f.docs=f.docs||{}; f.docs[tipo]=url; f._salvoEm=new Date().toISOString(); MEM[id]=f; gravarDB();
     if(st) st.innerHTML='✓ enviado — <a href="'+url+'" target="_blank">ver</a>';
-  }catch(e){ console.error(e); if(st) st.textContent='Erro ao enviar. Tente novamente.'; }
+  }catch(e){
+    console.error(e);
+    const cod=(e&&e.code)||''; let txt='Erro ao enviar';
+    if(cod.includes('unauthorized')) txt='Sem permissão (verifique as Regras do Storage)';
+    else if(cod.includes('unauthenticated')) txt='Storage exige login/regras';
+    else if(cod.includes('quota')) txt='Cota do Storage excedida';
+    else if(cod.includes('retry-limit')||cod.includes('network')) txt='Falha de rede, tente de novo';
+    else if(cod) txt='Erro: '+cod;
+    if(st) st.textContent=txt;
+  }
 }
 function salvarPedidoCliente(id){
   const f=MEM[id]; if(!f){ return; }
