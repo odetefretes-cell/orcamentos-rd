@@ -903,13 +903,13 @@ async function initData(){
 }
 function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
 
-// campos de acompanhamento (editados no relatório, preservados ao regravar a ficha)
-const TRACK=['operadora','status','averbacao','atualizacao','pago1','dataPago1','pago2','dataPago2'];
 function salvar(){
   const d=dados();
   const id = idAtual || (d.numero ? 'n'+d.numero : 'id'+Date.now());
   const db=lerDB(); const prev=db[id]||{};
-  TRACK.forEach(k=>{ if(prev[k]!==undefined && (d[k]===undefined||d[k]==='')) d[k]=prev[k]; });
+  // preserva TODOS os campos que só existem no banco (acompanhamento/financeiro/histórico)
+  // — tudo que não vem do formulário fica intacto ao regravar a ficha
+  Object.keys(prev).forEach(k=>{ if(d[k]===undefined) d[k]=prev[k]; });
   if(!d.status) d.status='ANDAMENTO';
   d._id=id; d._salvoEm=new Date().toISOString();
   db[id]=d; gravarDB(db);
@@ -1183,13 +1183,16 @@ function cardFrete(f){
       </div></div>
 
       <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
-      <div class="fld"><label>Pago 1 (R$)</label><input value="${escA(f.pago1)}" inputmode="decimal" onchange="setFrete('${id}','pago1',this.value)"></div>
-      <div class="fld"><label>Pago 2 (R$)</label><input value="${escA(f.pago2)}" inputmode="decimal" onchange="setFrete('${id}','pago2',this.value)"></div>
+      <div class="fld"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
       <div class="fld"><label>Em aberto</label><div class="ro ${abertoV>0?'saldo-neg':'saldo-pos'}">${moeda(abertoV)}</div></div>
-
-      <div class="fld"><label>Prestadores</label><div class="ro">${moeda(somaPrest(f))||moeda(0)}</div></div>
       <div class="fld"><label>Saldo do frete</label><div class="ro ${saldo<0?'saldo-neg':'saldo-pos'}">${moeda(saldo)}</div></div>
-      <div class="fld col2"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
+
+      <div class="fld"><label>Pago 1 (R$)</label><input value="${escA(f.pago1)}" inputmode="decimal" onchange="setFrete('${id}','pago1',this.value)"></div>
+      <div class="fld"><label>Data pagamento 1</label><input type="date" value="${escA(f.dataPago1)}" onchange="setFrete('${id}','dataPago1',this.value)"></div>
+      <div class="fld"><label>Pago 2 (R$)</label><input value="${escA(f.pago2)}" inputmode="decimal" onchange="setFrete('${id}','pago2',this.value)"></div>
+      <div class="fld"><label>Data pagamento 2</label><input type="date" value="${escA(f.dataPago2)}" onchange="setFrete('${id}','dataPago2',this.value)"></div>
+      ${/boleto/i.test(f.formaPgto||'')?`<div class="fld"><label>📄 Data de faturamento (boleto)</label><input type="date" value="${escA(f.dataFaturamento)}" onchange="setFrete('${id}','dataFaturamento',this.value)"></div>`:''}
+      ${/cart[ãa]o/i.test(f.formaPgto||'')?`<div class="fld"><label>💳 Data de pagamento do link (cartão)</label><input type="date" value="${escA(f.dataPagLink)}" onchange="setFrete('${id}','dataPagLink',this.value)"></div>`:''}
     </div>
   </div>`;
 }
