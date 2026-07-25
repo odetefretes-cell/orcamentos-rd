@@ -26,13 +26,25 @@ e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
    - **Só Contrato (pág. 3)** — apenas o documento do cliente
    - No diálogo de impressão, escolha **"Salvar como PDF"** para enviar ao cliente.
 
-## Salvar e reaproveitar
+## Histórico de fretes
 
-- **💾 Salvar** — guarda o frete atual neste navegador (continua lá se fechar e abrir de novo).
-- **Exportar** — baixa um arquivo `frete-XXXX.json` com todos os dados (para backup ou
-  passar para outro computador).
-- **Importar** — carrega um `.json` exportado antes.
-- **Limpar** — zera o formulário para começar um novo frete.
+- **💾 Salvar frete** — guarda o frete no histórico deste navegador (por nº e cliente).
+- **Fretes salvos** (lista) — escolha um frete salvo para **recarregar** todos os dados.
+- **＋ Novo frete** — começa um frete em branco.
+- **🗑️ Excluir** — remove do histórico o frete que está aberto.
+- O que você digita fica guardado como **rascunho automático**: se fechar sem salvar,
+  ao reabrir o formulário continua preenchido.
+
+## Backup / passar para outro computador
+
+- **Exportar** — baixa um arquivo `frete-XXXX.json` com todos os dados.
+- **Importar** — carrega um `.json` exportado antes (depois clique em *Salvar frete*).
+
+## Imprimir em PDF
+
+Ao clicar em imprimir, o navegador já sugere o nome do arquivo automaticamente
+(ex.: `Contrato 1531.pdf`, `Autorizacao 1531.pdf`). No diálogo, escolha
+**"Salvar como PDF"**.
 
 ## O que já vem preenchido (empresa contratada)
 

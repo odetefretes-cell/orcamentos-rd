@@ -109,12 +109,23 @@
     <button class="btn-ghost" onclick="imprimir('auth')">Só Autorização (pág. 1)</button>
     <button class="btn-ghost" onclick="imprimir('contrato')">Só Contrato (pág. 3)</button>
     <span class="spacer"></span>
-    <button class="btn-ok" onclick="salvar()">💾 Salvar</button>
+    <button class="btn-ok" onclick="salvar()">💾 Salvar frete</button>
     <button class="btn-ghost" onclick="exportarJSON()">Exportar</button>
     <button class="btn-ghost" onclick="document.getElementById('imp').click()">Importar</button>
     <input id="imp" type="file" accept="application/json" style="display:none" onchange="importarJSON(this)">
-    <button class="btn-ghost" onclick="limpar()">Limpar</button>
     <span class="status" id="status"></span>
+  </div>
+
+  <!-- ===================== HISTÓRICO ===================== -->
+  <div class="toolbar no-print" style="top:64px">
+    <label style="font-size:13px;font-weight:600;color:#4a5a6b">Fretes salvos:</label>
+    <select id="hist" onchange="carregarFrete(this.value)" style="min-width:280px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+      <option value="">— novo frete —</option>
+    </select>
+    <button class="btn-ghost" onclick="novoFrete()">＋ Novo frete</button>
+    <button class="btn-ghost" onclick="excluirFrete()">🗑️ Excluir</button>
+    <span class="spacer"></span>
+    <span class="status" id="hstatus"></span>
   </div>
 
   <!-- ===================== FORMULÁRIO ===================== -->
@@ -420,30 +431,71 @@ function render(){
   set('c_assnome', up(d.clienteEmpresa)); set('c_asscpf', d.cpfCnpj);
 }
 
-// ---- impressão ----
+// ---- impressão (com nome de PDF automático) ----
 function imprimir(qual){
+  const num = (dados().numero||'').trim() || 's-numero';
+  const nome = qual==='auth' ? `Autorizacao ${num}` : qual==='contrato' ? `Contrato ${num}` : `Frete ${num}`;
+  const tituloOriginal = document.title;
+  document.title = nome;                       // vira o nome padrão do arquivo PDF
   document.body.classList.remove('only-auth','only-contrato');
   if(qual==='auth') document.body.classList.add('only-auth');
   if(qual==='contrato') document.body.classList.add('only-contrato');
-  setTimeout(()=>window.print(),50);
+  setTimeout(()=>{ window.print(); document.title = tituloOriginal; }, 60);
 }
 window.onafterprint = ()=>document.body.classList.remove('only-auth','only-contrato');
 
-// ---- persistência ----
-const KEY='obs_frete_atual';
-function salvar(){ localStorage.setItem(KEY, JSON.stringify(dados())); flash('Salvo neste navegador ✔'); }
-function carregar(){
-  const raw=localStorage.getItem(KEY); if(!raw) return;
-  aplicar(JSON.parse(raw));
+// ---- persistência (rascunho + histórico de vários fretes) ----
+const DRAFT='obs_frete_rascunho';   // frete que está sendo editado agora
+const DB='obs_fretes';              // { id: {dados..., _id, _salvoEm} }
+let idAtual=null;
+
+function lerDB(){ try{ return JSON.parse(localStorage.getItem(DB))||{}; }catch(_){ return {}; } }
+function gravarDB(db){ localStorage.setItem(DB, JSON.stringify(db)); }
+
+function salvar(){
+  const d=dados();
+  const id = idAtual || (d.numero ? 'n'+d.numero : 'id'+Date.now());
+  d._id=id; d._salvoEm=new Date().toISOString();
+  const db=lerDB(); db[id]=d; gravarDB(db);
+  idAtual=id;
+  localStorage.removeItem(DRAFT);
+  atualizarHist();
+  flash('Frete salvo no histórico ✔');
 }
+function atualizarHist(){
+  const db=lerDB(); const sel=$('#hist');
+  const itens=Object.values(db).sort((a,b)=>(b._salvoEm||'').localeCompare(a._salvoEm||''));
+  sel.innerHTML='<option value="">— novo frete —</option>'+itens.map(f=>{
+    const dt=f._salvoEm?new Date(f._salvoEm).toLocaleDateString('pt-BR'):'';
+    const rot=`Nº ${f.numero||'s/nº'} — ${(f.clienteEmpresa||'sem cliente')}${dt?(' — '+dt):''}`;
+    return `<option value="${f._id}"${f._id===idAtual?' selected':''}>${rot.replace(/</g,'&lt;')}</option>`;
+  }).join('');
+  $('#hstatus').textContent = itens.length ? (itens.length+' frete(s) salvo(s)') : 'nenhum frete salvo ainda';
+}
+function carregarFrete(id){
+  if(!id){ novoFrete(); return; }
+  const db=lerDB(); if(!db[id]) return;
+  idAtual=id; aplicar(db[id]); flash('Frete carregado');
+}
+function novoFrete(){
+  idAtual=null; form.reset(); localStorage.removeItem(DRAFT);
+  $('#hist').value=''; render(); flash('Novo frete');
+}
+function excluirFrete(){
+  if(!idAtual){ alert('Selecione um frete salvo para excluir.'); return; }
+  if(!confirm('Excluir este frete do histórico?')) return;
+  const db=lerDB(); delete db[idAtual]; gravarDB(db);
+  novoFrete(); atualizarHist(); flash('Frete excluído');
+}
+
 function aplicar(d){
+  form.reset();
   Object.entries(d).forEach(([k,v])=>{
     const el=form.elements[k]; if(!el) return;
     if(el.type==='checkbox') el.checked=!!v; else el.value=v;
   });
   render();
 }
-function limpar(){ if(confirm('Limpar todos os campos?')){ form.reset(); render(); flash('Formulário limpo'); } }
 function exportarJSON(){
   const d=dados(); const nome=(d.numero?('frete-'+d.numero):'frete')+'.json';
   const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
@@ -452,13 +504,21 @@ function exportarJSON(){
 }
 function importarJSON(inp){
   const f=inp.files[0]; if(!f) return;
-  const r=new FileReader(); r.onload=e=>{ try{ aplicar(JSON.parse(e.target.result)); flash('Importado ✔'); }catch(_){ alert('Arquivo inválido'); } };
+  const r=new FileReader(); r.onload=e=>{ try{ idAtual=null; aplicar(JSON.parse(e.target.result)); flash('Importado ✔ (clique em Salvar para guardar no histórico)'); }catch(_){ alert('Arquivo inválido'); } };
   r.readAsText(f); inp.value='';
 }
 let t; function flash(m){ const s=$('#status'); s.textContent=m; clearTimeout(t); t=setTimeout(()=>s.textContent='',3000); }
 
-carregar();
-render();
+// rascunho automático: guarda o que está sendo digitado (não perde ao recarregar)
+form.addEventListener('input', ()=>{ if(!idAtual) localStorage.setItem(DRAFT, JSON.stringify(dados())); });
+
+// inicialização
+(function init(){
+  const raw=localStorage.getItem(DRAFT);
+  if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
+  atualizarHist();
+  render();
+})();
 </script>
 </body>
 </html>
