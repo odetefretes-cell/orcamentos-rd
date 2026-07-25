@@ -38,22 +38,28 @@ e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
 - O que você digita fica guardado como **rascunho automático**: se fechar sem salvar,
   ao reabrir o formulário continua preenchido.
 
-## Relatório · Área das operadoras
+## Relatório · Fila e área das operadoras
 
-Aba **📋 Relatório · Operadoras** (no topo). Cada operadora acompanha os fretes
-sob sua responsabilidade até a conclusão — como no relatório em planilha:
+Aba **📋 Relatório · Operadoras** (no topo). O fluxo é por **fila**:
 
-- **Filtro por operadora** (NATALY, YASMIN…) e por **status** (Andamento, Concluído, Cancelado).
-- **Busca** por nº, cliente, placa, origem ou destino.
-- **Resumo** no topo: total de fretes, em andamento, concluídos, cancelados e **total em aberto**.
-- Cada frete é um **card colorido pelo status**, onde a operadora edita direto
-  (salva sozinho): **Status**, **Nº averbação**, **Atualização** (andamento do transporte),
-  **Pago 1 / Pago 2**. O sistema calcula **Em aberto** (frete − pago) e
-  **Saldo do frete** (pago − prestadores).
-- Botão **Abrir ficha** leva o frete de volta para gerar/reimprimir os documentos.
+1. Todo frete **salvo** na aba *Nova Ficha* entra automaticamente na **🕓 FILA**.
+2. Na fila, cada frete mostra os botões **⬇ Puxar p/ NATALY**, **⬇ Puxar p/ YASMIN**… —
+   a operadora **puxa a demanda para o seu controle**.
+3. Depois de puxado, o frete sai da fila e vai para a **área daquela operadora**,
+   que acompanha até a conclusão.
 
-Os fretes que aparecem aqui são os que você **salvou** na aba *Nova Ficha* (o campo
-*Atendente* define a operadora responsável).
+Detalhes:
+- O campo **Atendente** da ficha é o **responsável pela venda** (vendedor(a)) — não é
+  quem opera o frete.
+- Pílulas no topo: **FILA**, cada **operadora**, **TODAS**, e **＋ operadora** para
+  cadastrar/gerir a lista de operadoras.
+- Filtro por **status** (Andamento, Concluído, Cancelado) e **busca** por nº, cliente,
+  placa, origem, destino ou vendedor.
+- **Resumo**: na fila, exibindo, em andamento, concluídos e **total em aberto**.
+- No card já puxado a operadora edita (salva sozinho): **Status, Nº averbação,
+  Atualização, Pago 1/2**; o sistema calcula **Em aberto** (frete − pago) e
+  **Saldo** (pago − prestadores). Botão **↩ Fila** devolve o frete para a fila e
+  **Abrir ficha** volta para reimprimir os documentos.
 
 ## Prestadores (ficha interna)
 

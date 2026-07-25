@@ -191,7 +191,7 @@
       <h2>1 · Dados do frete</h2>
       <div class="body grid g4">
         <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="Ex.: 1531"></div>
-        <div class="field"><label>Atendente</label><input name="atendente" placeholder="Ex.: YASMIM"></div>
+        <div class="field"><label>Atendente / Vendedor(a)</label><input name="atendente" placeholder="Responsável pela venda"></div>
         <div class="field"><label>Data do fechamento</label><input type="date" name="dataFechamento"></div>
         <div class="field"><label>Resp. pelo frete</label><input name="respFrete" placeholder="Ex.: BRUNO CESAR"></div>
       </div>
@@ -485,9 +485,9 @@
     <div class="card">
       <h2>Relatório de fretes — Área das operadoras</h2>
       <div class="body">
-        <p class="hint" style="margin-top:0">Cada operadora acompanha os fretes sob sua responsabilidade até a conclusão. Atualize o status, a observação e os pagamentos — salva automaticamente.</p>
+        <p class="hint" style="margin-top:0">Todo frete emitido entra na <b>FILA</b>. Cada operadora <b>puxa</b> a demanda para o seu controle e acompanha até a conclusão (status, atualização e pagamentos salvam sozinhos). O <b>atendente</b> da ficha é o responsável pela venda.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <strong style="font-size:13px;color:#4a5a6b">Operadora:</strong>
+          <strong style="font-size:13px;color:#4a5a6b">Ver:</strong>
           <span id="relOperadoras" class="pills"></span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
@@ -672,7 +672,7 @@ function lerDB(){ try{ return JSON.parse(localStorage.getItem(DB))||{}; }catch(_
 function gravarDB(db){ localStorage.setItem(DB, JSON.stringify(db)); }
 
 // campos de acompanhamento (editados no relatório, preservados ao regravar a ficha)
-const TRACK=['status','averbacao','atualizacao','pago1','dataPago1','pago2','dataPago2'];
+const TRACK=['operadora','status','averbacao','atualizacao','pago1','dataPago1','pago2','dataPago2'];
 function salvar(){
   const d=dados();
   const id = idAtual || (d.numero ? 'n'+d.numero : 'id'+Date.now());
@@ -801,9 +801,27 @@ function veicResumo(f){
 function statusDe(f){ return (f.status||'ANDAMENTO').toString().toUpperCase(); }
 function stKey(s){ return s==='CONCLUÍDO'?'concluido':s==='CANCELADO'?'cancelado':'andamento'; }
 
-let relOperadora='TODAS', relStatusF='TODOS';
+let relFiltro='FILA', relStatusF='TODOS';
 const STATUSES=['ANDAMENTO','CONCLUÍDO','CANCELADO'];
-function setRelOperadora(o){ relOperadora=o; renderRelatorio(); }
+// operadoras que podem puxar fretes (configurável)
+const OPS_KEY='obs_operadoras';
+function lerOperadoras(){ try{ const a=JSON.parse(localStorage.getItem(OPS_KEY)); if(Array.isArray(a)&&a.length) return a; }catch(_){} return ['NATALY','YASMIN']; }
+function gravarOperadoras(a){ localStorage.setItem(OPS_KEY, JSON.stringify(a)); }
+function addOperadora(){
+  const nome=(prompt('Nome da nova operadora:')||'').trim().toUpperCase();
+  if(!nome) return;
+  const a=lerOperadoras(); if(!a.includes(nome)) a.push(nome); gravarOperadoras(a); renderRelatorio();
+}
+function removeOperadora(o){
+  if(!confirm('Remover a operadora "'+o+'" da lista? (os fretes dela voltam para a FILA)')) return;
+  const a=lerOperadoras().filter(x=>x!==o); gravarOperadoras(a);
+  const db=lerDB(); Object.values(db).forEach(f=>{ if((f.operadora||'').toUpperCase()===o) f.operadora=''; }); gravarDB(db);
+  if(relFiltro===o) relFiltro='FILA';
+  renderRelatorio(); atualizarHist();
+}
+function opDe(f){ return (f.operadora||'').toString().trim().toUpperCase(); }
+
+function setRelFiltro(o){ relFiltro=o; renderRelatorio(); }
 function setRelStatus(s){ relStatusF=s; renderRelatorio(); }
 function pill(txt,on,n,onclick){ return `<button class="pill${on?' on':''}" onclick="${onclick}">${esc(txt)}${n!=null?`<span class="n">${n}</span>`:''}</button>`; }
 // escapa um valor para ir como argumento entre aspas simples dentro de onclick="..."
@@ -811,54 +829,89 @@ function jsArg(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").re
 
 function renderRelatorio(){
   const fretes=Object.values(lerDB());
-  // operadoras
-  const ops={};
-  fretes.forEach(f=>{ const o=(f.atendente||'—').toString().trim().toUpperCase()||'—'; ops[o]=(ops[o]||0)+1; });
+  const operadoras=lerOperadoras();
+  const naFila=fretes.filter(f=>!opDe(f)).length;
+  const cont={}; operadoras.forEach(o=>cont[o]=0);
+  fretes.forEach(f=>{ const o=opDe(f); if(o&&cont[o]!==undefined) cont[o]++; });
+  // pills: FILA | operadoras | TODAS | + operadora
   $('#relOperadoras').innerHTML =
-    pill('TODAS', relOperadora==='TODAS', fretes.length, "setRelOperadora('TODAS')") +
-    Object.keys(ops).sort().map(o=>pill(o, relOperadora===o, ops[o], `setRelOperadora('${jsArg(o)}')`)).join('');
+    pill('🕓 FILA', relFiltro==='FILA', naFila, "setRelFiltro('FILA')") +
+    operadoras.map(o=>pill(o, relFiltro===o, cont[o]||0, `setRelFiltro('${jsArg(o)}')`)).join('') +
+    pill('TODAS', relFiltro==='TODAS', fretes.length, "setRelFiltro('TODAS')") +
+    `<button class="pill" style="border-style:dashed" onclick="addOperadora()" title="Adicionar operadora">＋ operadora</button>`;
   $('#relStatus').innerHTML =
     pill('TODOS', relStatusF==='TODOS', null, "setRelStatus('TODOS')") +
     STATUSES.map(s=>pill(s, relStatusF===s, null, `setRelStatus('${jsArg(s)}')`)).join('');
   // filtro
   const q=($('#relBusca')?.value||'').trim().toLowerCase();
   let list=fretes.filter(f=>{
-    const o=(f.atendente||'—').toString().trim().toUpperCase()||'—';
-    if(relOperadora!=='TODAS' && o!==relOperadora) return false;
+    const o=opDe(f);
+    if(relFiltro==='FILA'){ if(o) return false; }
+    else if(relFiltro!=='TODAS'){ if(o!==relFiltro.toUpperCase()) return false; }
     if(relStatusF!=='TODOS' && statusDe(f)!==relStatusF) return false;
-    if(q){ const hay=[f.numero,f.clienteEmpresa,f.origem,f.destino,f.placa,...((f.veiculos||[]).map(v=>v.placa))].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
+    if(q){ const hay=[f.numero,f.clienteEmpresa,f.origem,f.destino,f.placa,f.atendente,...((f.veiculos||[]).map(v=>v.placa))].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
     return true;
   }).sort((a,b)=>num(b.numero)-num(a.numero));
   // resumo
-  const and=list.filter(f=>statusDe(f)==='ANDAMENTO').length, con=list.filter(f=>statusDe(f)==='CONCLUÍDO').length, can=list.filter(f=>statusDe(f)==='CANCELADO').length;
+  const and=list.filter(f=>opDe(f)&&statusDe(f)==='ANDAMENTO').length, con=list.filter(f=>statusDe(f)==='CONCLUÍDO').length, can=list.filter(f=>statusDe(f)==='CANCELADO').length;
   const aberto=list.reduce((s,f)=>s+(num(f.valorFrete)-num(f.pago1)-num(f.pago2)),0);
   $('#relResumo').innerHTML=
-    `<div class="box">Fretes<b>${list.length}</b></div>`+
+    `<div class="box">Na fila<b style="color:#8a6d00">${naFila}</b></div>`+
+    `<div class="box">Exibindo<b>${list.length}</b></div>`+
     `<div class="box">Em andamento<b style="color:#e6a100">${and}</b></div>`+
     `<div class="box">Concluídos<b>${con}</b></div>`+
-    `<div class="box">Cancelados<b style="color:#c0392b">${can}</b></div>`+
     `<div class="box">Total em aberto<b>${moeda(aberto)}</b></div>`;
   // cards
   $('#relLista').innerHTML = list.length ? list.map(cardFrete).join('')
-    : '<p class="hint" style="text-align:center;padding:20px">Nenhum frete para este filtro. Salve fretes na aba “Nova Ficha / Frete”.</p>';
+    : `<p class="hint" style="text-align:center;padding:20px">${relFiltro==='FILA'?'Nenhum frete na fila. Salve fretes na aba “Nova Ficha / Frete”.':'Nenhum frete para este filtro.'}</p>`;
 }
 
 function cardFrete(f){
   const id=f._id, st=statusDe(f), k=stKey(st);
+  const op=opDe(f), operadoras=lerOperadoras();
+  const vend=esc(up(f.atendente))||'—', cli=esc(up(f.clienteEmpresa))||'—', veic=esc(veicResumo(f))||'—';
+  const rota=`${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}`;
+
+  // ----- Frete na FILA: card compacto com botões PUXAR -----
+  if(!op){
+    const botoes=operadoras.map(o=>`<button class="btn-ok" style="padding:5px 12px;font-size:12px" onclick="puxarFrete('${id}','${jsArg(o)}')">⬇ Puxar p/ ${esc(o)}</button>`).join(' ');
+    return `<div class="fcard s-fila" style="border-left-color:#e6a100">
+      <div class="top">
+        <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="badge" style="background:#8a6d00">🕓 NA FILA</span>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
+        </div>
+      </div>
+      <div class="body2">
+        <div class="fld"><label>Vendedor(a) / atendente</label><div class="ro">${vend}</div></div>
+        <div class="fld"><label>Cliente</label><div class="ro">${cli}</div></div>
+        <div class="fld"><label>Veículo(s)</label><div class="ro">${veic}</div></div>
+        <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
+        <div class="fld col4"><label>Puxar para o controle de:</label><div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:2px">${botoes||'<span class="hint">Cadastre uma operadora em “＋ operadora”.</span>'}</div></div>
+      </div>
+    </div>`;
+  }
+
+  // ----- Frete já PUXADO por uma operadora: card completo -----
   const vf=num(f.valorFrete), pago=num(f.pago1)+num(f.pago2), abertoV=vf-pago, saldo=pago-somaPrest(f);
   const optS=STATUSES.map(s=>`<option${s===st?' selected':''}>${s}</option>`).join('');
+  const optOp=operadoras.map(o=>`<option${o===op?' selected':''}>${esc(o)}</option>`).join('');
   return `<div class="fcard s-${k}">
     <div class="top">
-      <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}</span></div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>
         <span class="badge s-${k}">${esc(st)}</span>
+        <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="devolverFila('${id}')" title="Voltar para a fila">↩ Fila</button>
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
       </div>
     </div>
     <div class="body2">
-      <div class="fld"><label>Operadora</label><div class="ro">${esc(up(f.atendente))||'—'}</div></div>
-      <div class="fld"><label>Cliente</label><div class="ro">${esc(up(f.clienteEmpresa))||'—'}</div></div>
-      <div class="fld col2"><label>Veículo(s)</label><div class="ro">${esc(veicResumo(f))||'—'}</div></div>
+      <div class="fld"><label>Operadora (responsável)</label><select onchange="puxarFrete('${id}',this.value)">${optOp}</select></div>
+      <div class="fld"><label>Vendedor(a) / atendente</label><div class="ro">${vend}</div></div>
+      <div class="fld"><label>Cliente</label><div class="ro">${cli}</div></div>
+      <div class="fld"><label>Veículo(s)</label><div class="ro">${veic}</div></div>
 
       <div class="fld"><label>Status</label><select onchange="setFrete('${id}','status',this.value)">${optS}</select></div>
       <div class="fld"><label>Nº averbação</label><input value="${escA(f.averbacao)}" onchange="setFrete('${id}','averbacao',this.value)"></div>
@@ -874,6 +927,18 @@ function cardFrete(f){
       <div class="fld col2"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
     </div>
   </div>`;
+}
+function puxarFrete(id,op){
+  const db=lerDB(); if(!db[id]) return;
+  db[id].operadora=(op||'').toUpperCase();
+  if(!db[id].status) db[id].status='ANDAMENTO';
+  db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
+  renderRelatorio(); atualizarHist(); flash('Frete '+(db[id].numero||'')+' puxado para '+db[id].operadora);
+}
+function devolverFila(id){
+  const db=lerDB(); if(!db[id]) return;
+  db[id].operadora=''; db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
+  renderRelatorio(); atualizarHist();
 }
 function setFrete(id,campo,valor){
   const db=lerDB(); if(!db[id]) return;
