@@ -83,6 +83,18 @@
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:bold;color:#fff}
   .badge.s-andamento{background:#e6a100}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#c0392b}
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#c0392b;font-weight:bold}
+  .badge.atraso{background:#c0392b}
+  table.fin{width:100%;border-collapse:collapse;font-size:13px}
+  table.fin th,table.fin td{border:1px solid var(--linha);padding:6px 8px;text-align:left;white-space:nowrap}
+  table.fin th{background:var(--cinza);color:#3a4a5b;font-size:12px}
+  table.fin tr.conf{background:#eafbf0}
+  table.fin tr.vencido{background:#fdece9}
+  table.fin input[type=date],table.fin input[inputmode=decimal]{font-family:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--linha);border-radius:6px}
+  table.fin input[inputmode=decimal]{width:100px}
+  .tagv{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:bold;color:#fff}
+  .tagv.venc{background:#c0392b}.tagv.dia{background:#e6a100}.tagv.quit{background:var(--ok)}
+  .chk{display:inline-flex;gap:4px;align-items:center;cursor:pointer;font-size:12px;font-weight:600}
+  .chk input{width:16px;height:16px;accent-color:var(--ok)}
   .hist-wrap{display:grid;grid-template-columns:1fr;gap:14px}
   .hist-col{border:1px solid var(--linha);border-radius:8px;padding:10px;background:#fbfcfe}
   .hist-col label{font-size:11px;font-weight:600;color:#7a8794}
@@ -174,6 +186,7 @@
   <div class="tabs no-print">
     <button id="tabFicha" class="tab tab-on" onclick="switchView('ficha')">📝 Nova Ficha / Frete</button>
     <button id="tabRel" class="tab" onclick="switchView('rel')">📋 Relatório · Operadoras</button>
+    <button id="tabFin" class="tab" onclick="switchView('fin')">💰 Financeiro</button>
   </div>
 
   <div id="viewFicha">
@@ -325,38 +338,13 @@
     </div>
 
     <div class="card">
-      <h2>8 · Prestadores (motorista / transportadora) — só na ficha interna</h2>
+      <h2>8 · Prestadores (motorista / transportadora)</h2>
       <div class="body">
-        <p class="hint" style="margin-top:0">Até 4 prestadores. Aparecem apenas na Autorização (controle interno), não no contrato do cliente.</p>
-        <div id="prestadores">
-          <div class="grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;font-size:11px;font-weight:600;color:#4a5a6b;margin-bottom:4px">
-            <div>Empresa / Motorista</div><div>Telefone</div><div>Data de saída</div><div>Valor (R$)</div><div>Status</div>
-          </div>
-          <!-- 4 linhas -->
-          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;margin-bottom:6px">
-            <input name="prestEmpresa1" placeholder="Empresa / Motorista"><input name="prestTel1" placeholder="Telefone">
-            <input type="date" name="prestSaida1"><input name="prestValor1" inputmode="decimal" placeholder="0,00">
-            <input name="prestStatus1" placeholder="Ex.: EM ROTA" list="statusList">
-          </div>
-          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;margin-bottom:6px">
-            <input name="prestEmpresa2" placeholder="Empresa / Motorista"><input name="prestTel2" placeholder="Telefone">
-            <input type="date" name="prestSaida2"><input name="prestValor2" inputmode="decimal" placeholder="0,00">
-            <input name="prestStatus2" placeholder="Ex.: EM ROTA" list="statusList">
-          </div>
-          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px;margin-bottom:6px">
-            <input name="prestEmpresa3" placeholder="Empresa / Motorista"><input name="prestTel3" placeholder="Telefone">
-            <input type="date" name="prestSaida3"><input name="prestValor3" inputmode="decimal" placeholder="0,00">
-            <input name="prestStatus3" placeholder="Ex.: EM ROTA" list="statusList">
-          </div>
-          <div class="prest-row grid" style="grid-template-columns:2fr 1.2fr 1fr 1fr 1.2fr;gap:8px">
-            <input name="prestEmpresa4" placeholder="Empresa / Motorista"><input name="prestTel4" placeholder="Telefone">
-            <input type="date" name="prestSaida4"><input name="prestValor4" inputmode="decimal" placeholder="0,00">
-            <input name="prestStatus4" placeholder="Ex.: EM ROTA" list="statusList">
-          </div>
-          <datalist id="statusList">
-            <option>AGUARDANDO</option><option>CONFIRMADO</option><option>EM ROTA</option>
-            <option>ENTREGUE</option><option>PAGO</option><option>CANCELADO</option>
-          </datalist>
+        <p class="hint" style="margin-top:0">Adicione quantos precisar. Cada prestador cobra por <b>placa/veículo transportado</b>. A conferência e o pagamento são controlados na aba <b>💰 Financeiro</b>.</p>
+        <div id="prestadoresWrap"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+          <button type="button" class="btn-primary" onclick="addPrest()">＋ Adicionar prestador</button>
+          <span class="hint" id="prestCount"></span>
         </div>
       </div>
     </div>
@@ -416,7 +404,7 @@
       <table class="box">
         <thead><tr>
           <td class="lbl">Empresa / Motorista</td><td class="lbl">Telefone</td>
-          <td class="lbl">Data de saída</td><td class="lbl">Valor</td><td class="lbl">Status</td>
+          <td class="lbl">Placa / Veículo</td><td class="lbl">Data de saída</td><td class="lbl">Valor</td>
         </tr></thead>
         <tbody id="a_prest"></tbody>
       </table>
@@ -537,6 +525,37 @@
   <!-- ===================== PÁGINA DO CLIENTE (via link) ===================== -->
   <div id="viewCliente" style="display:none"></div>
 
+  <!-- ===================== FINANCEIRO ===================== -->
+  <div id="viewFinanceiro" style="display:none">
+    <div class="card">
+      <h2>💰 A receber (clientes)</h2>
+      <div class="body">
+        <div id="finReceberResumo" class="rel-resumo" style="margin-bottom:10px"></div>
+        <div style="overflow-x:auto"><table class="fin" id="finReceber"></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📊 Lucro por frete</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Lucro = Valor do frete − Prestadores − Imposto (12% quando marcado) − Seguro (RNTRC/Allianz). Preencha o <b>seguro</b> conforme a tabela; marque o <b>imposto</b> quando incidir.</p>
+        <div id="finLucroResumo" class="rel-resumo" style="margin-bottom:10px"></div>
+        <div style="overflow-x:auto"><table class="fin" id="finLucro"></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🚚 Prestadores — conferência e pagamento</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Cada prestador cobra por placa/veículo. Marque <b>Conferido</b> quando validar a cobrança e <b>No pagamento</b> quando incluir no sistema de pagamento. Os conferidos ficam destacados.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <strong style="font-size:13px;color:#4a5a6b">Ver:</strong>
+          <span id="finPrestPills" class="pills"></span>
+        </div>
+        <div id="finPrestResumo" class="rel-resumo" style="margin-bottom:10px"></div>
+        <div style="overflow-x:auto"><table class="fin" id="finPrest"></table></div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div id="fipeModal" class="modal no-print" style="display:none">
@@ -610,6 +629,7 @@ function dados(){
   new FormData(form).forEach((v,k)=>d[k]=v);
   $$('#form input[type=checkbox]').forEach(c=>d[c.name]=c.checked);
   d.veiculos = veiculos.map(v=>({...v}));
+  d.prestadores = prestadores.map(p=>({...p}));
   return d;
 }
 // veículos preenchidos (ao menos 1 linha, mesmo em branco, para a tabela)
@@ -627,6 +647,33 @@ function blocoPessoa(nome,cpf,tel,end,bairro,cid,uf,cep){
     ${row('Endereço',end)}${row('Bairro',bairro)}${row('Cidade / UF',(cid?cid:'')+(uf?(' / '+uf):''))}${row('CEP',cep)}
   </table>`;
 }
+
+// ---- prestadores (lista dinâmica) ----
+let prestadores=[];
+function renderPrest(){
+  const wrap=$('#prestadoresWrap'); if(!wrap) return;
+  if(!prestadores.length){ wrap.innerHTML='<p class="hint" style="margin:0 0 6px">Nenhum prestador ainda. Clique em “Adicionar prestador”.</p>'; $('#prestCount').textContent=''; return; }
+  wrap.innerHTML=prestadores.map((p,i)=>`
+    <div class="prest-row2" style="border:1px solid var(--linha);border-radius:8px;padding:10px;margin-bottom:8px;background:#fbfcfe">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:12px;color:var(--azul)">Prestador ${i+1}</strong>
+        <button type="button" class="btn-ghost" style="padding:3px 10px;font-size:12px" onclick="removePrest(${i})">✕ remover</button>
+      </div>
+      <div class="grid" style="grid-template-columns:2fr 1.2fr 1.1fr 1fr 1fr;gap:8px">
+        <div class="field"><label>Empresa / Motorista</label><input data-pi="${i}" data-pf="emp" value="${escA(p.emp)}"></div>
+        <div class="field"><label>Telefone</label><input data-pi="${i}" data-pf="tel" value="${escA(p.tel)}"></div>
+        <div class="field"><label>Placa / Veículo</label><input data-pi="${i}" data-pf="placa" value="${escA(p.placa)}" placeholder="Placa transportada"></div>
+        <div class="field"><label>Data de saída</label><input type="date" data-pi="${i}" data-pf="saida" value="${escA(p.saida)}"></div>
+        <div class="field"><label>Valor (R$)</label><input data-pi="${i}" data-pf="valor" inputmode="decimal" value="${escA(p.valor)}" placeholder="0,00"></div>
+      </div>
+    </div>`).join('');
+  wrap.querySelectorAll('input[data-pi]').forEach(inp=>{
+    inp.addEventListener('input',()=>{ prestadores[+inp.dataset.pi][inp.dataset.pf]=inp.value; salvarRascunho(); render(); });
+  });
+  $('#prestCount').textContent = `${prestadores.length} prestador(es)`;
+}
+function addPrest(){ prestadores.push({conf:false,incl:false,pago:false}); renderPrest(); salvarRascunho(); render(); }
+function removePrest(i){ prestadores.splice(i,1); renderPrest(); salvarRascunho(); render(); }
 
 // ---- veículos (lista dinâmica, até 20) ----
 const MAX_VEIC=20;
@@ -759,13 +806,9 @@ function render(){
     ck(d.docVeiculo,'Doc. do veículo (CRLV)') + ck(d.docCnhRg,'CNH ou RG') +
     ck(d.docComprovante,'Comprovante de residência') + ck(d.docColeta,'Coleta') + ck(d.docEntrega,'Entrega');
 
-  // Prestadores (mostra linhas preenchidas; se nenhuma, deixa 2 em branco p/ escrever à mão)
-  let linhas=[];
-  for(let i=1;i<=4;i++){
-    const emp=d['prestEmpresa'+i], tel=d['prestTel'+i], sai=d['prestSaida'+i], val=d['prestValor'+i], st=d['prestStatus'+i];
-    if(emp||tel||sai||val||st)
-      linhas.push(`<tr><td>${esc(up(emp))}</td><td>${esc(tel)}</td><td>${dataBR(sai)}</td><td>${moeda(val)}</td><td>${esc(up(st))}</td></tr>`);
-  }
+  // Prestadores (mostra os preenchidos; se nenhum, deixa 2 linhas em branco p/ escrever à mão)
+  let linhas=prestadores.filter(p=>p.emp||p.tel||p.placa||p.saida||p.valor).map(p=>
+    `<tr><td>${esc(up(p.emp))}</td><td>${esc(p.tel)}</td><td>${esc(up(p.placa))}</td><td>${dataBR(p.saida)}</td><td>${moeda(p.valor)}</td></tr>`);
   if(!linhas.length) linhas=['<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>','<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>'];
   $('#a_prest').innerHTML=linhas.join('');
 
@@ -898,7 +941,7 @@ function carregarFrete(id){
 }
 function novoFrete(){
   idAtual=null; form.reset(); localStorage.removeItem(DRAFT);
-  veiculos=[{}]; renderVeic();
+  veiculos=[{}]; renderVeic(); prestadores=[]; renderPrest();
   $('#hist').value=''; render(); flash('Novo frete');
 }
 function excluirFrete(){
@@ -911,7 +954,7 @@ function excluirFrete(){
 function aplicar(d){
   form.reset();
   Object.entries(d).forEach(([k,v])=>{
-    if(k==='veiculos') return;
+    if(k==='veiculos'||k==='prestadores') return;
     const el=form.elements[k]; if(!el) return;
     if(el.type==='checkbox') el.checked=!!v; else el.value=v;
   });
@@ -920,7 +963,8 @@ function aplicar(d){
   else if(d.veiculo||d.placa||d.chassi||d.anoFabMod||d.cor||d.valorVeiculo)
     veiculos=[{modelo:d.veiculo||'',placa:d.placa||'',chassi:d.chassi||'',ano:d.anoFabMod||'',cor:d.cor||'',valor:d.valorVeiculo||''}];
   else veiculos=[{}];
-  renderVeic();
+  prestadores = prestDe(d).map(p=>({...p}));   // array novo ou migração do formato antigo
+  renderVeic(); renderPrest();
   render();
 }
 function exportarJSON(){
@@ -980,7 +1024,15 @@ function num(v){
   if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.');
   const n=parseFloat(s.replace(/[^\d.-]/g,'')); return isNaN(n)?0:n;
 }
-function somaPrest(f){ let t=0; for(let i=1;i<=4;i++) t+=num(f['prestValor'+i]); return t; }
+// lista de prestadores de um frete (novo formato array; migra formato antigo)
+function prestDe(f){
+  if(Array.isArray(f.prestadores)) return f.prestadores;
+  const a=[];
+  for(let i=1;i<=4;i++){ const emp=f['prestEmpresa'+i], val=f['prestValor'+i];
+    if(emp||val||f['prestTel'+i]||f['prestSaida'+i]) a.push({emp:emp||'',tel:f['prestTel'+i]||'',placa:'',saida:f['prestSaida'+i]||'',valor:val||'',conf:false,incl:false,pago:false}); }
+  return a;
+}
+function somaPrest(f){ return prestDe(f).reduce((t,p)=>t+num(p.valor),0); }
 function veicResumo(f){
   const vs=(Array.isArray(f.veiculos)&&f.veiculos.length)?f.veiculos:(f.veiculo?[{modelo:f.veiculo,placa:f.placa}]:[]);
   if(!vs.length) return '';
@@ -1023,9 +1075,11 @@ function renderRelatorio(){
   const cont={}; operadoras.forEach(o=>cont[o]=0);
   fretes.forEach(f=>{ const o=opDe(f); if(o&&cont[o]!==undefined) cont[o]++; });
   // pills: FILA | operadoras | TODAS | + operadora
+  const nAtras=fretes.filter(atrasado).length;
   $('#relOperadoras').innerHTML =
     pill('🕓 FILA', relFiltro==='FILA', naFila, "setRelFiltro('FILA')") +
     operadoras.map(o=>pill(o, relFiltro===o, cont[o]||0, `setRelFiltro('${jsArg(o)}')`)).join('') +
+    pill('⚠ ATRASADOS', relFiltro==='ATRASADOS', nAtras, "setRelFiltro('ATRASADOS')") +
     pill('TODAS', relFiltro==='TODAS', fretes.length, "setRelFiltro('TODAS')") +
     `<button class="pill" style="border-style:dashed" onclick="addOperadora()" title="Adicionar operadora">＋ operadora</button>`;
   $('#relStatus').innerHTML =
@@ -1036,6 +1090,7 @@ function renderRelatorio(){
   let list=fretes.filter(f=>{
     const o=opDe(f);
     if(relFiltro==='FILA'){ if(o) return false; }
+    else if(relFiltro==='ATRASADOS'){ if(!atrasado(f)) return false; }
     else if(relFiltro!=='TODAS'){ if(o!==relFiltro.toUpperCase()) return false; }
     if(relStatusF!=='TODOS' && statusDe(f)!==relStatusF) return false;
     if(q){ const hay=[f.numero,f.clienteEmpresa,f.origem,f.destino,f.placa,f.atendente,...((f.veiculos||[]).map(v=>v.placa))].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
@@ -1048,7 +1103,7 @@ function renderRelatorio(){
     `<div class="box">Na fila<b style="color:#8a6d00">${naFila}</b></div>`+
     `<div class="box">Exibindo<b>${list.length}</b></div>`+
     `<div class="box">Em andamento<b style="color:#e6a100">${and}</b></div>`+
-    `<div class="box">Concluídos<b>${con}</b></div>`+
+    `<div class="box">⚠ Sem atualização 24h<b style="color:#c0392b">${nAtras}</b></div>`+
     `<div class="box">Total em aberto<b>${moeda(aberto)}</b></div>`;
   // cards
   $('#relLista').innerHTML = list.length ? list.map(cardFrete).join('')
@@ -1092,6 +1147,7 @@ function cardFrete(f){
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>
         <span class="badge s-${k}">${esc(st)}</span>
+        ${atrasado(f)?`<span class="badge atraso">⚠ ${horasSemAtualizacao(f)}h sem atualização</span>`:''}
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="devolverFila('${id}')" title="Voltar para a fila">↩ Fila</button>
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
       </div>
@@ -1141,13 +1197,131 @@ function puxarFrete(id,op){
   const db=lerDB(); if(!db[id]) return;
   db[id].operadora=(op||'').toUpperCase();
   if(!db[id].status) db[id].status='ANDAMENTO';
+  if(!db[id].puxadoEm) db[id].puxadoEm=new Date().toISOString();
   db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
   renderRelatorio(); atualizarHist(); flash('Frete '+(db[id].numero||'')+' puxado para '+db[id].operadora);
+}
+// ---- alerta de falta de atualização (24h) ----
+function ultimaAtividade(f){
+  const ts=[f.puxadoEm];
+  const hi=histOf(f,'interno'), hc=histOf(f,'cliente');
+  if(hi.length) ts.push(hi[hi.length-1].ts);
+  if(hc.length) ts.push(hc[hc.length-1].ts);
+  const vals=ts.filter(Boolean).map(t=>Date.parse(t)).filter(n=>!isNaN(n));
+  return vals.length?Math.max(...vals):0;
+}
+function horasSemAtualizacao(f){
+  const u=ultimaAtividade(f); if(!u) return null;
+  return Math.floor((Date.now()-u)/3600000);
+}
+function atrasado(f){
+  if(!opDe(f) || statusDe(f)!=='ANDAMENTO') return false;
+  const h=horasSemAtualizacao(f);
+  return h!=null && h>=24;
 }
 function devolverFila(id){
   const db=lerDB(); if(!db[id]) return;
   db[id].operadora=''; db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
   renderRelatorio(); atualizarHist();
+}
+
+// ===================== FINANCEIRO =====================
+const IMPOSTO_PCT=0.12;
+function somaVeicValor(f){ const vs=Array.isArray(f.veiculos)?f.veiculos:[]; return vs.reduce((t,v)=>t+num(v.valor),0)+ (Array.isArray(f.veiculos)?0:num(f.valorVeiculo)); }
+function impostoDe(f){ return f.impostoOn ? IMPOSTO_PCT*num(f.valorFrete) : 0; }
+function seguroDe(f){ return num(f.seguro); }
+function lucroDe(f){ return num(f.valorFrete) - somaPrest(f) - impostoDe(f) - seguroDe(f); }
+function recebidoDe(f){ return num(f.pago1)+num(f.pago2); }
+function abertoDe(f){ return num(f.valorFrete)-recebidoDe(f); }
+function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function situacaoReceber(f){
+  if(abertoDe(f)<=0.005) return {k:'quit',t:'QUITADO'};
+  if(f.previsaoRecebimento && f.previsaoRecebimento < hojeISO()) return {k:'venc',t:'VENCIDO'};
+  return {k:'dia',t:'A RECEBER'};
+}
+// grava um campo simples do frete e atualiza o financeiro
+function setFin(id,campo,valor){
+  const db=lerDB(); if(!db[id]) return;
+  db[id][campo]=valor; db[id]._salvoEm=new Date().toISOString();
+  gravarDB(db); renderFinanceiro();
+}
+function toggleImposto(id,on){ setFin(id,'impostoOn',!!on); }
+// prestador: grava flag de conferência/pagamento
+function setPrestFin(id,idx,campo,val){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  if(!Array.isArray(f.prestadores)) f.prestadores=prestDe(f);
+  if(!f.prestadores[idx]) return;
+  f.prestadores[idx][campo]=val; f._salvoEm=new Date().toISOString();
+  gravarDB(db); renderFinanceiro();
+}
+
+let finPrestF='TODOS';
+function setFinPrestF(x){ finPrestF=x; renderFinanceiro(); }
+
+function renderFinanceiro(){
+  const fretes=Object.values(lerDB()).filter(f=>num(f.valorFrete)>0 || somaPrest(f)>0);
+  fretes.sort((a,b)=>num(b.numero)-num(a.numero));
+
+  // ---- A RECEBER ----
+  let totFrete=0,totRec=0,totAberto=0,totVenc=0;
+  const linhasR=fretes.filter(f=>num(f.valorFrete)>0).map(f=>{
+    const s=situacaoReceber(f), ab=abertoDe(f); totFrete+=num(f.valorFrete); totRec+=recebidoDe(f); totAberto+=Math.max(0,ab); if(s.k==='venc') totVenc+=ab;
+    return `<tr class="${s.k==='venc'?'vencido':''}">
+      <td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td><td>${esc(up(f.operadora))||'—'}</td>
+      <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</td>
+      <td><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setFin('${f._id}','previsaoRecebimento',this.value)"></td>
+      <td><span class="tagv ${s.k}">${s.t}</span></td></tr>`;
+  }).join('');
+  $('#finReceber').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Operadora</th><th>Valor frete</th><th>Recebido</th><th>Em aberto</th><th>Previsão receb.</th><th>Situação</th></tr></thead><tbody>${linhasR||'<tr><td colspan="8" class="hint" style="text-align:center">Nenhum frete com valor.</td></tr>'}</tbody>`;
+  $('#finReceberResumo').innerHTML=
+    `<div class="box">Receita (fretes)<b>${moeda(totFrete)}</b></div>`+
+    `<div class="box">Recebido<b style="color:var(--ok)">${moeda(totRec)}</b></div>`+
+    `<div class="box">Em aberto<b>${moeda(totAberto)}</b></div>`+
+    `<div class="box">Vencido<b style="color:#c0392b">${moeda(totVenc)}</b></div>`;
+
+  // ---- LUCRO ----
+  let sReceita=0,sPrest=0,sImp=0,sSeg=0,sLucro=0;
+  const linhasL=fretes.filter(f=>num(f.valorFrete)>0).map(f=>{
+    const imp=impostoDe(f), seg=seguroDe(f), pr=somaPrest(f), lu=lucroDe(f);
+    sReceita+=num(f.valorFrete); sPrest+=pr; sImp+=imp; sSeg+=seg; sLucro+=lu;
+    return `<tr><td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td>
+      <td>${moeda(f.valorFrete)}</td><td>− ${moeda(pr)}</td>
+      <td><label class="chk"><input type="checkbox" ${f.impostoOn?'checked':''} onchange="toggleImposto('${f._id}',this.checked)"> 12%</label> ${f.impostoOn?('− '+moeda(imp)):'<span class="hint">—</span>'}</td>
+      <td><input inputmode="decimal" value="${escA(f.seguro)}" placeholder="0,00" onchange="setFin('${f._id}','seguro',this.value)"></td>
+      <td class="${lu<0?'saldo-neg':'saldo-pos'}"><b>${moeda(lu)}</b></td></tr>`;
+  }).join('');
+  $('#finLucro').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Valor frete</th><th>Prestadores</th><th>Imposto</th><th>Seguro (R$)</th><th>Lucro</th></tr></thead><tbody>${linhasL||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum frete com valor.</td></tr>'}</tbody>`;
+  const margem = sReceita>0 ? (sLucro/sReceita*100) : 0;
+  $('#finLucroResumo').innerHTML=
+    `<div class="box">Receita<b>${moeda(sReceita)}</b></div>`+
+    `<div class="box">Prestadores<b>${moeda(sPrest)}</b></div>`+
+    `<div class="box">Imposto<b>${moeda(sImp)}</b></div>`+
+    `<div class="box">Seguro<b>${moeda(sSeg)}</b></div>`+
+    `<div class="box">Lucro<b class="${sLucro<0?'saldo-neg':'saldo-pos'}">${moeda(sLucro)}</b></div>`+
+    `<div class="box">Margem<b>${margem.toFixed(1)}%</b></div>`;
+
+  // ---- PRESTADORES (conferência) ----
+  let itens=[];
+  fretes.forEach(f=>{ prestDe(f).forEach((p,idx)=>{ if(p.emp||p.valor||p.placa) itens.push({f,p,idx}); }); });
+  const passa=x=>{ const {p}=x; if(finPrestF==='ACONFERIR') return !p.conf; if(finPrestF==='CONFERIDOS') return !!p.conf;
+    if(finPrestF==='NOPAG') return !!p.incl; if(finPrestF==='APAGAR') return !p.pago; if(finPrestF==='PAGOS') return !!p.pago; return true; };
+  const vis=itens.filter(passa);
+  const pill=(txt,val,n)=>`<button class="pill${finPrestF===val?' on':''}" onclick="setFinPrestF('${val}')">${txt}${n!=null?`<span class="n">${n}</span>`:''}</button>`;
+  $('#finPrestPills').innerHTML=
+    pill('Todos','TODOS',itens.length)+pill('A conferir','ACONFERIR',itens.filter(x=>!x.p.conf).length)+
+    pill('Conferidos','CONFERIDOS',itens.filter(x=>x.p.conf).length)+pill('No pagamento','NOPAG',itens.filter(x=>x.p.incl).length)+
+    pill('A pagar','APAGAR',itens.filter(x=>!x.p.pago).length)+pill('Pagos','PAGOS',itens.filter(x=>x.p.pago).length);
+  const linhasP=vis.map(({f,p,idx})=>`<tr class="${p.conf?'conf':''}">
+    <td>${esc(f.numero||'')}</td><td>${esc(up(p.emp))}</td><td>${esc(up(p.placa))||'—'}</td><td>${moeda(p.valor)}</td>
+    <td><label class="chk"><input type="checkbox" ${p.conf?'checked':''} onchange="setPrestFin('${f._id}',${idx},'conf',this.checked)"> Conferido</label></td>
+    <td><label class="chk"><input type="checkbox" ${p.incl?'checked':''} onchange="setPrestFin('${f._id}',${idx},'incl',this.checked)"> No pagamento</label></td>
+    <td><label class="chk"><input type="checkbox" ${p.pago?'checked':''} onchange="setPrestFin('${f._id}',${idx},'pago',this.checked)"> Pago</label></td></tr>`).join('');
+  $('#finPrest').innerHTML=`<thead><tr><th>Nº frete</th><th>Empresa / Motorista</th><th>Placa</th><th>Valor</th><th>Conferência</th><th>Pagamento</th><th>Baixa</th></tr></thead><tbody>${linhasP||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
+  const totP=vis.reduce((t,x)=>t+num(x.p.valor),0), totPagar=itens.filter(x=>!x.p.pago).reduce((t,x)=>t+num(x.p.valor),0), totPago=itens.filter(x=>x.p.pago).reduce((t,x)=>t+num(x.p.valor),0);
+  $('#finPrestResumo').innerHTML=
+    `<div class="box">Exibindo<b>${moeda(totP)}</b></div>`+
+    `<div class="box">A pagar<b style="color:#c0392b">${moeda(totPagar)}</b></div>`+
+    `<div class="box">Pago<b style="color:var(--ok)">${moeda(totPago)}</b></div>`;
 }
 
 // ---- histórico de atualizações (interno + cliente) ----
@@ -1281,12 +1455,14 @@ function setFrete(id,campo,valor){
 function abrirFicha(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); }
 
 function switchView(v){
-  const ficha=(v==='ficha');
-  $('#viewFicha').style.display=ficha?'':'none';
-  $('#viewRelatorio').style.display=ficha?'none':'';
-  $('#tabFicha').classList.toggle('tab-on',ficha);
-  $('#tabRel').classList.toggle('tab-on',!ficha);
-  if(!ficha) renderRelatorio();
+  $('#viewFicha').style.display     = v==='ficha'?'':'none';
+  $('#viewRelatorio').style.display = v==='rel'  ?'':'none';
+  $('#viewFinanceiro').style.display= v==='fin'  ?'':'none';
+  $('#tabFicha').classList.toggle('tab-on', v==='ficha');
+  $('#tabRel').classList.toggle('tab-on', v==='rel');
+  $('#tabFin').classList.toggle('tab-on', v==='fin');
+  if(v==='rel') renderRelatorio();
+  if(v==='fin') renderFinanceiro();
 }
 
 // inicialização
@@ -1294,7 +1470,7 @@ function switchView(v){
   initData();                 // local: preenche MEM já; nuvem: conecta e sincroniza
   const raw=localStorage.getItem(DRAFT);
   if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
-  renderVeic();
+  renderVeic(); renderPrest();
   atualizarHist();
   aplicarLogo();
   render();

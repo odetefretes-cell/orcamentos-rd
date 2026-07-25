@@ -86,11 +86,29 @@ Depois de ativado:
 - Link do cliente **ao vivo**: cada atualização aparece sozinha, sem reenviar o link.
 - O topo do Relatório mostra o modo atual (**Modo local** ou **☁ Compartilhado**).
 
-## Prestadores (ficha interna)
+## Prestadores (ficha)
 
-Na seção **8 · Prestadores** você lança até 4 motoristas/transportadoras
-(Empresa/Motorista, Telefone, Data de saída, Valor e Status). Eles aparecem
-**apenas na Autorização** (controle interno), nunca no contrato do cliente.
+Na seção **8 · Prestadores** você adiciona quantos precisar (botão **＋ Adicionar
+prestador**), cada um com Empresa/Motorista, Telefone, **Placa/Veículo transportado**,
+Data de saída e Valor. Aparecem na Autorização (controle interno) e alimentam o
+controle de conferência/pagamento na aba **Financeiro**.
+
+## Alerta de falta de atualização (24h)
+
+No Relatório, todo frete **em andamento** que fica **24h sem atualização** ganha o
+selo **⚠ Xh sem atualização**. Há um filtro **⚠ ATRASADOS** e um contador no resumo,
+para a operadora não esquecer de dar andamento.
+
+## Aba 💰 Financeiro
+
+- **A receber (clientes)**: valor do frete, recebido, em aberto, **previsão de
+  recebimento** e situação (**A receber / Vencido / Quitado**). Vencidos destacados,
+  com totais de receita, recebido, em aberto e **vencido**.
+- **Lucro por frete**: `Lucro = frete − prestadores − imposto (12% quando marcado) −
+  seguro (RNTRC/Allianz)`. Totais de receita, custos, lucro e **margem %**.
+- **Prestadores — conferência e pagamento**: cada prestador (por placa/veículo) com
+  **Conferido**, **No pagamento** e **Pago**. Os conferidos ficam destacados, com
+  filtros (a conferir / conferidos / a pagar / pagos) e totais.
 
 ## Logo da empresa
 
