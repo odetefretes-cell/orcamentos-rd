@@ -57,9 +57,22 @@ Detalhes:
   placa, origem, destino ou vendedor.
 - **Resumo**: na fila, exibindo, em andamento, concluídos e **total em aberto**.
 - No card já puxado a operadora edita (salva sozinho): **Status, Nº averbação,
-  Atualização, Pago 1/2**; o sistema calcula **Em aberto** (frete − pago) e
+  Previsão de entrega, Pago 1/2**; o sistema calcula **Em aberto** (frete − pago) e
   **Saldo** (pago − prestadores). Botão **↩ Fila** devolve o frete para a fila e
   **Abrir ficha** volta para reimprimir os documentos.
+
+### Atualizações e link de acompanhamento do cliente
+
+- **Histórico de atualizações internas** — cada anotação é registrada com data/hora,
+  formando um histórico para a operadora acompanhar a evolução do transporte.
+- **Atualizações para o cliente** — um histórico separado, com a linguagem voltada
+  ao cliente.
+- **🔗 Gerar link de acompanhamento do cliente** — cria um link que abre uma página
+  com o **andamento do transporte** (status, dados e a linha do tempo de atualizações
+  do cliente). É só enviar pelo WhatsApp; o cliente abre e acompanha.
+  - O link carrega os dados na própria URL (não expõe dados internos nem pagamentos).
+  - **Para o cliente conseguir abrir**, a página precisa estar **publicada na internet**
+    (ex.: GitHub Pages). A cada nova atualização para o cliente, gere o link de novo.
 
 ## Prestadores (ficha interna)
 
