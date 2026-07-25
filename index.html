@@ -270,6 +270,9 @@
         <div class="field"><label>Frete pago?</label>
           <select name="fretePago"><option>NÃO</option><option>SIM</option></select>
         </div>
+        <div class="field"><label>Nota fiscal</label>
+          <select name="nf"><option value="SEM NF">SEM NF</option><option value="COM NF">COM NF (calcula imposto 12%)</option></select>
+        </div>
         <div class="field"><label>Previsão de entrega</label><input name="previsaoEntrega" placeholder="Ex.: 10 A 15 DIAS APÓS EMBARQUE"></div>
         <div class="field"><label>Equipamento</label><input name="equipamentos" placeholder="CEGONHA - CARRETA" value="CEGONHA - CARRETA"></div>
         <div class="field col2"><label>Observações do frete (prazo, condições)</label><textarea name="observacoes" placeholder="Ex.: 10 A 15 DIAS APÓS EMBARQUE / FRETE BASE X BASE"></textarea></div>
@@ -549,6 +552,8 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <strong style="font-size:13px;color:#4a5a6b">Ver:</strong>
           <span id="finPrestPills" class="pills"></span>
+          <input id="finPrestBusca" oninput="renderFinanceiro()" placeholder="🔎 buscar prestador, placa, nº frete ou valor…"
+                 style="flex:1;min-width:220px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         </div>
         <div id="finPrestResumo" class="rel-resumo" style="margin-bottom:10px"></div>
         <div style="overflow-x:auto"><table class="fin" id="finPrest"></table></div>
@@ -1231,7 +1236,9 @@ function devolverFila(id){
 // ===================== FINANCEIRO =====================
 const IMPOSTO_PCT=0.12;
 function somaVeicValor(f){ const vs=Array.isArray(f.veiculos)?f.veiculos:[]; return vs.reduce((t,v)=>t+num(v.valor),0)+ (Array.isArray(f.veiculos)?0:num(f.valorVeiculo)); }
-function impostoDe(f){ return f.impostoOn ? IMPOSTO_PCT*num(f.valorFrete) : 0; }
+// COM NF -> calcula imposto; SEM NF -> zero. (compat: campo antigo impostoOn)
+function comNF(f){ return f.nf ? (f.nf==='COM NF') : !!f.impostoOn; }
+function impostoDe(f){ return comNF(f) ? IMPOSTO_PCT*num(f.valorFrete) : 0; }
 
 // ---- Seguro RCTR-C (taxa por UF origem -> UF destino, sobre o valor do veículo) ----
 const UFS=['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RO','RR','RS','SC','SP','SE','TO'];
@@ -1297,10 +1304,11 @@ function renderFinanceiro(){
   const linhasL=fretes.filter(f=>num(f.valorFrete)>0).map(f=>{
     const imp=impostoDe(f), seg=seguroDe(f), pr=somaPrest(f), lu=lucroDe(f);
     sReceita+=num(f.valorFrete); sPrest+=pr; sImp+=imp; sSeg+=seg; sLucro+=lu;
+    const segEfetivo = (f.seguro!=null&&f.seguro!=='') ? num(f.seguro) : (seguroSugerido(f)||0);
     return `<tr><td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td>
       <td>${moeda(f.valorFrete)}</td><td>− ${moeda(pr)}</td>
-      <td><label class="chk"><input type="checkbox" ${f.impostoOn?'checked':''} onchange="toggleImposto('${f._id}',this.checked)"> 12%</label> ${f.impostoOn?('− '+moeda(imp)):'<span class="hint">—</span>'}</td>
-      <td><input inputmode="decimal" value="${escA(f.seguro)}" placeholder="${seguroSugerido(f)!=null?('auto '+moeda(seguroSugerido(f))):'0,00'}" onchange="setFin('${f._id}','seguro',this.value)" title="${taxaSeguro(f)!=null?('Taxa RCTR-C '+ufDe(f.origem)+'→'+ufDe(f.destino)+': '+taxaSeguro(f)+'%'):'Sem taxa na tabela — digite manual'}"></td>
+      <td><label class="chk"><input type="checkbox" ${comNF(f)?'checked':''} onchange="setFin('${f._id}','nf',this.checked?'COM NF':'SEM NF')"> ${comNF(f)?'COM NF':'SEM NF'}</label> ${comNF(f)?('− '+moeda(imp)):'<span class="hint">isento</span>'}</td>
+      <td><input inputmode="decimal" value="${escA(segEfetivo? String(segEfetivo):'')}" placeholder="0,00" onchange="setFin('${f._id}','seguro',this.value)" title="${taxaSeguro(f)!=null?('Taxa RCTR-C '+ufDe(f.origem)+'→'+ufDe(f.destino)+': '+taxaSeguro(f)+'% × valor do veículo'):'Sem taxa na tabela — digite manual'}"></td>
       <td class="${lu<0?'saldo-neg':'saldo-pos'}"><b>${moeda(lu)}</b></td></tr>`;
   }).join('');
   $('#finLucro').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Valor frete</th><th>Prestadores</th><th>Imposto</th><th>Seguro (R$)</th><th>Lucro</th></tr></thead><tbody>${linhasL||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum frete com valor.</td></tr>'}</tbody>`;
@@ -1316,8 +1324,15 @@ function renderFinanceiro(){
   // ---- PRESTADORES (conferência) ----
   let itens=[];
   fretes.forEach(f=>{ prestDe(f).forEach((p,idx)=>{ if(p.emp||p.valor||p.placa) itens.push({f,p,idx}); }); });
-  const passa=x=>{ const {p}=x; if(finPrestF==='ACONFERIR') return !p.conf; if(finPrestF==='CONFERIDOS') return !!p.conf;
-    if(finPrestF==='NOPAG') return !!p.incl; if(finPrestF==='APAGAR') return !p.pago; if(finPrestF==='PAGOS') return !!p.pago; return true; };
+  const qp=($('#finPrestBusca')?.value||'').trim().toLowerCase();
+  const passa=x=>{ const {p,f}=x;
+    if(finPrestF==='ACONFERIR' && p.conf) return false;
+    if(finPrestF==='CONFERIDOS' && !p.conf) return false;
+    if(finPrestF==='NOPAG' && !p.incl) return false;
+    if(finPrestF==='APAGAR' && p.pago) return false;
+    if(finPrestF==='PAGOS' && !p.pago) return false;
+    if(qp){ const hay=[p.emp,p.placa,f.numero,p.valor,String(num(p.valor))].join(' ').toLowerCase(); if(!hay.includes(qp)) return false; }
+    return true; };
   const vis=itens.filter(passa);
   const pill=(txt,val,n)=>`<button class="pill${finPrestF===val?' on':''}" onclick="setFinPrestF('${val}')">${txt}${n!=null?`<span class="n">${n}</span>`:''}</button>`;
   $('#finPrestPills').innerHTML=
