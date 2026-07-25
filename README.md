@@ -105,7 +105,9 @@ para a operadora não esquecer de dar andamento.
   recebimento** e situação (**A receber / Vencido / Quitado**). Vencidos destacados,
   com totais de receita, recebido, em aberto e **vencido**.
 - **Lucro por frete**: `Lucro = frete − prestadores − imposto (12% quando marcado) −
-  seguro (RNTRC/Allianz)`. Totais de receita, custos, lucro e **margem %**.
+  seguro`. O **seguro é calculado automaticamente** pela tabela oficial **RCTR-C**
+  (taxa da UF de origem → UF de destino × valor do veículo), com opção de digitar
+  manual por cima. Totais de receita, custos, lucro e **margem %**.
 - **Prestadores — conferência e pagamento**: cada prestador (por placa/veículo) com
   **Conferido**, **No pagamento** e **Pago**. Os conferidos ficam destacados, com
   filtros (a conferir / conferidos / a pagar / pagos) e totais.
