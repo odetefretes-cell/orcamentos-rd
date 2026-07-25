@@ -159,14 +159,14 @@
     </div>
 
     <div class="card">
-      <h2>2 · Veículo</h2>
-      <div class="body grid g3">
-        <div class="field col2"><label>Marca / Modelo</label><input name="veiculo" placeholder="Ex.: HONDA/NXR150 BROS"><span class="hint">Use a barra "/" entre marca e modelo (o contrato separa automaticamente).</span></div>
-        <div class="field"><label>Placa</label><input name="placa" placeholder="Ex.: FID1G22"></div>
-        <div class="field"><label>Chassi</label><input name="chassi" placeholder="Ex.: 9C2KD0540DR136550"></div>
-        <div class="field"><label>Ano FAB/MOD</label><input name="anoFabMod" placeholder="Ex.: 2013/2013"></div>
-        <div class="field"><label>Cor</label><input name="cor" placeholder="Ex.: PRETA"></div>
-        <div class="field"><label>Valor do veículo (R$)</label><input name="valorVeiculo" inputmode="decimal" placeholder="Ex.: 12400"></div>
+      <h2>2 · Veículos <span style="font-weight:normal;color:#8592a1">(até 20 por ficha)</span></h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Use a barra "/" entre marca e modelo (o contrato separa automaticamente). Clique em <b>Adicionar veículo</b> para incluir mais.</p>
+        <div id="veiculosWrap"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+          <button type="button" class="btn-primary" onclick="addVeiculo()">＋ Adicionar veículo</button>
+          <span class="hint" id="veicCount"></span>
+        </div>
       </div>
     </div>
 
@@ -306,12 +306,20 @@
       </div>
       <div class="doc-title">AUTORIZAÇÃO DE TRANSPORTE</div>
 
+      <div class="sec">VEÍCULO(S)</div>
       <table class="box">
-        <tr><td class="lbl">Veículo</td><td id="a_veic" class="val"></td><td class="lbl">Placa</td><td id="a_placa" class="val"></td><td class="lbl">Chassi</td><td id="a_chassi" class="val"></td></tr>
-        <tr><td class="lbl">Valor do veículo</td><td id="a_valorv" class="val"></td><td class="lbl">Ano FAB/MOD</td><td id="a_ano" class="val"></td><td class="lbl">Cor</td><td id="a_cor" class="val"></td></tr>
-        <tr><td class="lbl">Origem</td><td id="a_orig" class="val"></td><td class="lbl">Frete fechado dia</td><td id="a_dataf" class="val"></td><td class="lbl">Resp. frete</td><td id="a_resp" class="val"></td></tr>
-        <tr><td class="lbl">Destino</td><td id="a_dest" class="val"></td><td class="lbl">Total do frete</td><td id="a_valorf" class="val"></td><td class="lbl">Forma pgto</td><td id="a_forma" class="val"></td></tr>
-        <tr><td class="lbl">Observações</td><td id="a_obs" class="val" colspan="5"></td></tr>
+        <thead><tr>
+          <td class="lbl">Marca / Modelo</td><td class="lbl">Placa</td><td class="lbl">Chassi</td>
+          <td class="lbl">Ano FAB/MOD</td><td class="lbl">Cor</td><td class="lbl">Valor</td>
+        </tr></thead>
+        <tbody id="a_veics"></tbody>
+      </table>
+
+      <table class="box">
+        <tr><td class="lbl">Origem</td><td id="a_orig" class="val"></td><td class="lbl">Frete fechado dia</td><td id="a_dataf" class="val"></td></tr>
+        <tr><td class="lbl">Destino</td><td id="a_dest" class="val"></td><td class="lbl">Resp. pelo frete</td><td id="a_resp" class="val"></td></tr>
+        <tr><td class="lbl">Total do frete</td><td id="a_valorf" class="val"></td><td class="lbl">Forma pgto</td><td id="a_forma" class="val"></td></tr>
+        <tr><td class="lbl">Observações</td><td id="a_obs" class="val" colspan="3"></td></tr>
       </table>
 
       <div class="sec">DADOS PARA FATURAMENTO</div>
@@ -381,10 +389,10 @@
         <tr><td class="lbl">Cidade / UF</td><td class="val">SÃO BERNARDO DO CAMPO / SP</td><td class="lbl">Fones</td><td class="val">(11) 4352-4103 · (11) 4352-1524</td></tr>
       </table>
 
-      <div class="sec">DADOS DO VEÍCULO</div>
+      <div class="sec">DADOS DO(S) VEÍCULO(S)</div>
       <table class="box">
-        <tr><td class="lbl">Marca</td><td class="lbl">Modelo</td><td class="lbl">Ano/Mod</td><td class="lbl">Cor</td><td class="lbl">Placa</td><td class="lbl">Chassi</td></tr>
-        <tr><td id="c_marca" class="val"></td><td id="c_modelo" class="val"></td><td id="c_ano" class="val"></td><td id="c_cor" class="val"></td><td id="c_placa" class="val"></td><td id="c_chassi" class="val"></td></tr>
+        <thead><tr><td class="lbl">Marca</td><td class="lbl">Modelo</td><td class="lbl">Ano/Mod</td><td class="lbl">Cor</td><td class="lbl">Placa</td><td class="lbl">Chassi</td></tr></thead>
+        <tbody id="c_veics"></tbody>
       </table>
 
       <table class="box">
@@ -440,6 +448,8 @@ const form = $('#form');
 
 // ---- helpers ----
 const up = v => (v||'').toString().toUpperCase();
+const esc = s => (s||'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const escA = s => (s||'').toString().replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 function moeda(v){
   if(v===''||v==null) return '';
   let s = String(v).trim().replace(/[R$\s]/g,'');
@@ -463,7 +473,13 @@ function dados(){
   const d={};
   new FormData(form).forEach((v,k)=>d[k]=v);
   $$('#form input[type=checkbox]').forEach(c=>d[c.name]=c.checked);
+  d.veiculos = veiculos.map(v=>({...v}));
   return d;
+}
+// veículos preenchidos (ao menos 1 linha, mesmo em branco, para a tabela)
+function veiculosPreenchidos(){
+  const f = veiculos.filter(v=>v.modelo||v.placa||v.chassi||v.ano||v.cor||v.valor);
+  return f.length ? f : [{}];
 }
 function set(id,v){ const el=document.getElementById(id); if(el) el.textContent = v||''; }
 
@@ -474,6 +490,40 @@ function blocoPessoa(nome,cpf,tel,end,bairro,cid,uf,cep){
     ${row('Nome',nome)}${row('CPF/CNPJ',cpf)}${row('Telefone',tel)}
     ${row('Endereço',end)}${row('Bairro',bairro)}${row('Cidade / UF',(cid?cid:'')+(uf?(' / '+uf):''))}${row('CEP',cep)}
   </table>`;
+}
+
+// ---- veículos (lista dinâmica, até 20) ----
+const MAX_VEIC=20;
+let veiculos=[{}];
+function renderVeic(){
+  const wrap=$('#veiculosWrap');
+  wrap.innerHTML=veiculos.map((v,i)=>`
+    <div class="veic-row" style="border:1px solid var(--linha);border-radius:8px;padding:10px;margin-bottom:8px;background:#fbfcfe">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:12px;color:var(--azul)">Veículo ${i+1}</strong>
+        <button type="button" class="btn-ghost" style="padding:3px 10px;font-size:12px" onclick="removeVeiculo(${i})" ${veiculos.length<=1?'disabled':''}>✕ remover</button>
+      </div>
+      <div class="grid g3">
+        <div class="field col2"><label>Marca / Modelo</label><input data-i="${i}" data-f="modelo" value="${escA(v.modelo)}" placeholder="Ex.: HONDA/NXR150 BROS"></div>
+        <div class="field"><label>Placa</label><input data-i="${i}" data-f="placa" value="${escA(v.placa)}" placeholder="Ex.: FID1G22"></div>
+        <div class="field"><label>Chassi</label><input data-i="${i}" data-f="chassi" value="${escA(v.chassi)}" placeholder="Ex.: 9C2KD0540DR136550"></div>
+        <div class="field"><label>Ano FAB/MOD</label><input data-i="${i}" data-f="ano" value="${escA(v.ano)}" placeholder="Ex.: 2013/2013"></div>
+        <div class="field"><label>Cor</label><input data-i="${i}" data-f="cor" value="${escA(v.cor)}" placeholder="Ex.: PRETA"></div>
+        <div class="field"><label>Valor do veículo (R$)</label><input data-i="${i}" data-f="valor" value="${escA(v.valor)}" inputmode="decimal" placeholder="Ex.: 12400"></div>
+      </div>
+    </div>`).join('');
+  wrap.querySelectorAll('input[data-i]').forEach(inp=>{
+    inp.addEventListener('input',()=>{ veiculos[+inp.dataset.i][inp.dataset.f]=inp.value; salvarRascunho(); render(); });
+  });
+  $('#veicCount').textContent = `${veiculos.length} de ${MAX_VEIC} veículo(s)`;
+}
+function addVeiculo(){
+  if(veiculos.length>=MAX_VEIC){ alert('Máximo de '+MAX_VEIC+' veículos por ficha.'); return; }
+  veiculos.push({}); renderVeic(); salvarRascunho(); render(); flash('Veículo adicionado');
+}
+function removeVeiculo(i){
+  veiculos.splice(i,1); if(!veiculos.length) veiculos=[{}];
+  renderVeic(); salvarRascunho(); render();
 }
 
 function render(){
@@ -489,8 +539,10 @@ function render(){
 
   // ---- Página 1 · Autorização ----
   set('a_num', d.numero); set('a_atend', up(d.atendente)); set('a_data', dataBR(d.dataFechamento));
-  set('a_veic', up(d.veiculo)); set('a_placa', up(d.placa)); set('a_chassi', up(d.chassi));
-  set('a_valorv', moeda(d.valorVeiculo)); set('a_ano', d.anoFabMod); set('a_cor', up(d.cor));
+  const vs = veiculosPreenchidos();
+  $('#a_veics').innerHTML = vs.map(v=>`<tr>
+    <td class="val">${esc(up(v.modelo))}</td><td class="val">${esc(up(v.placa))}</td><td class="val">${esc(up(v.chassi))}</td>
+    <td class="val">${esc(v.ano)}</td><td class="val">${esc(up(v.cor))}</td><td class="val">${moeda(v.valor)}</td></tr>`).join('');
   set('a_orig', up(d.origem)); set('a_dataf', dataBR(d.dataFechamento)); set('a_resp', up(d.respFrete));
   set('a_dest', up(d.destino)); set('a_valorf', moeda(d.valorFrete)); set('a_forma', up(d.formaPgto));
   set('a_obs', up(d.observacoes));
@@ -506,7 +558,6 @@ function render(){
     ck(d.docComprovante,'Comprovante de residência') + ck(d.docColeta,'Coleta') + ck(d.docEntrega,'Entrega');
 
   // Prestadores (mostra linhas preenchidas; se nenhuma, deixa 2 em branco p/ escrever à mão)
-  const esc=s=>(s||'').toString().replace(/</g,'&lt;');
   let linhas=[];
   for(let i=1;i<=4;i++){
     const emp=d['prestEmpresa'+i], tel=d['prestTel'+i], sai=d['prestSaida'+i], val=d['prestValor'+i], st=d['prestStatus'+i];
@@ -517,15 +568,17 @@ function render(){
   $('#a_prest').innerHTML=linhas.join('');
 
   // ---- Página 3 · Contrato ----
-  const marca = (d.veiculo||'').includes('/') ? d.veiculo.split('/')[0] : d.veiculo;
-  const modelo = (d.veiculo||'').includes('/') ? d.veiculo.split('/').slice(1).join('/') : '';
+  $('#c_veics').innerHTML = vs.map(v=>{
+    const marca = (v.modelo||'').includes('/') ? v.modelo.split('/')[0] : v.modelo;
+    const modelo = (v.modelo||'').includes('/') ? v.modelo.split('/').slice(1).join('/') : '';
+    return `<tr><td class="val">${esc(up(marca))}</td><td class="val">${esc(up(modelo))}</td><td class="val">${esc(v.ano)}</td>
+      <td class="val">${esc(up(v.cor))}</td><td class="val">${esc(up(v.placa))}</td><td class="val">${esc(up(v.chassi))}</td></tr>`;
+  }).join('');
   set('c_orig', up(d.origem)); set('c_resp', up(d.clienteEmpresa));
   set('c_dest', up(d.destino)); set('c_data', dataBR(d.dataFechamento));
   set('c_cli', up(d.clienteEmpresa)); set('c_cpf', d.cpfCnpj);
   set('c_end', up(d.endereco)); set('c_bairro', up(d.bairro));
   set('c_cid', up(d.cidade)+(d.uf?(' / '+up(d.uf)):'')); set('c_fone', d.telefone);
-  set('c_marca', up(marca)); set('c_modelo', up(modelo)); set('c_ano', d.anoFabMod);
-  set('c_cor', up(d.cor)); set('c_placa', up(d.placa)); set('c_chassi', up(d.chassi));
   set('c_prev', up(d.previsaoEntrega||d.observacoes)); set('c_valorf', moeda(d.valorFrete));
   set('c_forma', up(d.formaPgto)||'TRANSFERENCIA'); set('c_pago', up(d.fretePago));
   set('c_equip', up(d.equipamentos)); set('c_carreg', up(d.origem)); set('c_descar', up(d.destino));
@@ -588,6 +641,7 @@ function carregarFrete(id){
 }
 function novoFrete(){
   idAtual=null; form.reset(); localStorage.removeItem(DRAFT);
+  veiculos=[{}]; renderVeic();
   $('#hist').value=''; render(); flash('Novo frete');
 }
 function excluirFrete(){
@@ -600,9 +654,16 @@ function excluirFrete(){
 function aplicar(d){
   form.reset();
   Object.entries(d).forEach(([k,v])=>{
+    if(k==='veiculos') return;
     const el=form.elements[k]; if(!el) return;
     if(el.type==='checkbox') el.checked=!!v; else el.value=v;
   });
+  // veículos: usa o array novo; se for frete antigo (campo único), converte
+  if(Array.isArray(d.veiculos) && d.veiculos.length) veiculos=d.veiculos.map(v=>({...v}));
+  else if(d.veiculo||d.placa||d.chassi||d.anoFabMod||d.cor||d.valorVeiculo)
+    veiculos=[{modelo:d.veiculo||'',placa:d.placa||'',chassi:d.chassi||'',ano:d.anoFabMod||'',cor:d.cor||'',valor:d.valorVeiculo||''}];
+  else veiculos=[{}];
+  renderVeic();
   render();
 }
 function exportarJSON(){
@@ -652,12 +713,14 @@ function aplicarLogo(){
 }
 
 // rascunho automático: guarda o que está sendo digitado (não perde ao recarregar)
-form.addEventListener('input', ()=>{ if(!idAtual) localStorage.setItem(DRAFT, JSON.stringify(dados())); });
+function salvarRascunho(){ if(!idAtual) localStorage.setItem(DRAFT, JSON.stringify(dados())); }
+form.addEventListener('input', salvarRascunho);
 
 // inicialização
 (function init(){
   const raw=localStorage.getItem(DRAFT);
   if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
+  renderVeic();
   atualizarHist();
   aplicarLogo();
   render();

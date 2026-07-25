@@ -13,7 +13,9 @@ e o sistema monta as duas páginas prontas para imprimir ou salvar em PDF.
    não precisa instalar nada e funciona sem internet.
 2. Preencha o formulário com o que o cliente enviou pelo WhatsApp:
    - **Dados do frete** (nº, atendente, data, responsável)
-   - **Veículo** (marca/modelo, placa, chassi, ano, cor, valor)
+   - **Veículos** — vários por ficha (botão **＋ Adicionar veículo**, até 20).
+     Cada um com marca/modelo, placa, chassi, ano, cor e valor. Todos entram
+     nas tabelas da Autorização e do Contrato.
    - **Trajeto e frete** (origem, destino, valor, forma de pagamento, prazo)
    - **Contratante** (nome, CPF/CNPJ, telefone, endereço…)
    - **Coleta** e **Entrega** — só quando o cliente acionar (se ficar em branco,
