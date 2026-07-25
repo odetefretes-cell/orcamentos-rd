@@ -900,6 +900,11 @@ async function initData(){
       const app=appMod.initializeApp(FIREBASE_CONFIG);
       const fs=fsMod.getFirestore(app);
       _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc};
+      // Storage (upload de documentos) — opcional; só funciona se o Storage estiver ativado
+      try{
+        const stMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
+        _fb.storage=stMod.getStorage(app); _fb.ref=stMod.ref; _fb.uploadBytes=stMod.uploadBytes; _fb.getDownloadURL=stMod.getDownloadURL;
+      }catch(e){ console.warn('Storage indisponível:',e); }
       if(liveId){
         // CLIENTE (link ao vivo): lê SÓ o próprio documento — não baixa os demais fretes
         clienteLiveId=liveId;
@@ -1080,6 +1085,11 @@ function veicResumo(f){
   return p+(vs.length>1?`  (+${vs.length-1})`:'');
 }
 function statusDe(f){ return (f.status||'ANDAMENTO').toString().toUpperCase(); }
+function docsLinks(f){
+  const d=f.docs||{}; const map={veiculo:'Doc. veículo',cnh:'CNH/RG',comprovante:'Comprovante'};
+  const links=Object.keys(map).filter(k=>d[k]).map(k=>`<a href="${d[k]}" target="_blank">📎 ${map[k]}</a>`);
+  return links.length?links.join(' · '):'<span class="hint">nenhum</span>';
+}
 function stKey(s){ return s==='CONCLUÍDO'?'concluido':s==='CANCELADO'?'cancelado':'andamento'; }
 
 let relFiltro='FILA', relStatusF='TODOS';
@@ -1199,6 +1209,7 @@ function cardFrete(f){
       <div class="fld"><label>Vendedor(a) / atendente</label><div class="ro">${vend}</div></div>
       <div class="fld"><label>Cliente</label><div class="ro">${cli}</div></div>
       <div class="fld"><label>Veículo(s)</label><div class="ro">${veic}</div></div>
+      <div class="fld col2"><label>📎 Documentos do cliente</label><div class="ro">${docsLinks(f)}</div></div>
 
       <div class="fld"><label>Status</label><select onchange="setFrete('${id}','status',this.value)">${optS}</select></div>
       <div class="fld"><label>Nº averbação</label><input value="${escA(f.averbacao)}" onchange="setFrete('${id}','averbacao',this.value)"></div>
@@ -1585,6 +1596,12 @@ function injetarFormPedido(id,f){
     <div id="pedVeicsWrap"></div>
     <button type="button" class="btn-ghost" onclick="pedAddVeic()">＋ Adicionar veículo</button>
 
+    <div class="sec-cli">📎 DOCUMENTOS (fotos)</div>
+    <p class="hint" style="margin:0 0 6px">Tire foto ou anexe. Formatos: foto (JPG/PNG) ou PDF.</p>
+    ${docUpload(id,f,'veiculo','Documento do veículo (CRLV)')}
+    ${docUpload(id,f,'cnh','CNH ou RG do contratante')}
+    ${docUpload(id,f,'comprovante','Comprovante de residência')}
+
     <div class="field" style="margin-top:12px"><label>Observações</label><input id="pc_observacoes" value="${escA(f.observacoes)}" placeholder="Alguma informação adicional"></div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
       <button class="btn-ok" style="padding:11px 20px;font-size:15px" onclick="salvarPedidoCliente('${id}')">📨 Enviar meus dados</button>
@@ -1592,6 +1609,32 @@ function injetarFormPedido(id,f){
     </div>`;
   page.appendChild(box);
   renderPedVeics();
+}
+// ---- documentos (upload para o Firebase Storage) ----
+function docUpload(id,f,tipo,label){
+  const url=(f.docs&&f.docs[tipo])||'';
+  return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    <label class="btn-ghost" style="cursor:pointer;margin:0">📷 ${esc(label)}
+      <input type="file" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="enviarDoc('${id}','${tipo}',this)">
+    </label>
+    <span class="status" id="docst_${tipo}">${url?('✓ enviado — <a href="'+url+'" target="_blank">ver</a>'):'nenhum arquivo'}</span>
+  </div>`;
+}
+async function enviarDoc(id,tipo,inp){
+  const file=inp.files[0]; if(!file) return;
+  const st=document.getElementById('docst_'+tipo);
+  if(!_fb || !_fb.storage){ if(st) st.textContent='Envio de arquivos ainda não ativado. Fale com a OBS.'; return; }
+  if(file.size>15*1024*1024){ if(st) st.textContent='Arquivo muito grande (máx. 15 MB).'; return; }
+  if(st) st.textContent='Enviando…';
+  try{
+    const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const path=`docs/${id}/${tipo}-${Date.now()}.${ext}`;
+    const r=_fb.ref(_fb.storage, path);
+    await _fb.uploadBytes(r, file);
+    const url=await _fb.getDownloadURL(r);
+    const f=MEM[id]; f.docs=f.docs||{}; f.docs[tipo]=url; f._salvoEm=new Date().toISOString(); MEM[id]=f; gravarDB();
+    if(st) st.innerHTML='✓ enviado — <a href="'+url+'" target="_blank">ver</a>';
+  }catch(e){ console.error(e); if(st) st.textContent='Erro ao enviar. Tente novamente.'; }
 }
 function salvarPedidoCliente(id){
   const f=MEM[id]; if(!f){ return; }
