@@ -3316,8 +3316,8 @@ function crmAbrirLead(id){
       <div class="field"><label>Valor do veículo (p/ seguro)</label><input id="calcValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="R$"></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px">
-      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Buscar rota direta</button>
-      <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🔗 Montar automático (reembarque)</button>
+      <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🧮 Calcular frete</button>
+      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Ver prestadores (rota direta)</button>
     </div>
     <div id="crmCalcRes"></div>
     <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
@@ -3498,7 +3498,7 @@ function crmCalcAddTrecho(id, i){
   l.trajetos.push({
     de: `${x.oNome}/${x.oUF}`, para: `${x.dNome}/${x.dUF}`,
     transportadora: x.transp, valor: x.valor!=null?String(x.valor):'',
-    oUF: x.oUF, dUF: x.dUF
+    oUF: x.oUF, dUF: x.dUF, prazo: x.prazo||null
   });
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
   crmRecalcCalc(id);
@@ -3568,7 +3568,7 @@ async function crmCalcAuto(id){
   const l = CRM_LEADS[id];
   l.trajetos = pilha.map(e=>({
     de:`${e.oNome}/${e.oUF}`, para:`${e.dNome}/${e.dUF}`,
-    transportadora:e.carrier, valor:String(e.valores[cat]), oUF:e.oUF, dUF:e.dUF
+    transportadora:e.carrier, valor:String(e.valores[cat]), oUF:e.oUF, dUF:e.dUF, prazo:e.prazo||null
   }));
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
   crmRecalcCalc(id);
@@ -3726,64 +3726,100 @@ function crmRenderComp(id){
     </div>`;
 }
 
-// ---- Orçamento em PDF (valores confirmados) ----
+// ---- Orçamento em PDF (estrutura do Emissor OBS) ----
+// Agrupa a composição interna nos blocos que o cliente vê:
+//  Valor do Frete (tudo menos Seguro/Imposto/Coleta/Entrega) + Seguro + Imposto
+//  = Total base a base; + Coleta/Entrega = Total porta a porta.
+function crmValoresOrc(l){
+  const comp = l.composicao||[];
+  const val = desc => { const c=comp.find(c=>normTxt(c.desc)===normTxt(desc)); return (c && c.ativo)?numMoeda(c.valor):0; };
+  const seguro = val('Seguro'), imposto = val('Imposto'), coleta = val('Coleta'), entrega = val('Entrega');
+  const excl = ['seguro','imposto','coleta','entrega'];
+  const valorFrete = comp.filter(c=>c.ativo && !excl.includes(normTxt(c.desc))).reduce((s,c)=>s+numMoeda(c.valor),0);
+  const totalBase = valorFrete + seguro + imposto;
+  const totalPorta = totalBase + coleta + entrega;
+  return { valorFrete, seguro, imposto, coleta, entrega, totalBase, totalPorta };
+}
+function crmPrazoTexto(l){
+  if(l.prazoSW) return `${l.prazoSW} dias após o embarque`;
+  const soma = (l.trajetos||[]).reduce((s,t)=>s+(parseInt(t.prazo)||0),0);
+  return soma>0 ? `${soma} a ${soma+2} dias após o embarque` : 'a combinar';
+}
 function crmEnviarOrcamento(id){
-  const l = CRM_LEADS[id];
-  if(!l) return;
-  const comp = (l.composicao||[]).filter(c=>c.ativo && (c.desc||numMoeda(c.valor)));
-  const total = crmCompTotal(l) || numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado);
-  if(!comp.length && !total){
-    if(!confirm('Nenhuma taxa lançada na composição. Emitir mesmo assim?')) return;
-  }
-  const trajetos=(l.trajetos||[]).filter(t=>t.de||t.para||t.transportadora||numMoeda(t.valor));
-  const prazo = l.prazoSW ? `${l.prazoSW} dias corridos após o embarque` : '10 a 15 dias após o embarque';
-  const validade = new Date(Date.now()+7*864e5);
-  const validadeBR = `${String(validade.getDate()).padStart(2,'0')}/${String(validade.getMonth()+1).padStart(2,'0')}/${validade.getFullYear()}`;
-
-  const linhaComp = c=>`<tr><td>${esc(c.desc||'—')}</td><td style="text-align:right">${moeda(c.valor||0)}</td></tr>`;
-  const linhaTraj = t=>`<tr><td>${esc(t.de||'?')} → ${esc(t.para||'?')}${t.transportadora?' · '+esc(t.transportadora):''}</td><td style="text-align:right">${moeda(t.valor||0)}</td></tr>`;
+  const l = CRM_LEADS[id]; if(!l) return;
+  const V = crmValoresOrc(l);
+  if(!V.totalPorta){ if(!confirm('Nenhum valor calculado. Emitir mesmo assim?')) return; }
+  const origem = l.origem || (l.trajetos&&l.trajetos[0]&&l.trajetos[0].de) || '—';
+  const destino = l.destino || (l.trajetos&&l.trajetos.length&&l.trajetos[l.trajetos.length-1].para) || '—';
+  const prazo = crmPrazoTexto(l);
+  const obsVeic = [l.funciona?('Funciona: '+l.funciona):'', l.blindado?('Blindado: '+l.blindado):''].filter(Boolean).join(' · ') || '—';
+  const M = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
   <title>Orçamento ${esc(l.nome||'')}</title>
   <style>
-    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:28px 34px;font-size:13px}
-    .hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1f2b4d;padding-bottom:12px;margin-bottom:14px}
-    .hd img{height:56px} .hd h1{font-size:18px;margin:0;color:#1f2b4d} .hd .sub{font-size:11px;color:#555;margin-top:2px}
-    h2{font-size:13px;background:#1f2b4d;color:#fff;padding:6px 10px;border-radius:5px;margin:16px 0 8px}
-    table{width:100%;border-collapse:collapse;margin:4px 0} td{padding:6px 9px;border:1px solid #ccc}
-    .lbl{background:#f2f4f8;font-weight:600;width:32%}
-    .tot{background:#eaf7ee;font-weight:800;font-size:15px}
-    .tot td{border-color:#bfe3c9} .fim{margin-top:22px;font-size:11px;color:#555;line-height:1.5}
-    .obs{margin-top:10px;font-size:11px;color:#333}
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:26px 32px;font-size:12.5px;line-height:1.4}
+    .hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1f2b4d;padding-bottom:10px;margin-bottom:6px}
+    .hd img{height:52px} .hd h1{font-size:17px;margin:0;color:#1f2b4d} .hd .sub{font-size:10.5px;color:#555;margin-top:2px}
+    .meta{font-size:11px;color:#444;margin:8px 0 2px}
+    h2{font-size:12.5px;background:#1f2b4d;color:#fff;padding:5px 9px;border-radius:4px;margin:14px 0 6px}
+    p.desc{font-size:10.5px;color:#555;margin:2px 0 6px;font-style:italic}
+    table{width:100%;border-collapse:collapse;margin:3px 0} th,td{padding:5px 8px;border:1px solid #cfd4dc;font-size:12px}
+    th{background:#eef1f6;text-align:left;font-size:11px}
+    .num{text-align:right;white-space:nowrap}
+    .sub2{background:#f2f4f8;font-weight:600} .tot{background:#eaf7ee;font-weight:800}
+    .req{font-size:11px;color:#333;margin:3px 0} .req b{color:#1f2b4d}
+    .pay{font-size:11px;margin:3px 0}
+    .foot{margin-top:16px;border-top:2px solid #1f2b4d;padding-top:8px;font-size:11px;color:#333;text-align:center}
     @media print{body{padding:0 6mm}}
   </style></head><body>
     <div class="hd"><img src="${logoAtual()}" alt="OBS"><div>
-      <h1>Orçamento de Transporte de Veículo</h1>
-      <div class="sub">ODETE BARBOSA SANTOS TRANSPORTES · OBS TRANSPORTES · CNPJ 08.165.584/0001-67<br>
-      Av. Padre Anchieta, 176 — Jordanópolis — São Bernardo do Campo/SP · (11) 4352-4103 · (11) 4352-1524</div>
+      <h1>OBS TRANSPORTES — Orçamento de Transporte de Veículos</h1>
+      <div class="sub">ODETE BARBOSA SANTOS TRANSPORTES · CNPJ 08.165.584/0001-67</div>
     </div></div>
+    <div class="meta">São Bernardo do Campo, ${hojeBR()}${l.nome?' &nbsp;|&nbsp; Cliente: <b>'+esc(l.nome)+'</b>':''}${l.telefone?' &nbsp;|&nbsp; '+esc(l.telefone):''}<br>
+    Referente à: <b>TRANSPORTE DE VEÍCULOS</b></div>
 
-    <table>
-      <tr><td class="lbl">Cliente</td><td>${esc(l.nome||'—')}${l.empresa?' — '+esc(l.empresa):''}</td></tr>
-      <tr><td class="lbl">Contato</td><td>${esc(l.telefone||'—')}${l.email?' · '+esc(l.email):''}</td></tr>
-      <tr><td class="lbl">Veículo</td><td>${esc(l.veiculoDesc||'—')}${l.placa?' · placa '+esc(l.placa):''}${l.valorVeiculo?' · valor '+moeda(l.valorVeiculo):''}</td></tr>
-      <tr><td class="lbl">Origem → Destino</td><td>${esc(l.origem||'—')} → ${esc(l.destino||'—')}</td></tr>
-      <tr><td class="lbl">Prazo estimado</td><td>${esc(prazo)}</td></tr>
+    <h2>1 · Dados do veículo a ser transportado</h2>
+    <table><tr><th>Item</th><th>Marca / Modelo</th><th>Valor (FIPE)</th><th>Observações</th></tr>
+      <tr><td>1</td><td>${esc(l.veiculoDesc||'—')}</td><td class="num">${l.valorVeiculo?M(numMoeda(l.valorVeiculo)):'—'}</td><td>${esc(obsVeic)}</td></tr>
     </table>
 
-    ${trajetos.length?`<h2>Trajetos</h2><table>${trajetos.map(linhaTraj).join('')}</table>`:''}
-
-    <h2>Composição do frete</h2>
+    <h2>2 · Transporte base a base</h2>
+    <p class="desc">(Nesta modalidade o veículo deve ser entregue e retirado da transportadora nos locais de carregamento e descarregamento.)</p>
+    <table><tr><th>Item</th><th>Origem</th><th>Destino</th><th>Prazo após embarque</th></tr>
+      <tr><td>1</td><td>${esc(origem)}</td><td>${esc(destino)}</td><td>${esc(prazo)}</td></tr>
+    </table>
     <table>
-      ${comp.length?comp.map(linhaComp).join(''):'<tr><td>Frete</td><td style="text-align:right">'+moeda(total)+'</td></tr>'}
-      <tr class="tot"><td>TOTAL DO FRETE</td><td style="text-align:right">${moeda(total)}</td></tr>
+      <tr><td>Valor do Frete</td><td class="num">${M(V.valorFrete)}</td></tr>
+      <tr><td>Valor do Seguro</td><td class="num">${M(V.seguro)}</td></tr>
+      <tr><td>Valor do Imposto</td><td class="num">${M(V.imposto)}</td></tr>
+      <tr class="tot"><td>Total base a base</td><td class="num">${M(V.totalBase)}</td></tr>
     </table>
 
-    <div class="obs">Equipamento: Cegonha / Guincho · Seguro incluso (apólice ALLIANZ).<br>
-    Proposta válida até <b>${validadeBR}</b>.</div>
+    ${(V.coleta||V.entrega)?`
+    <h2>3 · Transporte porta a porta</h2>
+    <p class="desc">(Nesta modalidade enviamos um caminhão guincho plataforma para coleta e entrega nos endereços — confirmar endereços.)</p>
+    <table><tr><th>Item</th><th>Descrição</th><th>Local</th><th>Valor</th></tr>
+      <tr><td>1</td><td>Coleta no endereço</td><td>${esc(origem)}</td><td class="num">${M(V.coleta)}</td></tr>
+      <tr><td>2</td><td>Entrega no endereço</td><td>${esc(destino)}</td><td class="num">${M(V.entrega)}</td></tr>
+      <tr class="tot"><td colspan="3">Total com coleta e entrega</td><td class="num">${M(V.totalPorta)}</td></tr>
+    </table>`:''}
 
-    <div class="fim">Emitido em ${hojeBR()} por OBS Transportes.<br>
-    Documento de proposta comercial — sujeito a confirmação de disponibilidade e dados do veículo.</div>
+    <h2>Formas de pagamento</h2>
+    <div class="pay">• Transferência, Pix ou depósito em conta: <b>50% na contratação e 50% no destino</b> para liberação.</div>
+    <div class="pay">• Cartão de crédito em até 12x (com acréscimo) via link de pagamento online.</div>
+
+    <h2>Requisitos para realização do transporte</h2>
+    <div class="req">• Os valores acima são válidos somente para veículos em perfeito estado de funcionamento e conservação;</div>
+    <div class="req">• Para veículos modificados, sinistrados e sem funcionamento serão cobrados valores adicionais;</div>
+    <div class="req">• A OBS Transportes não se responsabiliza por pertences pessoais transportados junto ao veículo;</div>
+    <div class="req">• <b>Todos os veículos transportados pela OBS Transportes são assegurados pela ALLIANZ SEGUROS.</b></div>
+    <div class="req" style="margin-top:6px">"Caso possua orçamento menor, nos envie para análise e possível desconto."</div>
+
+    <div class="foot">Atenciosamente, <b>EQUIPE OBS TRANSPORTES</b><br>
+    Fale conosco: (11) 4352-4103 / (11) 4352-1524 · atendimento@obstransportes.com.br<br>
+    Av. Padre Anchieta, 176 — sala 13 — Jordanópolis — São Bernardo do Campo/SP</div>
 
     <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
   </body></html>`;
@@ -3792,9 +3828,9 @@ function crmEnviarOrcamento(id){
   if(!w){ flash('Permita pop-ups para gerar o PDF.','erro'); return; }
   w.document.open(); w.document.write(html); w.document.close();
 
-  l.valorEstimado = String(total);
+  l.valorEstimado = String(V.totalPorta);
   if(l.etapa === 'novo' || l.etapa === 'contato') l.etapa = 'orcamento';
-  crmAddTimeline(id, 'orcamento', `Orçamento emitido (PDF) — total ${moeda(total)}`);
+  crmAddTimeline(id, 'orcamento', `Orçamento emitido (PDF) — total ${M(V.totalPorta)}`);
   saveCRM();
   renderCRM();
   flash('Orçamento gerado — salve como PDF e envie ao cliente ✔');
