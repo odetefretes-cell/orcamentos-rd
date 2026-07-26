@@ -1304,27 +1304,39 @@ async function importarAndamento(){
     arr=await resp.json();
   }catch(e){ alert('Não consegui carregar a lista de fretes em andamento (andamento.json). '+e.message); return; }
   if(!Array.isArray(arr)||!arr.length){ alert('Nenhum frete em andamento na lista.'); return; }
-  const jaTem=arr.filter(f=>MEM[f._id]).length;
-  const novos=arr.length-jaTem;
-  if(!confirm(`Importar ${novos} frete(s) EM ANDAMENTO para o sistema?\n\n(${jaTem} já existem e serão ignorados — não duplica.)\n\nEles entram na área da operadora (NATALY / YASMIN) e no Financeiro.`)) return;
+  const jaImp=arr.filter(f=>MEM[f._id] && MEM[f._id]._importado).length;
+  const novos=arr.filter(f=>!MEM[f._id]).length;
+  if(!confirm(`Importar/atualizar fretes EM ANDAMENTO?\n\n• ${novos} novo(s)\n• ${jaImp} já importado(s) serão atualizados (datas de hoje), preservando o que a operadora editou (status, pagamentos, notas).\n\nNão duplica.`)) return;
   const t=flash('Importando fretes…','load');
   // garante operadoras na lista
   const ops=lerOperadoras();
   arr.forEach(f=>{ const o=(f.operadora||'').toUpperCase(); if(o && !ops.includes(o)) ops.push(o); });
   gravarOperadoras(ops);
-  let add=0, skip=0;
+  // campos que a operadora edita — preservar se já existirem
+  const PRESERVAR=['status','pago1','pago2','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
+  let add=0, upd=0, skip=0;
   arr.forEach(f=>{
-    if(MEM[f._id]){ skip++; return; }
-    const fr=JSON.parse(JSON.stringify(f));
-    fr._salvoEm = fr._salvoEm || new Date().toISOString();
-    MEM[fr._id]=fr; add++;
+    const prev=MEM[f._id];
+    if(!prev){                                   // novo
+      const fr=JSON.parse(JSON.stringify(f));
+      fr._salvoEm=fr._salvoEm||new Date().toISOString();
+      MEM[fr._id]=fr; add++;
+    }else if(prev._importado){                   // reimporta: atualiza datas, preserva edições
+      const merged=JSON.parse(JSON.stringify(f));
+      PRESERVAR.forEach(k=>{ if(prev[k]!==undefined && prev[k]!=='' && prev[k]!==null) merged[k]=prev[k]; });
+      // histInterno: usa a nota de hoje + mantém notas que a operadora tenha adicionado
+      const extra=(prev.histInterno||[]).filter(h=>!(f.histInterno||[]).some(x=>x.texto===h.texto));
+      merged.histInterno=[...(f.histInterno||[]), ...extra];
+      merged.histCliente=prev.histCliente||merged.histCliente;
+      MEM[f._id]=merged; upd++;
+    }else{ skip++; }                              // frete manual (não importado) — não mexe
   });
   gravarDB();               // sincroniza p/ nuvem (ou local)
   atualizarHist(); atualizarProxNum();
   renderRelatorio();
   const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
   t.fechar();
-  flash(`✔ Importados ${add} fretes em andamento`+(skip?` (${skip} já existiam)`:''),'ok');
+  flash(`✔ ${add} novos, ${upd} atualizados`+(skip?`, ${skip} preservados`:''),'ok');
 }
 
 function setRelFiltro(o){ relFiltro=o; renderRelatorio(); }
