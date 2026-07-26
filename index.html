@@ -2385,7 +2385,7 @@ function renderClientes(){
     : '<p class="hint" style="text-align:center;padding:20px">Nenhum cliente encontrado.</p>';
 }
 const clientesAbertos=new Set();
-function toggleCliente(cpf){ if(clientesAbertos.has(cpf)) clientesAbertos.delete(cpf); else clientesAbertos.add(cpf); renderClientes(); }
+function toggleCliente(cpf){ if(clientesAbertos.has(cpf)) clientesAbertos.delete(cpf); else { clientesAbertos.clear(); clientesAbertos.add(cpf); } renderClientes(); }  // abrir um fecha os outros
 function clienteItem(cpf,c){
   const aberto=clientesAbertos.has(cpf);
   const hist=(c.historico||[]).slice().sort((a,b)=>num(b.numero)-num(a.numero));
