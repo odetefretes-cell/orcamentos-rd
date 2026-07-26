@@ -2379,7 +2379,8 @@ function recusarPedido(id){
 function novoPedidoLink(){
   if(!CLOUD_ON){ alert('O link de pedido do cliente funciona na versão publicada (nuvem).'); }
   const id='ped'+Date.now();
-  MEM[id]={_id:id, numero:'', pedido:true, cadastrado:false, status:'ANDAMENTO', operadora:'', pedidoEm:new Date().toISOString(), _salvoEm:new Date().toISOString()};
+  // pedido:false = link criado mas ainda NÃO enviado pelo cliente (não aparece no comercial até o envio)
+  MEM[id]={_id:id, numero:'', pedido:false, linkCriado:true, cadastrado:false, status:'ANDAMENTO', operadora:'', criadoEm:new Date().toISOString(), _salvoEm:new Date().toISOString()};
   gravarDB(); atualizarHist();
   const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
   gerarLinkCliente(id);
