@@ -1402,7 +1402,9 @@ async function initData(){
         // CRM (leads) compartilhado — requer a regra do Firestore p/ crm_leads
         fsMod.onSnapshot(fsMod.collection(fs,'crm_leads'), snap=>{
           if(typeof CRM_LEADS==='undefined') return;
+          const rascunhos=Object.values(CRM_LEADS).filter(l=>l && l._novo);   // preserva rascunho aberto
           CRM_LEADS={}; snap.forEach(d=>CRM_LEADS[d.id]=d.data());
+          rascunhos.forEach(r=>{ CRM_LEADS[r.id]=r; });
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
         }, ()=>{});
@@ -3046,16 +3048,19 @@ let crmDragId = null;
 // ---- Persistência ----
 function loadCRM(){ try{ return JSON.parse(localStorage.getItem(CRM_KEY))||{}; }catch(_){ return {}; } }
 function saveCRM(){
-  localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS));
+  // rascunhos (_novo) nunca são persistidos — só viram lead ao Salvar
+  const persistir = {};
+  for(const id in CRM_LEADS){ if(!CRM_LEADS[id]._novo) persistir[id]=CRM_LEADS[id]; }
+  localStorage.setItem(CRM_KEY, JSON.stringify(persistir));
   if(CLOUD_ON && _fb && _fb.setDoc){
-    for(const id in CRM_LEADS) _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), CRM_LEADS[id]);
+    for(const id in persistir) _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), persistir[id]);
   }
 }
 function initCRM(){ CRM_LEADS = loadCRM(); }
 
 // ---- Render Métricas ----
 function renderCRMMetrics(){
-  const leads = Object.values(CRM_LEADS);
+  const leads = Object.values(CRM_LEADS).filter(l=>!l._novo);
   const total = leads.length;
   const orcEnviados = leads.filter(l=>l.etapa==='orcamento'||l.etapa==='negociacao'||l.etapa==='fechado').length;
   const emNegoc = leads.filter(l=>l.etapa==='negociacao').length;
@@ -3120,7 +3125,7 @@ function renderCRM(){
     const count = $(`#crmCount${etapa.id.charAt(0).toUpperCase()+etapa.id.slice(1)}`);
     if(!col) return;
 
-    let leads = Object.values(CRM_LEADS).filter(l => l.etapa === etapa.id);
+    let leads = Object.values(CRM_LEADS).filter(l => l.etapa === etapa.id && !l._novo);
 
     // filtros
     if(busca) leads = leads.filter(l => {
@@ -3234,10 +3239,18 @@ function crmNovoLead(){
     dataEntrada: new Date().toISOString().slice(0,10),
     ultimaInteracao: new Date().toISOString(),
     motivoPerda:'',
-    timeline:[{ data: new Date().toISOString(), tipo:'criacao', texto:'Lead criado' }]
+    timeline:[{ data: new Date().toISOString(), tipo:'criacao', texto:'Lead criado' }],
+    _novo:true   // rascunho — só vira lead de verdade ao Salvar
   };
-  saveCRM();
+  crmDraftId = id;          // NÃO salva ainda; grava só no Salvar
   crmAbrirLead(id);
+}
+let crmDraftId = null;
+function crmDescartarRascunho(){
+  if(crmDraftId && CRM_LEADS[crmDraftId] && CRM_LEADS[crmDraftId]._novo){
+    delete CRM_LEADS[crmDraftId];
+  }
+  crmDraftId = null;
 }
 
 function crmExcluirLead(id){
@@ -3348,9 +3361,11 @@ function crmAbrirLead(id){
 }
 
 function fecharCrmModal(){
+  crmDescartarRascunho();   // se fechou sem salvar, o rascunho não vira lead
   const modal = $('#crmModal');
   modal.classList.remove('open');
   setTimeout(()=> modal.style.display = 'none', 200);
+  if(typeof renderCRM==='function') renderCRM();
 }
 
 function crmSalvarLead(id){
@@ -3375,6 +3390,8 @@ function crmSalvarLead(id){
   l.dataEnvio = ($('#crmDataEnvio')?.value||'').trim();
   l.ultimaInteracao = new Date().toISOString();
   if(!l.nome){ flash('Preencha o nome do lead.','erro'); $('#crmNome')?.focus(); return; }
+  delete l._novo;            // deixa de ser rascunho: agora é lead salvo
+  if(crmDraftId===id) crmDraftId=null;
   saveCRM();
   fecharCrmModal();
   renderCRM();
@@ -3930,18 +3947,19 @@ function crmEnviarOrcamento(id){
   <title>Orçamento ${esc(l.nome||'')}</title>
   <style>
     *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:26px 32px;font-size:12.5px;line-height:1.4}
-    .hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1f2b4d;padding-bottom:10px;margin-bottom:6px}
-    .hd img{height:52px} .hd h1{font-size:17px;margin:0;color:#1f2b4d} .hd .sub{font-size:10.5px;color:#555;margin-top:2px}
+    .hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #E30613;padding-bottom:10px;margin-bottom:6px}
+    .hd img{height:52px} .hd h1{font-size:17px;margin:0;color:#0a3d91} .hd .sub{font-size:10.5px;color:#555;margin-top:2px}
     .meta{font-size:11px;color:#444;margin:8px 0 2px}
-    h2{font-size:12.5px;background:#1f2b4d;color:#fff;padding:5px 9px;border-radius:4px;margin:14px 0 6px}
+    h2{font-size:12.5px;background:#0a3d91;color:#fff;padding:5px 9px;border-radius:4px;margin:14px 0 6px;border-left:5px solid #E30613}
     p.desc{font-size:10.5px;color:#555;margin:2px 0 6px;font-style:italic}
     table{width:100%;border-collapse:collapse;margin:3px 0} th,td{padding:5px 8px;border:1px solid #cfd4dc;font-size:12px}
-    th{background:#eef1f6;text-align:left;font-size:11px}
+    th{background:#eaf0fb;text-align:left;font-size:11px;color:#0a3d91}
     .num{text-align:right;white-space:nowrap}
-    .sub2{background:#f2f4f8;font-weight:600} .tot{background:#eaf7ee;font-weight:800}
-    .req{font-size:11px;color:#333;margin:3px 0} .req b{color:#1f2b4d}
+    .sub2{background:#f2f4f8;font-weight:600} .tot{background:#eaf0fb;font-weight:800;color:#0a3d91}
+    .tot td{border-color:#0a3d91}
+    .req{font-size:11px;color:#333;margin:3px 0} .req b{color:#0a3d91}
     .pay{font-size:11px;margin:3px 0}
-    .foot{margin-top:16px;border-top:2px solid #1f2b4d;padding-top:8px;font-size:11px;color:#333;text-align:center}
+    .foot{margin-top:16px;border-top:2px solid #0a3d91;padding-top:8px;font-size:11px;color:#333;text-align:center}
     .venda{margin:10px 0;border:2px solid #E30613;border-radius:8px;background:#fdeaea;padding:9px 12px}
     .venda div{font-size:12px;color:#7a0a0f;margin:2px 0;font-weight:600}
     @media print{body{padding:0 6mm}}
@@ -3987,6 +4005,7 @@ function crmEnviarOrcamento(id){
     <h2>Formas de pagamento</h2>
     <div class="pay">• Transferência, Pix ou depósito em conta: <b>50% na contratação e 50% no destino</b> para liberação.</div>
     <div class="pay">• Cartão de crédito em até 12x (com acréscimo) via link de pagamento online.</div>
+    <div class="pay">• <b>Boleto bancário para PJ</b> (Pessoa Jurídica): até 15 dias após aprovação da ficha.</div>
 
     <h2>Requisitos para realização do transporte</h2>
     <div class="req">• Os valores acima são válidos somente para veículos em perfeito estado de funcionamento e conservação;</div>
