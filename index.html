@@ -93,6 +93,23 @@
   .rel-resumo{display:flex;gap:10px;flex-wrap:wrap;font-size:13px}
   .rel-resumo .box{background:var(--cinza);border:1px solid var(--linha);border-radius:8px;padding:8px 14px}
   .rel-resumo .box b{font-size:18px;display:block;color:var(--azul)}
+  /* lista compacta do operacional (clicar p/ abrir edição) */
+  .fitem{border:1px solid var(--linha);border-left:5px solid #9aa7b4;border-radius:8px;margin-bottom:6px;overflow:hidden;background:#fff}
+  .fitem.s-andamento{border-left-color:#e6a100}
+  .fitem.s-concluido{border-left-color:var(--ok)}
+  .fitem.s-cancelado{border-left-color:#c0392b}
+  .fitem.open{margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+  .frow{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;user-select:none}
+  .frow:hover{background:var(--cinza)}
+  .frow .fnum{font-weight:800;color:var(--azul);min-width:78px}
+  .frow .fcli{font-weight:600;flex:1;min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .frow .frota{font-size:12.5px;color:#5a6b7d;flex:1.3;min-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .frow .fbadges{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .frow .fval{font-weight:700;min-width:92px;text-align:right;white-space:nowrap}
+  .frow .fchev{width:16px;text-align:center;color:#9aa7b4;font-size:11px}
+  .fitem.open .frow{background:var(--cinza);border-bottom:1px solid var(--linha)}
+  .fitem .fcard{border:none;border-left:none;border-radius:0;margin:0;box-shadow:none}
+  @media(max-width:720px){.frow .frota{display:none}}
   .fcard{background:#fff;border:1px solid var(--linha);border-left:6px solid #9aa7b4;border-radius:10px;margin-bottom:12px;overflow:hidden}
   .fcard.s-andamento{border-left-color:#e6a100}
   .fcard.s-concluido{border-left-color:var(--ok)}
@@ -1384,10 +1401,32 @@ function renderRelatorio(){
     `<div class="box">⚠ Sem atualização 24h<b style="color:#c0392b">${nAtras}</b></div>`+
     `<div class="box">Total em aberto<b>${moeda(aberto)}</b></div>`;
   // cards
-  $('#relLista').innerHTML = list.length ? list.map(cardFrete).join('')
+  $('#relLista').innerHTML = list.length ? list.map(linhaFrete).join('')
     : `<p class="hint" style="text-align:center;padding:20px">${relFiltro==='FILA'?'Nenhum frete na fila. Salve fretes na aba “Nova Ficha / Frete”.':'Nenhum frete para este filtro.'}</p>`;
 }
 
+// lista compacta: uma linha por frete; clicar abre o card p/ edição
+const fretesAbertos=new Set();
+function toggleFrete(id){ if(fretesAbertos.has(id)) fretesAbertos.delete(id); else fretesAbertos.add(id); renderRelatorio(); }
+function linhaFrete(f){
+  const id=f._id, st=statusDe(f), k=stKey(st), op=opDe(f);
+  const aberto=fretesAbertos.has(id);
+  const rota=`${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}`;
+  const badges = (op?`<span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>`
+                    :`<span class="badge" style="background:#8a6d00">🕓 FILA</span>`)
+    +`<span class="badge s-${k}">${esc(st)}</span>`
+    +(atrasado(f)?`<span class="badge atraso">⚠ ${horasSemAtualizacao(f)}h</span>`:'')
+    +((f.pedido&&!f.cadastrado)?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO</span>':'');
+  const row=`<div class="frow" onclick="toggleFrete('${id}')">
+    <span class="fnum">Nº ${esc(f.numero||'s/nº')}</span>
+    <span class="fcli">${esc(up(f.clienteEmpresa))||'—'}</span>
+    <span class="frota">${rota}</span>
+    <span class="fbadges">${badges}</span>
+    <span class="fval">${moeda(f.valorFrete)||'—'}</span>
+    <span class="fchev">${aberto?'▲':'▼'}</span>
+  </div>`;
+  return `<div class="fitem s-${k}${aberto?' open':''}">${row}${aberto?cardFrete(f):''}</div>`;
+}
 function cardFrete(f){
   const id=f._id, st=statusDe(f), k=stKey(st);
   const op=opDe(f), operadoras=lerOperadoras();
