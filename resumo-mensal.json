@@ -14,18 +14,70 @@
     "concluido": 101,
     "andamento": 1,
     "cancelado": 1,
-    "fechados": 102,
-    "nivelInd": "Máquina",
-    "bonusInd": 1500
+    "fechados": 102
    },
    "YASMIN": {
     "total": 111,
     "concluido": 110,
     "andamento": 0,
     "cancelado": 1,
-    "fechados": 110,
+    "fechados": 110
+   }
+  },
+  "vendedores": {
+   "FLAVIA": {
+    "fechados": 28,
+    "total": 28,
+    "concluido": 28,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "THIAGO": {
+    "fechados": 160,
+    "total": 162,
+    "concluido": 159,
+    "andamento": 1,
+    "cancelado": 2,
     "nivelInd": "Máquina",
     "bonusInd": 1500
+   },
+   "(sem vendedor)": {
+    "fechados": 2,
+    "total": 2,
+    "concluido": 2,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "GUSTAVO": {
+    "fechados": 9,
+    "total": 9,
+    "concluido": 9,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "YASMIM": {
+    "fechados": 12,
+    "total": 12,
+    "concluido": 12,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "NATALY": {
+    "fechados": 1,
+    "total": 1,
+    "concluido": 1,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
    }
   }
  },
@@ -44,18 +96,70 @@
     "concluido": 97,
     "andamento": 0,
     "cancelado": 0,
-    "fechados": 97,
-    "nivelInd": "Turbo",
-    "bonusInd": 1000
+    "fechados": 97
    },
    "YASMIN": {
     "total": 90,
     "concluido": 90,
     "andamento": 0,
     "cancelado": 0,
-    "fechados": 90,
-    "nivelInd": "Turbo",
-    "bonusInd": 1000
+    "fechados": 90
+   }
+  },
+  "vendedores": {
+   "(sem vendedor)": {
+    "fechados": 2,
+    "total": 2,
+    "concluido": 2,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "YASMIM": {
+    "fechados": 101,
+    "total": 101,
+    "concluido": 101,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "Máquina",
+    "bonusInd": 1500
+   },
+   "THIAGO": {
+    "fechados": 26,
+    "total": 26,
+    "concluido": 26,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "NATALY": {
+    "fechados": 2,
+    "total": 2,
+    "concluido": 2,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "GUSTAVO": {
+    "fechados": 6,
+    "total": 6,
+    "concluido": 6,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "FLAVIA": {
+    "fechados": 50,
+    "total": 50,
+    "concluido": 50,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
    }
   }
  },
@@ -74,18 +178,70 @@
     "concluido": 106,
     "andamento": 0,
     "cancelado": 2,
-    "fechados": 106,
-    "nivelInd": "Máquina",
-    "bonusInd": 1500
+    "fechados": 106
    },
    "YASMIN": {
     "total": 109,
     "concluido": 108,
     "andamento": 1,
     "cancelado": 0,
-    "fechados": 109,
+    "fechados": 109
+   }
+  },
+  "vendedores": {
+   "(sem vendedor)": {
+    "fechados": 42,
+    "total": 43,
+    "concluido": 42,
+    "andamento": 0,
+    "cancelado": 1,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "GUSTAVO": {
+    "fechados": 10,
+    "total": 10,
+    "concluido": 10,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "YASMIM": {
+    "fechados": 114,
+    "total": 115,
+    "concluido": 114,
+    "andamento": 0,
+    "cancelado": 1,
     "nivelInd": "Máquina",
     "bonusInd": 1500
+   },
+   "FLAVIA": {
+    "fechados": 24,
+    "total": 24,
+    "concluido": 24,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "THIAGO": {
+    "fechados": 22,
+    "total": 22,
+    "concluido": 21,
+    "andamento": 1,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "NATALY": {
+    "fechados": 3,
+    "total": 3,
+    "concluido": 3,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
    }
   }
  },
@@ -104,25 +260,75 @@
     "concluido": 88,
     "andamento": 2,
     "cancelado": 0,
-    "fechados": 90,
-    "nivelInd": "Turbo",
-    "bonusInd": 1000
+    "fechados": 90
    },
    "NATALY": {
     "total": 86,
     "concluido": 84,
     "andamento": 2,
     "cancelado": 0,
-    "fechados": 86,
-    "nivelInd": "Turbo",
-    "bonusInd": 1000
+    "fechados": 86
    },
    "OUTRO": {
     "total": 1,
     "concluido": 1,
     "andamento": 0,
     "cancelado": 0,
-    "fechados": 1,
+    "fechados": 1
+   }
+  },
+  "vendedores": {
+   "YASMIM": {
+    "fechados": 55,
+    "total": 55,
+    "concluido": 54,
+    "andamento": 1,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "(sem vendedor)": {
+    "fechados": 14,
+    "total": 14,
+    "concluido": 14,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "THIAGO": {
+    "fechados": 41,
+    "total": 41,
+    "concluido": 40,
+    "andamento": 1,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "FLAVIA": {
+    "fechados": 58,
+    "total": 58,
+    "concluido": 56,
+    "andamento": 2,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "GUSTAVO": {
+    "fechados": 4,
+    "total": 4,
+    "concluido": 4,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "NATALY": {
+    "fechados": 5,
+    "total": 5,
+    "concluido": 5,
+    "andamento": 0,
+    "cancelado": 0,
     "nivelInd": "—",
     "bonusInd": 0
    }
@@ -143,25 +349,66 @@
     "concluido": 98,
     "andamento": 0,
     "cancelado": 0,
-    "fechados": 98,
-    "nivelInd": "Turbo",
-    "bonusInd": 1000
+    "fechados": 98
    },
    "NATALY": {
     "total": 107,
     "concluido": 102,
     "andamento": 2,
     "cancelado": 3,
-    "fechados": 104,
-    "nivelInd": "Máquina",
-    "bonusInd": 1500
+    "fechados": 104
    },
    "OUTRO": {
     "total": 1,
     "concluido": 0,
     "andamento": 0,
     "cancelado": 1,
-    "fechados": 0,
+    "fechados": 0
+   }
+  },
+  "vendedores": {
+   "(sem vendedor)": {
+    "fechados": 24,
+    "total": 24,
+    "concluido": 23,
+    "andamento": 1,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "YASMIM": {
+    "fechados": 55,
+    "total": 56,
+    "concluido": 55,
+    "andamento": 0,
+    "cancelado": 1,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "THIAGO": {
+    "fechados": 51,
+    "total": 52,
+    "concluido": 50,
+    "andamento": 1,
+    "cancelado": 1,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "FLAVIA": {
+    "fechados": 65,
+    "total": 67,
+    "concluido": 65,
+    "andamento": 0,
+    "cancelado": 2,
+    "nivelInd": "Meta",
+    "bonusInd": 500
+   },
+   "GUSTAVO": {
+    "fechados": 7,
+    "total": 7,
+    "concluido": 7,
+    "andamento": 0,
+    "cancelado": 0,
     "nivelInd": "—",
     "bonusInd": 0
    }
@@ -182,25 +429,75 @@
     "concluido": 87,
     "andamento": 11,
     "cancelado": 11,
-    "fechados": 98,
-    "nivelInd": "Turbo",
-    "bonusInd": 1000
+    "fechados": 98
    },
    "YASMIN": {
     "total": 106,
     "concluido": 87,
     "andamento": 14,
     "cancelado": 5,
-    "fechados": 101,
-    "nivelInd": "Máquina",
-    "bonusInd": 1500
+    "fechados": 101
    },
    "OUTRO": {
     "total": 1,
     "concluido": 0,
     "andamento": 0,
     "cancelado": 1,
-    "fechados": 0,
+    "fechados": 0
+   }
+  },
+  "vendedores": {
+   "THIAGO": {
+    "fechados": 62,
+    "total": 65,
+    "concluido": 58,
+    "andamento": 4,
+    "cancelado": 3,
+    "nivelInd": "Meta",
+    "bonusInd": 500
+   },
+   "FLAVIA": {
+    "fechados": 66,
+    "total": 74,
+    "concluido": 54,
+    "andamento": 12,
+    "cancelado": 8,
+    "nivelInd": "Meta",
+    "bonusInd": 500
+   },
+   "YASMIM": {
+    "fechados": 62,
+    "total": 68,
+    "concluido": 54,
+    "andamento": 8,
+    "cancelado": 6,
+    "nivelInd": "Meta",
+    "bonusInd": 500
+   },
+   "(sem vendedor)": {
+    "fechados": 5,
+    "total": 5,
+    "concluido": 5,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "GUSTAVO": {
+    "fechados": 2,
+    "total": 2,
+    "concluido": 2,
+    "andamento": 0,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "NATALY": {
+    "fechados": 2,
+    "total": 2,
+    "concluido": 1,
+    "andamento": 1,
+    "cancelado": 0,
     "nivelInd": "—",
     "bonusInd": 0
    }
@@ -221,25 +518,66 @@
     "concluido": 35,
     "andamento": 41,
     "cancelado": 5,
-    "fechados": 76,
-    "nivelInd": "Acelerado",
-    "bonusInd": 700
+    "fechados": 76
    },
    "YASMIN": {
     "total": 72,
     "concluido": 18,
     "andamento": 45,
     "cancelado": 9,
-    "fechados": 63,
-    "nivelInd": "Meta",
-    "bonusInd": 500
+    "fechados": 63
    },
    "OUTRO": {
     "total": 14,
     "concluido": 1,
     "andamento": 13,
     "cancelado": 0,
-    "fechados": 14,
+    "fechados": 14
+   }
+  },
+  "vendedores": {
+   "YASMIM": {
+    "fechados": 54,
+    "total": 60,
+    "concluido": 17,
+    "andamento": 37,
+    "cancelado": 6,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "THIAGO": {
+    "fechados": 50,
+    "total": 57,
+    "concluido": 21,
+    "andamento": 29,
+    "cancelado": 7,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "FLAVIA": {
+    "fechados": 41,
+    "total": 42,
+    "concluido": 12,
+    "andamento": 29,
+    "cancelado": 1,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "NATALY": {
+    "fechados": 4,
+    "total": 4,
+    "concluido": 2,
+    "andamento": 2,
+    "cancelado": 0,
+    "nivelInd": "—",
+    "bonusInd": 0
+   },
+   "GUSTAVO": {
+    "fechados": 4,
+    "total": 4,
+    "concluido": 2,
+    "andamento": 2,
+    "cancelado": 0,
     "nivelInd": "—",
     "bonusInd": 0
    }
@@ -260,7 +598,16 @@
     "concluido": 0,
     "andamento": 1,
     "cancelado": 0,
+    "fechados": 1
+   }
+  },
+  "vendedores": {
+   "(sem vendedor)": {
     "fechados": 1,
+    "total": 1,
+    "concluido": 0,
+    "andamento": 1,
+    "cancelado": 0,
     "nivelInd": "—",
     "bonusInd": 0
    }
