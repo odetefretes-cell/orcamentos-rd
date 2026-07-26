@@ -107,6 +107,21 @@ prestador**), cada um com Empresa/Motorista, Telefone, **Placa/Veículo transpor
 Data de saída e Valor. Aparecem na Autorização (controle interno) e alimentam o
 controle de conferência/pagamento na aba **Financeiro**.
 
+## Importar fretes EM ANDAMENTO (do relatório)
+
+No topo da aba **Operacional** há o botão **⬆ Importar fretes em andamento**. Ele traz
+para o sistema **apenas os fretes EM ANDAMENTO** do relatório (RELATORIO_FRETES_NATALY),
+já cruzados com os cadastros (CADASTRO DE FRETES) para preencher a ficha completa
+(cliente, CPF, endereços, veículo com placa/chassi/ano/cor, valor, forma de pagamento,
+Nº averbação e a última anotação de andamento no histórico).
+
+- Cada frete entra direto na **área da operadora** (NATALY / YASMIN), conforme o relatório.
+- **Não duplica**: fretes que já existem (mesmo número) são ignorados — pode clicar de novo à vontade.
+- Concluídos e cancelados **não** são importados (só os em andamento).
+
+> A lista vem do arquivo `andamento.json` (gerado a partir das planilhas). Para atualizar
+> com um relatório novo, envie a planilha para a OBS que o arquivo é regerado.
+
 ## Alerta de falta de atualização (24h)
 
 No Relatório, todo frete **em andamento** que fica **24h sem atualização** ganha o

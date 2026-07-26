@@ -542,6 +542,10 @@
       <h2>Relatório de fretes — Área das operadoras <span id="modoBadge" style="float:right;font-size:12px;font-weight:normal;color:#8592a1"></span></h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Todo frete emitido entra na <b>FILA</b>. Cada operadora <b>puxa</b> a demanda para o seu controle e acompanha até a conclusão (status, atualização e pagamentos salvam sozinhos). O <b>atendente</b> da ficha é o responsável pela venda.</p>
+        <div id="importBanner" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px">
+          <b>📥 Importar do relatório</b> — traz os fretes <b>EM ANDAMENTO</b> da planilha (relatório + cadastros) para o sistema, já na área da operadora (NATALY / YASMIN). Não duplica fretes já existentes.
+          <div style="margin-top:8px"><button class="btn-primary" onclick="importarAndamento()">⬆ Importar fretes em andamento</button></div>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <strong style="font-size:13px;color:#4a5a6b">Ver:</strong>
           <span id="relOperadoras" class="pills"></span>
@@ -1262,6 +1266,38 @@ function removeOperadora(o){
 }
 function opDe(f){ return (f.operadora||'').toString().trim().toUpperCase(); }
 
+// ---- importar fretes EM ANDAMENTO do relatório (planilha) ----
+async function importarAndamento(){
+  let arr;
+  try{
+    const resp=await fetch('andamento.json?v='+Date.now());
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    arr=await resp.json();
+  }catch(e){ alert('Não consegui carregar a lista de fretes em andamento (andamento.json). '+e.message); return; }
+  if(!Array.isArray(arr)||!arr.length){ alert('Nenhum frete em andamento na lista.'); return; }
+  const jaTem=arr.filter(f=>MEM[f._id]).length;
+  const novos=arr.length-jaTem;
+  if(!confirm(`Importar ${novos} frete(s) EM ANDAMENTO para o sistema?\n\n(${jaTem} já existem e serão ignorados — não duplica.)\n\nEles entram na área da operadora (NATALY / YASMIN) e no Financeiro.`)) return;
+  const t=flash('Importando fretes…','load');
+  // garante operadoras na lista
+  const ops=lerOperadoras();
+  arr.forEach(f=>{ const o=(f.operadora||'').toUpperCase(); if(o && !ops.includes(o)) ops.push(o); });
+  gravarOperadoras(ops);
+  let add=0, skip=0;
+  arr.forEach(f=>{
+    if(MEM[f._id]){ skip++; return; }
+    const fr=JSON.parse(JSON.stringify(f));
+    fr._salvoEm = fr._salvoEm || new Date().toISOString();
+    MEM[fr._id]=fr; add++;
+  });
+  gravarDB();               // sincroniza p/ nuvem (ou local)
+  atualizarHist(); atualizarProxNum();
+  renderRelatorio();
+  const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
+  t.fechar();
+  flash(`✔ Importados ${add} fretes em andamento`+(skip?` (${skip} já existiam)`:''),'ok');
+}
+
 function setRelFiltro(o){ relFiltro=o; renderRelatorio(); }
 function setRelStatus(s){ relStatusF=s; renderRelatorio(); }
 function pill(txt,on,n,onclick){ return `<button class="pill${on?' on':''}" onclick="${onclick}">${esc(txt)}${n!=null?`<span class="n">${n}</span>`:''}</button>`; }
@@ -1270,6 +1306,7 @@ function jsArg(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").re
 
 function renderRelatorio(){
   const fretes=Object.values(lerDB()).filter(emOperacional);   // só o que o financeiro já liberou
+  const ib=$('#importBanner'); if(ib) ib.style.display='block';
   const operadoras=lerOperadoras();
   const naFila=fretes.filter(f=>!opDe(f)).length;
   const cont={}; operadoras.forEach(o=>cont[o]=0);
