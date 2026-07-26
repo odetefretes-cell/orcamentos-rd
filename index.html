@@ -1533,6 +1533,13 @@ function cardFrete(f){
       <div class="fld"><label>Veículo(s)</label><div class="ro">${veic}</div></div>
       <div class="fld col2"><label>📎 Documentos do cliente</label><div class="ro">${docsLinks(f)}</div></div>
 
+      <div class="fld col4"><label>Solicitar ao prestador (WhatsApp)</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:2px">
+          <button class="btn-ok" style="padding:7px 14px" onclick="acionarColeta('${id}')">📦 Acionar coleta</button>
+          <button class="btn-primary" style="padding:7px 14px" onclick="acionarEntrega('${id}')">🏁 Acionar entrega</button>
+        </div>
+      </div>
+
       <div class="fld"><label>Status</label><select onchange="setFrete('${id}','status',this.value)">${optS}</select></div>
       <div class="fld"><label>Nº averbação</label><input value="${escA(f.averbacao)}" onchange="setFrete('${id}','averbacao',this.value)"></div>
       <div class="fld col2"><label>Previsão de entrega (prazo)</label><input value="${escA(f.previsaoEntrega)}" onchange="setFrete('${id}','previsaoEntrega',this.value)" placeholder="Ex.: 10 a 15 dias após embarque"></div>
@@ -1590,6 +1597,47 @@ function puxarFrete(id,op){
 function addDiasISO(iso,d){ const dt=new Date(iso+'T12:00:00'); dt.setDate(dt.getDate()+(+d||0)); return dt.toISOString().slice(0,10); }
 function diasEntre(a,b){ return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000); }
 function maxDiasPrazo(txt){ const ns=(txt||'').match(/\d+/g); if(!ns) return 0; return Math.max(...ns.map(Number)); }
+// ---- solicitação de coleta / entrega ao prestador (WhatsApp) ----
+function veicTxtMsg(f){
+  const vs=(Array.isArray(f.veiculos)&&f.veiculos.length)?f.veiculos:(f.veiculo?[{modelo:f.veiculo,placa:f.placa}]:[]);
+  if(!vs.length) return '• (veículo não informado)';
+  return vs.map(v=>{
+    let s='• '+(up(v.modelo)||'VEÍCULO')+(v.placa?(' — Placa '+up(v.placa)):'');
+    if(v.chassi) s+=' — Chassi '+up(v.chassi);
+    if(v.ano) s+=' — Ano '+v.ano; if(v.cor) s+=' — '+up(v.cor);
+    return s;
+  }).join('\n');
+}
+function blocoLocalMsg(nome,tel,end,bairro,cid,uf,cep){
+  const l=[]; if(nome) l.push('Nome: '+up(nome)); if(tel) l.push('Telefone: '+tel);
+  const e=[up(end),bairro?up(bairro):'',(cid?up(cid):'')+(uf?(' / '+up(uf)):''),cep?('CEP '+cep):''].filter(x=>x&&x!==' / ').join(', ');
+  if(e) l.push('Endereço: '+e);
+  return l.length?l.join('\n'):'(dados não preenchidos)';
+}
+function abrirWhatsAppMsg(msg){
+  const url='https://wa.me/?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
+}
+function registrarSolic(id,tipo){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  if(!Array.isArray(f.histInterno)) f.histInterno=histOf(f,'interno');
+  f.histInterno.push({ts:new Date().toISOString(), texto:`📲 Solicitação de ${tipo} gerada para o prestador (WhatsApp).`});
+  f._salvoEm=new Date().toISOString(); gravarDB(db);
+}
+function acionarColeta(id){
+  const f=lerDB()[id]; if(!f){return;}
+  const nome=f.coletaNome||f.clienteEmpresa, tel=f.coletaTel||f.telefone, end=f.coletaEndereco||f.endereco,
+        bairro=f.coletaBairro||f.bairro, cid=f.coletaCidade||f.cidade, uf=f.coletaUf||f.uf, cep=f.coletaCep||f.cep;
+  const msg=`🚚 *SOLICITAÇÃO DE COLETA* — OBS Transportes\nFrete Nº ${f.numero||''}\n\n*VEÍCULO:*\n${veicTxtMsg(f)}\n\n*COLETAR EM (Remetente):*\n${blocoLocalMsg(nome,tel,end,bairro,cid,uf,cep)}\n\n*Origem:* ${up(f.origem)||'—'}\n*Destino:* ${up(f.destino)||'—'}${f.coletaPrev?('\n*Data prevista de coleta:* '+dataBR(f.coletaPrev)):''}`;
+  registrarSolic(id,'coleta'); renderRelatorio(); abrirWhatsAppMsg(msg); flash('Solicitação de coleta gerada — escolha o prestador no WhatsApp');
+}
+function acionarEntrega(id){
+  const f=lerDB()[id]; if(!f){return;}
+  const nome=f.entregaNome||f.clienteEmpresa, tel=f.entregaTel||f.telefone, end=f.entregaEndereco||f.endereco,
+        bairro=f.entregaBairro||f.bairro, cid=f.entregaCidade||f.cidade, uf=f.entregaUf||f.uf, cep=f.entregaCep||f.cep;
+  const msg=`🏁 *SOLICITAÇÃO DE ENTREGA* — OBS Transportes\nFrete Nº ${f.numero||''}\n\n*VEÍCULO:*\n${veicTxtMsg(f)}\n\n*ENTREGAR EM (Destinatário):*\n${blocoLocalMsg(nome,tel,end,bairro,cid,uf,cep)}\n\n*Origem:* ${up(f.origem)||'—'}\n*Destino:* ${up(f.destino)||'—'}${f.chegadaPrev?('\n*Data prevista de chegada:* '+dataBR(f.chegadaPrev)):''}`;
+  registrarSolic(id,'entrega'); renderRelatorio(); abrirWhatsAppMsg(msg); flash('Solicitação de entrega gerada — escolha o prestador no WhatsApp');
+}
 function mensagemClienteMarco(campo, dataISO){
   const d=dataBR(dataISO);
   const M={
