@@ -98,6 +98,7 @@
   .fitem.s-andamento{border-left-color:#e6a100}
   .fitem.s-concluido{border-left-color:var(--ok)}
   .fitem.s-cancelado{border-left-color:#c0392b}
+  .fitem.s-aguardando{border-left-color:#2563eb}
   .fitem.open{margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
   .frow{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;user-select:none}
   .frow:hover{background:var(--cinza)}
@@ -126,7 +127,7 @@
   .fcard input,.fcard select,.fcard textarea{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--linha);border-radius:6px}
   .fcard textarea{resize:vertical;min-height:38px}
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:bold;color:#fff}
-  .badge.s-andamento{background:#e6a100}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#c0392b}
+  .badge.s-andamento{background:#e6a100}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#c0392b}.badge.s-aguardando{background:#2563eb}
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#c0392b;font-weight:bold}
   .badge.atraso{background:#c0392b}
   table.fin{width:100%;border-collapse:collapse;font-size:13px}
@@ -1276,7 +1277,12 @@ function veicResumo(f){
   const p=`${up(vs[0].modelo||'')}${vs[0].placa?(' · '+up(vs[0].placa)):''}`;
   return p+(vs.length>1?`  (+${vs.length-1})`:'');
 }
-function statusDe(f){ return (f.status||'ANDAMENTO').toString().toUpperCase(); }
+function statusDe(f){
+  const s=(f.status||'').toString().toUpperCase().replace('CONCLUIDO','CONCLUÍDO');
+  if(s==='CONCLUÍDO'||s==='CANCELADO') return s;
+  if(!opDe(f)) return 'AGUARDANDO';   // na fila, ainda não assumido pelo operador
+  return s||'ANDAMENTO';
+}
 // ETAPAS do fluxo: comercial -> financeiro -> operacional
 function etapaDe(f){
   if(!f.cadastrado) return 'comercial';               // pedido do cliente, ainda não emitido
@@ -1290,7 +1296,7 @@ function docsLinks(f){
   const links=Object.keys(map).filter(k=>d[k]).map(k=>`<a href="${d[k]}" target="_blank">📎 ${map[k]}</a>`);
   return links.length?links.join(' · '):'<span class="hint">nenhum</span>';
 }
-function stKey(s){ return s==='CONCLUÍDO'?'concluido':s==='CANCELADO'?'cancelado':'andamento'; }
+function stKey(s){ return s==='CONCLUÍDO'?'concluido':s==='CANCELADO'?'cancelado':s==='AGUARDANDO'?'aguardando':'andamento'; }
 
 let relFiltro='FILA', relStatusF='TODOS';
 const STATUSES=['ANDAMENTO','CONCLUÍDO','CANCELADO'];
@@ -1397,7 +1403,7 @@ function renderRelatorio(){
   const and=list.filter(f=>opDe(f)&&statusDe(f)==='ANDAMENTO').length, con=list.filter(f=>statusDe(f)==='CONCLUÍDO').length, can=list.filter(f=>statusDe(f)==='CANCELADO').length;
   const aberto=list.filter(f=>statusDe(f)!=='CANCELADO').reduce((s,f)=>s+(num(f.valorFrete)-num(f.pago1)-num(f.pago2)),0);
   $('#relResumo').innerHTML=
-    `<div class="box">Na fila<b style="color:#8a6d00">${naFila}</b></div>`+
+    `<div class="box">Aguardando (fila)<b style="color:#2563eb">${naFila}</b></div>`+
     `<div class="box">Exibindo<b>${list.length}</b></div>`+
     `<div class="box">Em andamento<b style="color:#e6a100">${and}</b></div>`+
     `<div class="box">Cancelados<b style="color:#c0392b">${can}</b></div>`+
@@ -1436,15 +1442,15 @@ function cardFrete(f){
   const vend=esc(up(f.atendente))||'—', cli=esc(up(f.clienteEmpresa))||'—', veic=esc(veicResumo(f))||'—';
   const rota=`${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}`;
 
-  // ----- Frete na FILA: card compacto com botões PUXAR -----
+  // ----- Frete na FILA (AGUARDANDO): operador assume p/ INICIAR o transporte -----
   if(!op){
-    const botoes=operadoras.map(o=>`<button class="btn-ok" style="padding:5px 12px;font-size:12px" onclick="puxarFrete('${id}','${jsArg(o)}')">⬇ Puxar p/ ${esc(o)}</button>`).join(' ');
-    return `<div class="fcard s-fila" style="border-left-color:#e6a100">
+    const botoes=operadoras.map(o=>`<button class="btn-ok" style="padding:5px 12px;font-size:12px" onclick="puxarFrete('${id}','${jsArg(o)}')">▶ Iniciar transporte (${esc(o)})</button>`).join(' ');
+    return `<div class="fcard s-fila" style="border-left-color:#2563eb">
       <div class="top">
         <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
         <div style="display:flex;gap:8px;align-items:center">
           ${f.pedido?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO DO CLIENTE</span>':''}
-          <span class="badge" style="background:#8a6d00">🕓 NA FILA</span>
+          <span class="badge s-aguardando">🕓 AGUARDANDO</span>
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
         </div>
       </div>
@@ -1453,7 +1459,7 @@ function cardFrete(f){
         <div class="fld"><label>Cliente</label><div class="ro">${cli}</div></div>
         <div class="fld"><label>Veículo(s)</label><div class="ro">${veic}</div></div>
         <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
-        <div class="fld col4"><label>Puxar para o controle de:</label><div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:2px">${botoes||'<span class="hint">Cadastre uma operadora em “＋ operadora”.</span>'}</div></div>
+        <div class="fld col4"><label>O operador assume e inicia o transporte:</label><div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:2px">${botoes||'<span class="hint">Cadastre uma operadora em “＋ operadora”.</span>'}</div></div>
       </div>
     </div>`;
   }
@@ -1517,10 +1523,10 @@ function cardFrete(f){
 function puxarFrete(id,op){
   const db=lerDB(); if(!db[id]) return;
   db[id].operadora=(op||'').toUpperCase();
-  if(!db[id].status) db[id].status='ANDAMENTO';
-  if(!db[id].puxadoEm) db[id].puxadoEm=new Date().toISOString();
+  db[id].status='ANDAMENTO';                    // operador assumiu -> inicia o transporte
+  db[id].puxadoEm=new Date().toISOString();      // conta como atualização (zera o alerta)
   db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
-  renderRelatorio(); atualizarHist(); flash('Frete '+(db[id].numero||'')+' puxado para '+db[id].operadora);
+  renderRelatorio(); atualizarHist(); flash('▶ Transporte iniciado — frete '+(db[id].numero||'')+' com '+db[id].operadora);
 }
 // ---- alerta de falta de atualização (24h) ----
 function ultimaAtividade(f){
