@@ -1862,35 +1862,34 @@ function renderFinanceiro(){
   let itens=[];
   fretes.forEach(f=>{ prestDe(f).forEach((p,idx)=>{ if(p.emp||p.valor||p.placa) itens.push({f,p,idx}); }); });
   const qp=($('#finPrestBusca')?.value||'').trim().toLowerCase();
+  const pago=x=>!!(x.p.contaAzul && String(x.p.contaAzul).trim());   // lançado no ContaAzul = conferido/pago
   const passa=x=>{ const {p,f}=x;
-    if(finPrestF==='ACONFERIR' && p.conf) return false;
-    if(finPrestF==='CONFERIDOS' && !p.conf) return false;
-    if(finPrestF==='NOPAG' && !p.incl) return false;
-    if(finPrestF==='APAGAR' && p.pago) return false;
-    if(finPrestF==='PAGOS' && !p.pago) return false;
+    if(finPrestF==='ABERTO' && pago(x)) return false;
+    if(finPrestF==='PAGO' && !pago(x)) return false;
     if(qp){ const hay=[p.emp,p.placa,f.numero,p.valor,String(num(p.valor)),veicResumo(f),up(f.origem),up(f.destino)].join(' ').toLowerCase(); if(!hay.includes(qp)) return false; }
     return true; };
   const vis=itens.filter(passa);
   const pill=(txt,val,n)=>`<button class="pill${finPrestF===val?' on':''}" onclick="setFinPrestF('${val}')">${txt}${n!=null?`<span class="n">${n}</span>`:''}</button>`;
   $('#finPrestPills').innerHTML=
-    pill('Todos','TODOS',itens.length)+pill('A conferir','ACONFERIR',itens.filter(x=>!x.p.conf).length)+
-    pill('Conferidos','CONFERIDOS',itens.filter(x=>x.p.conf).length)+pill('No pagamento','NOPAG',itens.filter(x=>x.p.incl).length)+
-    pill('A pagar','APAGAR',itens.filter(x=>!x.p.pago).length)+pill('Pagos','PAGOS',itens.filter(x=>x.p.pago).length);
+    pill('Todos','TODOS',itens.length)+
+    pill('⏳ Em aberto','ABERTO',itens.filter(x=>!pago(x)).length)+
+    pill('✅ Conferidos / pagos','PAGO',itens.filter(pago).length);
   const linhasP=vis.map(({f,p,idx})=>{
+    const ok = !!(p.contaAzul && String(p.contaAzul).trim());
     const veic = esc(veicResumo(f)) || (p.placa?esc(up(p.placa)):'—');
-    return `<tr class="${p.conf?'conf':''}">
+    return `<tr class="${ok?'conf':''}">
     <td><b>${esc(f.numero||'')}</b></td><td>${esc(up(p.emp))}</td>
     <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div></td>
     <td>${moeda(p.valor)}</td>
     <td><input type="date" value="${escA(p.contaAzul)}" onchange="setPrestFin('${f._id}',${idx},'contaAzul',this.value)" title="Data de inclusão no ContaAzul — preencher = conferido e pago" style="font-size:12.5px"></td>
-    <td>${(p.pago||p.conf||p.contaAzul)?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ a conferir</span>'}</td></tr>`;
+    <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}</td></tr>`;
   }).join('');
   $('#finPrest').innerHTML=`<thead><tr><th>Nº frete</th><th>Empresa / Motorista</th><th>Veículo transportado</th><th>Valor</th><th>📘 Data ContaAzul</th><th>Situação</th></tr></thead><tbody>${linhasP||'<tr><td colspan="6" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
-  const totP=vis.reduce((t,x)=>t+num(x.p.valor),0), totPagar=itens.filter(x=>!x.p.pago).reduce((t,x)=>t+num(x.p.valor),0), totPago=itens.filter(x=>x.p.pago).reduce((t,x)=>t+num(x.p.valor),0);
+  const totP=vis.reduce((t,x)=>t+num(x.p.valor),0), totPagar=itens.filter(x=>!pago(x)).reduce((t,x)=>t+num(x.p.valor),0), totPago=itens.filter(pago).reduce((t,x)=>t+num(x.p.valor),0);
   $('#finPrestResumo').innerHTML=
     `<div class="box">Exibindo<b>${moeda(totP)}</b></div>`+
-    `<div class="box">A pagar<b style="color:#c0392b">${moeda(totPagar)}</b></div>`+
-    `<div class="box">Pago<b style="color:var(--ok)">${moeda(totPago)}</b></div>`;
+    `<div class="box">⏳ Em aberto<b style="color:#c0392b">${moeda(totPagar)}</b></div>`+
+    `<div class="box">✅ Conferido/pago<b style="color:var(--ok)">${moeda(totPago)}</b></div>`;
 }
 
 // ---- histórico de atualizações (interno + cliente) ----
