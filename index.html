@@ -387,6 +387,13 @@
   .orc-preview table td.lbl{background:rgba(255,255,255,.03);font-weight:600;width:35%}
 
   @media(max-width:820px){.kanban{flex-direction:column}.kanban-col{min-width:100%;max-width:100%}.kanban-cards{max-height:300px}}
+  /* toggle liga/desliga das taxas (composição do frete) */
+  .sw-switch{position:relative;display:inline-block;width:40px;height:22px;cursor:pointer}
+  .sw-switch input{opacity:0;width:0;height:0;position:absolute}
+  .sw-slider{position:absolute;inset:0;background:#c2c8d0;border-radius:22px;transition:.2s}
+  .sw-slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+  .sw-switch input:checked + .sw-slider{background:#2563eb}
+  .sw-switch input:checked + .sw-slider:before{transform:translateX(18px)}
 </style>
 </head>
 <body>
@@ -1024,6 +1031,13 @@ function moeda(v){
   const n = parseFloat(s.replace(/[^\d.-]/g,''));
   if(isNaN(n)) return up(v);
   return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+function numMoeda(v){   // "2.339,80" | "2339.80" | "R$ 950" -> 2339.8 / 950
+  if(v===''||v==null) return 0;
+  let s = String(v).trim().replace(/[R$\s]/g,'');
+  if(s.includes(',')) s = s.replace(/\./g,'').replace(',','.');
+  const n = parseFloat(s.replace(/[^\d.-]/g,''));
+  return isNaN(n) ? 0 : n;
 }
 function dataBR(v){
   if(!v) return '';
@@ -3215,6 +3229,7 @@ function crmNovoLead(){
     // integração WhatsApp/ChatGuru + cálculo SW Fretes
     origemLead:'manual', valorVeiculo:'', funciona:'', blindado:'', dataEnvio:'',
     interesse:'', valorCotacaoSW:'', prazoSW:'', cotacaoId:'',
+    composicao:[], trajetos:[],   // taxas (SW) e trechos p/ conferência e PDF
     dataEntrada: new Date().toISOString().slice(0,10),
     ultimaInteracao: new Date().toISOString(),
     motivoPerda:'',
@@ -3293,6 +3308,8 @@ function crmAbrirLead(id){
       <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
     </div>
+    <div class="cm-section">🧾 Composição do frete (taxas SW) — conferir antes de emitir</div>
+    <div id="crmComposicao"></div>
     <div class="cm-section">💬 Adicionar Interação</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
       <textarea id="crmNovaInteracao" placeholder="Descreva o contato realizado..." style="flex:1;min-height:50px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px;resize:vertical"></textarea>
@@ -3306,13 +3323,14 @@ function crmAbrirLead(id){
   let actionsHTML = `
     <button class="btn-ghost" onclick="fecharCrmModal()">Cancelar</button>
     <button class="btn-ghost" onclick="crmWhatsApp('${id}')" style="color:#25d366;border-color:#25d366">📱 WhatsApp</button>
-    <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📧 Orçamento</button>`;
+    <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>`;
   if(l.etapa === 'fechado'){
     actionsHTML += `<button class="btn-ok" onclick="crmConverterEmFrete('${id}')">🚚 Converter em Frete</button>`;
   }
   actionsHTML += `<button class="btn-primary" onclick="crmSalvarLead('${id}')">💾 Salvar</button>`;
   $('#crmModalActions').innerHTML = actionsHTML;
 
+  crmRenderComp(id);   // taxas SW editáveis
   modal.style.display = 'flex';
   requestAnimationFrame(()=> modal.classList.add('open'));
   if(isNovo) setTimeout(()=>$('#crmNome')?.focus(), 200);
@@ -3383,44 +3401,172 @@ function crmWhatsApp(id){
   flash('WhatsApp aberto ✔');
 }
 
-// ---- Orçamento (montar e enviar) ----
+// ---- Composição do frete (taxas SW): incluir / excluir / editar ----
+const CRM_COMP_MODELO = [
+  { desc:'Frete Base',  valor:'', ativo:true,  opcional:false },
+  { desc:'Recebimento', valor:'', ativo:true,  opcional:false },
+  { desc:'Taxa Fixa',   valor:'', ativo:true,  opcional:false },
+  { desc:'Transbordo',  valor:'', ativo:true,  opcional:false },
+  { desc:'Seguro',      valor:'', ativo:true,  opcional:false },
+  { desc:'Imposto',     valor:'', ativo:true,  opcional:false },
+  { desc:'Coleta',      valor:'', ativo:false, opcional:true },
+  { desc:'Entrega',     valor:'', ativo:false, opcional:true }
+];
+function crmCompTotal(l){
+  return (l.composicao||[]).filter(c=>c.ativo).reduce((s,c)=>s+numMoeda(c.valor),0);
+}
+function crmCompUpdTotal(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  const el=$('#crmCompTotal'); if(el) el.textContent=moeda(crmCompTotal(l));
+}
+function crmCompSet(id,i,campo,val){
+  const l=CRM_LEADS[id]; if(!l||!l.composicao[i]) return;
+  l.composicao[i][campo]=val;
+  if(campo==='valor') crmCompUpdTotal(id);
+}
+function crmCompToggle(id,i){
+  const l=CRM_LEADS[id]; if(!l||!l.composicao[i]) return;
+  l.composicao[i].ativo=!l.composicao[i].ativo;
+  crmRenderComp(id);
+}
+function crmCompAdd(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  if(!l.composicao) l.composicao=[];
+  l.composicao.push({ desc:'', valor:'', ativo:true, opcional:false });
+  crmRenderComp(id);
+}
+function crmCompDel(id,i){
+  const l=CRM_LEADS[id]; if(!l) return;
+  l.composicao.splice(i,1); crmRenderComp(id);
+}
+function crmCompModelo(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  crmRenderComp(id);
+}
+function crmTrajAdd(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  if(!l.trajetos) l.trajetos=[];
+  l.trajetos.push({ de:'', para:'', transportadora:'', valor:'' });
+  crmRenderComp(id);
+}
+function crmTrajDel(id,i){
+  const l=CRM_LEADS[id]; if(!l) return;
+  l.trajetos.splice(i,1); crmRenderComp(id);
+}
+function crmTrajSet(id,i,campo,val){
+  const l=CRM_LEADS[id]; if(!l||!l.trajetos[i]) return;
+  l.trajetos[i][campo]=val;
+}
+function crmRenderComp(id){
+  const l=CRM_LEADS[id]; const box=$('#crmComposicao'); if(!l||!box) return;
+  const trajetos=l.trajetos||[], comp=l.composicao||[];
+  const trajHTML = trajetos.map((t,i)=>`
+    <div class="crm-traj-row" style="display:grid;grid-template-columns:1fr 1fr 1fr 110px 30px;gap:6px;align-items:center;margin-bottom:5px">
+      <input value="${escA(t.de||'')}" placeholder="Origem" oninput="crmTrajSet('${id}',${i},'de',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">
+      <input value="${escA(t.para||'')}" placeholder="Destino" oninput="crmTrajSet('${id}',${i},'para',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">
+      <input value="${escA(t.transportadora||'')}" placeholder="Transportadora" oninput="crmTrajSet('${id}',${i},'transportadora',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">
+      <input value="${escA(t.valor||'')}" placeholder="R$" inputmode="decimal" oninput="crmTrajSet('${id}',${i},'valor',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px;text-align:right">
+      <button onclick="crmTrajDel('${id}',${i})" title="Remover" style="border:none;background:none;cursor:pointer">🗑️</button>
+    </div>`).join('');
+  const compHTML = comp.map((c,i)=>`
+    <div class="crm-comp-row" style="display:grid;grid-template-columns:44px 1fr 130px 30px;gap:6px;align-items:center;margin-bottom:5px;${c.ativo?'':'opacity:.5'}">
+      <label class="sw-switch" title="Incluir/excluir">
+        <input type="checkbox" ${c.ativo?'checked':''} onchange="crmCompToggle('${id}',${i})">
+        <span class="sw-slider"></span>
+      </label>
+      <input value="${escA(c.desc||'')}" placeholder="Descrição da taxa" oninput="crmCompSet('${id}',${i},'desc',this.value)" style="font-size:13px;padding:6px;border:1px solid var(--linha);border-radius:6px">
+      <input value="${escA(c.valor||'')}" placeholder="R$ 0,00" inputmode="decimal" oninput="crmCompSet('${id}',${i},'valor',this.value)" style="font-size:13px;padding:6px;border:1px solid var(--linha);border-radius:6px;text-align:right">
+      <button onclick="crmCompDel('${id}',${i})" title="Excluir taxa" style="border:none;background:none;cursor:pointer">🗑️</button>
+    </div>`).join('');
+  box.innerHTML = `
+    <div style="font-size:12px;font-weight:600;opacity:.75;margin:2px 0 6px">🛣️ Trajetos / trechos</div>
+    ${trajHTML || '<p class="hint" style="margin:0 0 6px">Nenhum trecho. Serão preenchidos pela SW; você pode adicionar manualmente.</p>'}
+    <button class="btn-ghost" onclick="crmTrajAdd('${id}')" style="font-size:12px;padding:4px 10px;margin-bottom:10px">➕ Trecho</button>
+    <div style="font-size:12px;font-weight:600;opacity:.75;margin:6px 0">💵 Taxas (ligue/desligue, edite ou exclua)</div>
+    ${compHTML || '<p class="hint" style="margin:0 0 6px">Nenhuma taxa lançada ainda.</p>'}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+      <button class="btn-ghost" onclick="crmCompAdd('${id}')" style="font-size:12px;padding:4px 10px">➕ Taxa</button>
+      ${comp.length?'':`<button class="btn-ghost" onclick="crmCompModelo('${id}')" style="font-size:12px;padding:4px 10px">📋 Usar taxas padrão (SW)</button>`}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:2px solid var(--linha)">
+      <span style="font-weight:700">Total do frete (confirmado)</span>
+      <span id="crmCompTotal" style="font-weight:800;font-size:17px;color:#16a34a">${moeda(crmCompTotal(l))}</span>
+    </div>`;
+}
+
+// ---- Orçamento em PDF (valores confirmados) ----
 function crmEnviarOrcamento(id){
   const l = CRM_LEADS[id];
   if(!l) return;
-  const orc = `🚚 *ORÇAMENTO — OBS TRANSPORTES*\n` +
-    `━━━━━━━━━━━━━━━━━━\n` +
-    `📋 *Orçamento para:* ${l.nome||''}\n` +
-    (l.empresa ? `🏢 Empresa: ${l.empresa}\n` : '') +
-    `\n📦 *Veículo:* ${l.veiculoDesc||'A definir'}\n` +
-    (l.placa ? `🔢 Placa: ${l.placa}\n` : '') +
-    `📍 *Origem:* ${l.origem||'A definir'}\n` +
-    `📍 *Destino:* ${l.destino||'A definir'}\n` +
-    `💰 *Valor:* ${l.valorEstimado ? moeda(l.valorEstimado) : 'A definir'}\n` +
-    `📅 *Prazo:* 10 a 15 dias após embarque\n` +
-    `🚛 *Equipamento:* Cegonha / Guincho\n` +
-    `━━━━━━━━━━━━━━━━━━\n` +
-    `📞 (11) 4352-4103 | (11) 4352-1524\n` +
-    `📧 OBS Transportes — CNPJ 08.165.584/0001-67`;
-
-  // copiar para clipboard
-  navigator.clipboard.writeText(orc).then(()=>{
-    flash('Orçamento copiado! Cole no e-mail ou WhatsApp. ✔');
-  }).catch(()=>{
-    // fallback: abrir WhatsApp com orçamento
-    let tel = (l.telefone||'').replace(/\D/g,'');
-    if(tel.length <= 11) tel = '55' + tel;
-    if(tel) window.open(`https://wa.me/${tel}?text=${encodeURIComponent(orc)}`, '_blank');
-    else { prompt('Copie o orçamento abaixo:', orc); }
-  });
-
-  // mover para etapa orçamento se estiver antes
-  if(l.etapa === 'novo' || l.etapa === 'contato'){
-    l.etapa = 'orcamento';
+  const comp = (l.composicao||[]).filter(c=>c.ativo && (c.desc||numMoeda(c.valor)));
+  const total = crmCompTotal(l) || numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado);
+  if(!comp.length && !total){
+    if(!confirm('Nenhuma taxa lançada na composição. Emitir mesmo assim?')) return;
   }
-  crmAddTimeline(id, 'orcamento', 'Orçamento gerado e copiado/enviado');
+  const trajetos=(l.trajetos||[]).filter(t=>t.de||t.para||t.transportadora||numMoeda(t.valor));
+  const prazo = l.prazoSW ? `${l.prazoSW} dias corridos após o embarque` : '10 a 15 dias após o embarque';
+  const validade = new Date(Date.now()+7*864e5);
+  const validadeBR = `${String(validade.getDate()).padStart(2,'0')}/${String(validade.getMonth()+1).padStart(2,'0')}/${validade.getFullYear()}`;
+
+  const linhaComp = c=>`<tr><td>${esc(c.desc||'—')}</td><td style="text-align:right">${moeda(c.valor||0)}</td></tr>`;
+  const linhaTraj = t=>`<tr><td>${esc(t.de||'?')} → ${esc(t.para||'?')}${t.transportadora?' · '+esc(t.transportadora):''}</td><td style="text-align:right">${moeda(t.valor||0)}</td></tr>`;
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+  <title>Orçamento ${esc(l.nome||'')}</title>
+  <style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:28px 34px;font-size:13px}
+    .hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1f2b4d;padding-bottom:12px;margin-bottom:14px}
+    .hd img{height:56px} .hd h1{font-size:18px;margin:0;color:#1f2b4d} .hd .sub{font-size:11px;color:#555;margin-top:2px}
+    h2{font-size:13px;background:#1f2b4d;color:#fff;padding:6px 10px;border-radius:5px;margin:16px 0 8px}
+    table{width:100%;border-collapse:collapse;margin:4px 0} td{padding:6px 9px;border:1px solid #ccc}
+    .lbl{background:#f2f4f8;font-weight:600;width:32%}
+    .tot{background:#eaf7ee;font-weight:800;font-size:15px}
+    .tot td{border-color:#bfe3c9} .fim{margin-top:22px;font-size:11px;color:#555;line-height:1.5}
+    .obs{margin-top:10px;font-size:11px;color:#333}
+    @media print{body{padding:0 6mm}}
+  </style></head><body>
+    <div class="hd"><img src="${logoAtual()}" alt="OBS"><div>
+      <h1>Orçamento de Transporte de Veículo</h1>
+      <div class="sub">ODETE BARBOSA SANTOS TRANSPORTES · OBS TRANSPORTES · CNPJ 08.165.584/0001-67<br>
+      Av. Padre Anchieta, 176 — Jordanópolis — São Bernardo do Campo/SP · (11) 4352-4103 · (11) 4352-1524</div>
+    </div></div>
+
+    <table>
+      <tr><td class="lbl">Cliente</td><td>${esc(l.nome||'—')}${l.empresa?' — '+esc(l.empresa):''}</td></tr>
+      <tr><td class="lbl">Contato</td><td>${esc(l.telefone||'—')}${l.email?' · '+esc(l.email):''}</td></tr>
+      <tr><td class="lbl">Veículo</td><td>${esc(l.veiculoDesc||'—')}${l.placa?' · placa '+esc(l.placa):''}${l.valorVeiculo?' · valor '+moeda(l.valorVeiculo):''}</td></tr>
+      <tr><td class="lbl">Origem → Destino</td><td>${esc(l.origem||'—')} → ${esc(l.destino||'—')}</td></tr>
+      <tr><td class="lbl">Prazo estimado</td><td>${esc(prazo)}</td></tr>
+    </table>
+
+    ${trajetos.length?`<h2>Trajetos</h2><table>${trajetos.map(linhaTraj).join('')}</table>`:''}
+
+    <h2>Composição do frete</h2>
+    <table>
+      ${comp.length?comp.map(linhaComp).join(''):'<tr><td>Frete</td><td style="text-align:right">'+moeda(total)+'</td></tr>'}
+      <tr class="tot"><td>TOTAL DO FRETE</td><td style="text-align:right">${moeda(total)}</td></tr>
+    </table>
+
+    <div class="obs">Equipamento: Cegonha / Guincho · Seguro incluso (apólice ALLIANZ).<br>
+    Proposta válida até <b>${validadeBR}</b>.</div>
+
+    <div class="fim">Emitido em ${hojeBR()} por OBS Transportes.<br>
+    Documento de proposta comercial — sujeito a confirmação de disponibilidade e dados do veículo.</div>
+
+    <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank');
+  if(!w){ flash('Permita pop-ups para gerar o PDF.','erro'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+
+  l.valorEstimado = String(total);
+  if(l.etapa === 'novo' || l.etapa === 'contato') l.etapa = 'orcamento';
+  crmAddTimeline(id, 'orcamento', `Orçamento emitido (PDF) — total ${moeda(total)}`);
   saveCRM();
   renderCRM();
-  if($('#crmModal')?.style.display !== 'none') crmAbrirLead(id);
+  flash('Orçamento gerado — salve como PDF e envie ao cliente ✔');
 }
 
 // ---- Converter Lead em Frete ----

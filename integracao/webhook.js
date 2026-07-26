@@ -72,13 +72,28 @@ async function calcularSW({ cepOrigem, cepDestino, valorVeiculo, categoria, data
   // destaque 1 = melhor escolha; senão, menor preço.
   atende.sort((a,b)=> (b.highlight===1) - (a.highlight===1) || a.price - b.price);
   const best = atende[0];
+  // taxas (details) -> composição editável no CRM
+  const composicao = (best.details||[]).map(d => ({
+    desc: d.description || '',
+    valor: String(d.value != null ? d.value : ''),
+    ativo: d.enabled === 1,
+    opcional: d.required === 0
+  }));
+  // trechos (legs) -> trajetos
+  const trajetos = (best.legs||[]).map(g => ({
+    de: (g.fromCityName||'') + (g.fromState?', '+g.fromState:''),
+    para: (g.toCityName||'') + (g.toState?', '+g.toState:''),
+    transportadora: g.carrierName || '',
+    valor: String(g.price != null ? g.price : '')
+  }));
   return {
     cotacaoId: json.data.id,
     valor:  best.price,
     prazo:  best.deliveryDays || null,
     entrega: best.deliveryDate || null,
     cidadeOrigem:  json.data.fromCityName || '',
-    cidadeDestino: json.data.toCityName || ''
+    cidadeDestino: json.data.toCityName || '',
+    composicao, trajetos
   };
 }
 
@@ -125,6 +140,8 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
         prazoSW: cot && cot.prazo ? String(cot.prazo) : '',
         cotacaoId: cot ? String(cot.cotacaoId) : '',
         valorEstimado: cot ? String(cot.valor) : '',
+        composicao: cot ? cot.composicao : [],
+        trajetos: cot ? cot.trajetos : [],
         vendedor: '',
         dataEntrada: hoje(),
         ultimaInteracao: new Date().toISOString(),
