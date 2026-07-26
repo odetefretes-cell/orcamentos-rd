@@ -654,6 +654,8 @@
       <h2>💰 A receber (clientes)</h2>
       <div class="body">
         <div id="finReceberResumo" class="rel-resumo" style="margin-bottom:10px"></div>
+        <input id="finBusca" oninput="renderFinanceiro()" placeholder="🔎 buscar por nome, CPF/CNPJ ou valor…"
+               style="width:100%;font-size:14px;padding:9px;border:1px solid var(--linha);border-radius:8px;margin-bottom:10px">
         <div style="overflow-x:auto"><table class="fin" id="finReceber"></table></div>
       </div>
     </div>
@@ -1715,8 +1717,8 @@ function liberarOperacional(id){
   flash('Frete '+(db[id].numero||'')+' liberado para o operacional ✔');
 }
 // filtro clicável do financeiro (A receber) + abrir no operacional
-let finFiltro='todos';
-function setFinFiltro(k){ finFiltro = (finFiltro===k?'todos':k); renderFinanceiro(); }
+let finFiltro='';   // '' = lista oculta; clicar num valor exibe
+function setFinFiltro(k){ finFiltro = (finFiltro===k?'':k); renderFinanceiro(); }
 function abrirNoOperacional(id){
   if(!MEM[id]) return;
   switchView('rel'); relFiltro='TODAS'; relStatusF='TODOS';
@@ -1764,17 +1766,25 @@ function renderFinanceiro(){
     if(finFiltro==='areceber') return s.k!=='quit';
     if(finFiltro==='venc') return s.k==='venc';
     return true; };
-  const linhasR=comValor.filter(passaFin).map(f=>{
-    const s=situacaoReceber(f), ab=abertoDe(f);
-    return `<tr class="${s.k==='venc'?'vencido':''}">
-      <td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td><td>${esc(up(f.operadora))||'—'}</td>
-      <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</td>
-      <td><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setFin('${f._id}','previsaoRecebimento',this.value)"></td>
-      <td><span class="tagv ${s.k}">${s.t}</span></td>
-      <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="abrirNoOperacional('${f._id}')" title="Abrir no operacional p/ atualizar e registrar pagamento">▶ abrir</button></td></tr>`;
-  }).join('');
-  const lf=finFiltro!=='todos'?` <span style="font-weight:normal;font-size:12px;color:#8592a1">· filtro: ${finFiltro} <button class="mc-x" onclick="setFinFiltro('todos')" title="limpar">✕</button></span>`:'';
-  $('#finReceber').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Operadora</th><th>Valor frete</th><th>Recebido</th><th>Em aberto</th><th>Previsão receb.</th><th>Situação</th><th></th></tr></thead><tbody>${linhasR||'<tr><td colspan="9" class="hint" style="text-align:center">Nenhum frete neste filtro.</td></tr>'}</tbody>`;
+  const NOMES={aberto:'Em aberto',recebido:'Recebido',quit:'Quitados',areceber:'A receber',venc:'Vencido'};
+  const qf=($('#finBusca')?.value||'').trim().toLowerCase();
+  const buscaFin=f=>{ if(!qf) return true; const hay=[f.numero,f.clienteEmpresa,f.cpfCnpj,f.valorFrete,moeda(f.valorFrete),up(f.operadora)].join(' ').toLowerCase(); return hay.includes(qf); };
+  if(!finFiltro && !qf){
+    $('#finReceber').innerHTML=`<tbody><tr><td class="hint" style="text-align:center;padding:16px">👆 Clique em <b>Recebido</b>, <b>Em aberto</b>, <b>A receber</b>, <b>Quitados</b> ou <b>Vencido</b> acima — ou <b>pesquise</b> por nome, CPF ou valor — para ver os fretes.</td></tr></tbody>`;
+  }else{
+    const linhasR=comValor.filter(f=>(finFiltro?passaFin(f):true) && buscaFin(f)).map(f=>{
+      const s=situacaoReceber(f), ab=abertoDe(f);
+      return `<tr class="${s.k==='venc'?'vencido':''}">
+        <td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td><td>${esc(up(f.operadora))||'—'}</td>
+        <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</td>
+        <td><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setFin('${f._id}','previsaoRecebimento',this.value)"></td>
+        <td><span class="tagv ${s.k}">${s.t}</span></td>
+        <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="abrirNoOperacional('${f._id}')" title="Abrir no operacional p/ atualizar e registrar pagamento">▶ abrir</button></td></tr>`;
+    }).join('');
+    const rot = finFiltro ? (NOMES[finFiltro]||finFiltro) : 'Busca';
+    const cab=`<tr><th colspan="9" style="text-align:left;background:#fff">Fretes · <b>${esc(rot)}</b>${qf?` · "${esc(qf)}"`:''} ${finFiltro?`<button class="mc-x" onclick="setFinFiltro('${finFiltro}')" title="ocultar">✕ ocultar</button>`:''}</th></tr>`;
+    $('#finReceber').innerHTML=`<thead>${cab}<tr><th>Nº</th><th>Cliente</th><th>Operadora</th><th>Valor frete</th><th>Recebido</th><th>Em aberto</th><th>Previsão receb.</th><th>Situação</th><th></th></tr></thead><tbody>${linhasR||'<tr><td colspan="9" class="hint" style="text-align:center">Nenhum frete neste filtro.</td></tr>'}</tbody>`;
+  }
   const boxF=(lbl,val,cor,k)=>`<div class="box${finFiltro===k?' box-on':''}" ${k?`onclick="setFinFiltro('${k}')" style="cursor:pointer"`:''}>${lbl}<b style="color:${cor||'inherit'}">${val}</b></div>`;
   $('#finReceberResumo').innerHTML=
     boxF('Receita (fretes)',moeda(totFrete),'')+
@@ -1782,7 +1792,7 @@ function renderFinanceiro(){
     boxF('Em aberto',moeda(totAberto),'','aberto')+
     boxF('Vencido',moeda(totVenc),'#c0392b','venc')+
     boxF('✓ Quitados',nQuit,'var(--ok)','quit')+
-    boxF('A receber',nReceber,'#e6a100','areceber')+lf;
+    boxF('A receber',nReceber,'#e6a100','areceber');
 
   // ---- LUCRO ----
   let sReceita=0,sPrest=0,sImp=0,sSeg=0,sLucro=0;
