@@ -563,7 +563,10 @@
         <p class="hint" style="margin-top:0">Todo frete emitido entra na <b>FILA</b>. Cada operadora <b>puxa</b> a demanda para o seu controle e acompanha até a conclusão (status, atualização e pagamentos salvam sozinhos). O <b>atendente</b> da ficha é o responsável pela venda.</p>
         <div id="importBanner" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px">
           <b>📥 Importar do relatório</b> — traz os fretes <b>EM ANDAMENTO</b> e os <b>CANCELADOS</b> da planilha (relatório + cadastros) para o sistema, já na área da operadora (NATALY / YASMIN). Não duplica fretes já existentes.
-          <div style="margin-top:8px"><button class="btn-primary" onclick="importarAndamento()">⬆ Importar fretes em andamento</button></div>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-primary" onclick="importarAndamento()">⬆ Importar em andamento + cancelados</button>
+            <button class="btn-ghost" onclick="importarConcluidos()">📚 Importar concluídos (histórico)</button>
+          </div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <strong style="font-size:13px;color:#4a5a6b">Ver:</strong>
@@ -1318,50 +1321,56 @@ function removeOperadora(o){
 }
 function opDe(f){ return (f.operadora||'').toString().trim().toUpperCase(); }
 
-// ---- importar fretes EM ANDAMENTO do relatório (planilha) ----
-async function importarAndamento(){
-  let arr, canc=[];
-  try{
-    const resp=await fetch('andamento.json?v='+Date.now());
-    if(!resp.ok) throw new Error('HTTP '+resp.status);
-    arr=await resp.json();
-  }catch(e){ alert('Não consegui carregar a lista de fretes em andamento (andamento.json). '+e.message); return; }
-  try{ const rc=await fetch('cancelados.json?v='+Date.now()); if(rc.ok) canc=await rc.json(); }catch(_){}
-  if(Array.isArray(canc) && canc.length) arr=arr.concat(canc);   // andamento + cancelados
-  if(!Array.isArray(arr)||!arr.length){ alert('Nenhum frete na lista.'); return; }
-  const jaImp=arr.filter(f=>MEM[f._id] && MEM[f._id]._importado).length;
-  const novos=arr.filter(f=>!MEM[f._id]).length;
-  if(!confirm(`Importar/atualizar fretes EM ANDAMENTO?\n\n• ${novos} novo(s)\n• ${jaImp} já importado(s) serão atualizados (datas de hoje), preservando o que a operadora editou (status, pagamentos, notas).\n\nNão duplica.`)) return;
-  const t=flash('Importando fretes…','load');
-  // garante operadoras na lista
+// ---- importar fretes do relatório (planilha) ----
+const _PRESERVAR=['status','pago1','pago2','dataPago1','dataPago2','dataFaturamento','dataPagLink','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
+function _mesclarFretes(arr){
   const ops=lerOperadoras();
   arr.forEach(f=>{ const o=(f.operadora||'').toUpperCase(); if(o && !ops.includes(o)) ops.push(o); });
   gravarOperadoras(ops);
-  // campos que a operadora edita — preservar se já existirem
-  const PRESERVAR=['status','pago1','pago2','dataPago1','dataPago2','dataFaturamento','dataPagLink','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
   let add=0, upd=0, skip=0;
   arr.forEach(f=>{
     const prev=MEM[f._id];
-    if(!prev){                                   // novo
-      const fr=JSON.parse(JSON.stringify(f));
-      fr._salvoEm=fr._salvoEm||new Date().toISOString();
+    if(!prev){
+      const fr=JSON.parse(JSON.stringify(f)); fr._salvoEm=fr._salvoEm||new Date().toISOString();
       MEM[fr._id]=fr; add++;
-    }else if(prev._importado){                   // reimporta: atualiza datas, preserva edições
+    }else if(prev._importado){
       const merged=JSON.parse(JSON.stringify(f));
-      PRESERVAR.forEach(k=>{ if(prev[k]!==undefined && prev[k]!=='' && prev[k]!==null) merged[k]=prev[k]; });
-      // histInterno: usa a nota de hoje + mantém notas que a operadora tenha adicionado
+      _PRESERVAR.forEach(k=>{ if(prev[k]!==undefined && prev[k]!=='' && prev[k]!==null) merged[k]=prev[k]; });
       const extra=(prev.histInterno||[]).filter(h=>!(f.histInterno||[]).some(x=>x.texto===h.texto));
       merged.histInterno=[...(f.histInterno||[]), ...extra];
       merged.histCliente=prev.histCliente||merged.histCliente;
       MEM[f._id]=merged; upd++;
-    }else{ skip++; }                              // frete manual (não importado) — não mexe
+    }else{ skip++; }
   });
-  gravarDB();               // sincroniza p/ nuvem (ou local)
-  atualizarHist(); atualizarProxNum();
-  renderRelatorio();
+  gravarDB(); atualizarHist(); atualizarProxNum(); renderRelatorio();
   const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
-  t.fechar();
-  flash(`✔ ${add} novos, ${upd} atualizados`+(skip?`, ${skip} preservados`:''),'ok');
+  return {add, upd, skip};
+}
+async function _carregar(arquivos){
+  let arr=[];
+  for(const a of arquivos){
+    try{ const r=await fetch(a+'?v='+Date.now()); if(r.ok){ const j=await r.json(); if(Array.isArray(j)) arr=arr.concat(j); } }catch(_){}
+  }
+  return arr;
+}
+async function importarAndamento(){
+  const arr=await _carregar(['andamento.json','cancelados.json']);
+  if(!arr.length){ alert('Não consegui carregar a lista (andamento.json).'); return; }
+  const jaImp=arr.filter(f=>MEM[f._id] && MEM[f._id]._importado).length;
+  const novos=arr.filter(f=>!MEM[f._id]).length;
+  if(!confirm(`Importar/atualizar fretes EM ANDAMENTO + CANCELADOS?\n\n• ${novos} novo(s)\n• ${jaImp} já importado(s) serão atualizados, preservando o que a operadora editou.\n\nNão duplica.`)) return;
+  const t=flash('Importando fretes…','load');
+  const r=_mesclarFretes(arr); t.fechar();
+  flash(`✔ ${r.add} novos, ${r.upd} atualizados`+(r.skip?`, ${r.skip} preservados`:''),'ok');
+}
+async function importarConcluidos(){
+  const arr=await _carregar(['concluidos.json']);
+  if(!arr.length){ alert('Não consegui carregar concluidos.json.'); return; }
+  const novos=arr.filter(f=>!MEM[f._id]).length;
+  if(!confirm(`Importar ${arr.length} fretes CONCLUÍDOS (histórico)?\n\n• ${novos} novo(s) — completa o Financeiro e os registros.\n\nSão muitos; pode levar alguns segundos. Não duplica.`)) return;
+  const t=flash('Importando concluídos… (aguarde)','load');
+  const r=_mesclarFretes(arr); t.fechar();
+  flash(`✔ ${r.add} concluídos importados, ${r.upd} atualizados`,'ok');
 }
 
 function setRelFiltro(o){ relFiltro=o; renderRelatorio(); }
