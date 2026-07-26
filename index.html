@@ -3308,7 +3308,19 @@ function crmAbrirLead(id){
       <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
     </div>
-    <div class="cm-section">🧾 Composição do frete (taxas SW) — conferir antes de emitir</div>
+    <div class="cm-section">🧮 Calculadora de frete (tabela OBS)</div>
+    <div class="grid g2" style="align-items:end">
+      <div class="field"><label>Origem</label><input id="calcOrigem" value="${escA(l.origem||'')}" placeholder="Cidade de coleta"></div>
+      <div class="field"><label>Destino</label><input id="calcDestino" value="${escA(l.destino||'')}" placeholder="Cidade de entrega"></div>
+      <div class="field"><label>Categoria do veículo</label><select id="calcCategoria"></select></div>
+      <div class="field"><label>Valor do veículo (p/ seguro)</label><input id="calcValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="R$"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px">
+      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Buscar rota</button>
+      <span class="hint" style="align-self:center">Adicione um trecho por vez (reembarque = vários trechos).</span>
+    </div>
+    <div id="crmCalcRes"></div>
+    <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
     <div id="crmComposicao"></div>
     <div class="cm-section">💬 Adicionar Interação</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
@@ -3331,6 +3343,7 @@ function crmAbrirLead(id){
   $('#crmModalActions').innerHTML = actionsHTML;
 
   crmRenderComp(id);   // taxas SW editáveis
+  crmCalcInit(id);     // popular categorias da calculadora
   modal.style.display = 'flex';
   requestAnimationFrame(()=> modal.classList.add('open'));
   if(isNovo) setTimeout(()=>$('#crmNome')?.focus(), 200);
@@ -3399,6 +3412,124 @@ function crmWhatsApp(id){
   saveCRM();
   if($('#crmModal')?.style.display !== 'none') crmAbrirLead(id);
   flash('WhatsApp aberto ✔');
+}
+
+// ============================================================
+//  CALCULADORA DE FRETE (tabela OBS — tabela-fretes.json)
+//  Carrega sob demanda; busca a rota por origem/destino/categoria
+//  e monta a composição (Frete Base, Seguro, Recebimento...).
+// ============================================================
+let TABELA_FRETES = null;      // { categorias, cidades, rotas }
+let TABELA_ERRO = null;
+function normTxt(s){
+  if(!s) return '';
+  return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+}
+async function carregarTabelaFretes(){
+  if(TABELA_FRETES) return TABELA_FRETES;
+  try{
+    const resp = await fetch('tabela-fretes.json', {cache:'no-cache'});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    TABELA_FRETES = await resp.json();
+    return TABELA_FRETES;
+  }catch(e){ TABELA_ERRO = e.message||String(e); return null; }
+}
+function crmCalcInit(id){
+  const sel = $('#calcCategoria'); if(!sel) return;
+  const cats = (TABELA_FRETES && TABELA_FRETES.categorias) ? TABELA_FRETES.categorias
+    : ['Moto até 300cc','Moto até 700cc','Moto acima de 700cc','Carro passeio','Carro Grande'];
+  const atual = sel.value;                         // preserva a seleção do operador
+  if(sel.options.length === cats.length && atual) return;
+  sel.innerHTML = cats.map(c=>`<option value="${escA(c)}"${c===atual?' selected':''}>${esc(c)}</option>`).join('');
+}
+function ufTxt(s){   // extrai UF de "Cidade/UF" ou "Cidade (UF)" ou "Cidade UF"
+  const m = String(s||'').toUpperCase().match(/\b([A-Z]{2})\b\s*$/) || String(s||'').match(/\(([A-Za-z]{2})\)/);
+  return m ? m[1].toUpperCase() : '';
+}
+async function crmCalcBuscar(id){
+  const box = $('#crmCalcRes'); if(!box) return;
+  box.innerHTML = '<p class="hint">Carregando tabela…</p>';
+  const db = await carregarTabelaFretes();
+  if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}). Funciona na versão publicada (online).</p>`; return; }
+  crmCalcInit(id);
+  const o = normTxt($('#calcOrigem')?.value), d = normTxt($('#calcDestino')?.value);
+  const cat = $('#calcCategoria')?.value || '';
+  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha origem e destino.</p>'; return; }
+  const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
+  const res=[];
+  for(const r of db.rotas){
+    for(const t of (r.trajetos||[])){
+      if(match(t.o,o) && match(t.d,d)){
+        const val = r.valores[cat];
+        res.push({ transp:r.transportadora, rota:r.rota, prazo:r.prazoDias,
+          valor: (val!=null?val:null), valores:r.valores,
+          oNome:t.oNome, dNome:t.dNome, oUF:t.oUF, dUF:t.dUF });
+        break;
+      }
+    }
+  }
+  if(!res.length){
+    box.innerHTML = `<p class="hint">Nenhuma rota direta ${esc($('#calcOrigem').value)} → ${esc($('#calcDestino').value)}. Para <b>reembarque</b>, busque um trecho até uma cidade intermediária, adicione, e busque o próximo trecho a partir dela.</p>`;
+    return;
+  }
+  // ordena: com valor na categoria primeiro, por preço; depois os sem valor
+  res.sort((a,b)=> (a.valor==null)-(b.valor==null) || (a.valor||0)-(b.valor||0));
+  box.innerHTML = `<div style="max-height:220px;overflow:auto;border:1px solid var(--linha);border-radius:8px;padding:6px">
+    ${res.slice(0,40).map((x,i)=>{
+      const outras = Object.entries(x.valores).map(([k,v])=>`${k.replace('Moto ','').replace('Carro ','')}: ${moeda(v)}`).join(' · ');
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--linha)">
+        <div style="min-width:0">
+          <div style="font-weight:600;font-size:13px">${esc(x.transp)}</div>
+          <div class="hint" style="margin:0">${esc(x.oNome)}/${esc(x.oUF)} → ${esc(x.dNome)}/${esc(x.dUF)} · ${x.prazo?x.prazo+'d':'prazo ?'}</div>
+          <div class="hint" style="margin:0;font-size:11px">${esc(outras)}</div>
+        </div>
+        <div style="text-align:right;white-space:nowrap">
+          <div style="font-weight:700;color:#16a34a">${x.valor!=null?moeda(x.valor):'s/ preço p/ categoria'}</div>
+          <button class="btn-ok" style="font-size:12px;padding:4px 9px;margin-top:3px" onclick='crmCalcAddTrecho("${id}",${i})'>➕ Adicionar trecho</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+  window.__crmCalcRes = res;   // guarda p/ o add
+}
+function crmCalcAddTrecho(id, i){
+  const l = CRM_LEADS[id]; const x = (window.__crmCalcRes||[])[i]; if(!l||!x) return;
+  if(!l.trajetos) l.trajetos = [];
+  l.trajetos.push({
+    de: `${x.oNome}/${x.oUF}`, para: `${x.dNome}/${x.dUF}`,
+    transportadora: x.transp, valor: x.valor!=null?String(x.valor):'',
+    oUF: x.oUF, dUF: x.dUF
+  });
+  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  crmRecalcCalc(id);
+  crmRenderComp(id);
+  flash('Trecho adicionado ✔');
+}
+// recalcula Frete Base (soma dos trechos), Seguro (RCTR-C somado) e Recebimento a partir dos trechos
+function crmRecalcCalc(id){
+  const l = CRM_LEADS[id]; if(!l) return;
+  const trs = l.trajetos||[];
+  const base = trs.reduce((s,t)=> s + numMoeda(t.valor), 0);
+  const valorVeic = numMoeda($('#calcValorVeic')?.value || l.valorVeiculo);
+  let seguro = 0;
+  for(const t of trs){
+    const ou = (t.oUF||ufTxt(t.de)).toUpperCase(), du = (t.dUF||ufTxt(t.para)).toUpperCase();
+    const tx = (typeof SEGURO_TX!=='undefined' && SEGURO_TX[ou] && SEGURO_TX[ou][du]!=null) ? SEGURO_TX[ou][du] : null;
+    if(tx!=null && valorVeic) seguro += (tx/100)*valorVeic;
+  }
+  const setComp=(desc,val,ativo)=>{
+    let c = l.composicao.find(c=>normTxt(c.desc)===normTxt(desc));
+    if(!c){ c={desc, valor:'', ativo:!!ativo, opcional:false}; l.composicao.push(c); }
+    c.valor = (val!=null? (Math.round(val*100)/100).toString() : c.valor);
+  };
+  setComp('Frete Base', base, true);
+  if(seguro>0) setComp('Seguro', seguro, true);
+  // Recebimento: taxa da cidade de destino do último trecho
+  const ult = trs[trs.length-1];
+  if(ult && TABELA_FRETES && TABELA_FRETES.cidades){
+    const cidDest = TABELA_FRETES.cidades[normTxt((ult.para||'').split('/')[0])];
+    if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento, true);
+  }
 }
 
 // ---- Composição do frete (taxas SW): incluir / excluir / editar ----
