@@ -663,6 +663,10 @@
       <h2>📊 Lucro por frete</h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Lucro = Valor do frete − Prestadores − Imposto (12% quando marcado) − Seguro (RNTRC/Allianz). Preencha o <b>seguro</b> conforme a tabela; marque o <b>imposto</b> quando incidir.</p>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <strong style="font-size:13px;color:#4a5a6b">Período (mês):</strong>
+          <select id="finLucroMes" onchange="renderFinanceiro()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px"></select>
+        </div>
         <div id="finLucroResumo" class="rel-resumo" style="margin-bottom:10px"></div>
         <div style="overflow-x:auto"><table class="fin" id="finLucro"></table></div>
       </div>
@@ -1816,27 +1820,40 @@ function renderFinanceiro(){
     boxF('✓ Quitados',nQuit,'var(--ok)','quit')+
     boxF('A receber',nReceber,'#e6a100','areceber');
 
-  // ---- LUCRO ----
-  let sReceita=0,sPrest=0,sImp=0,sSeg=0,sLucro=0;
-  const linhasL=fretes.filter(f=>num(f.valorFrete)>0).map(f=>{
-    const imp=impostoDe(f), seg=seguroDe(f), pr=somaPrest(f), lu=lucroDe(f);
-    sReceita+=num(f.valorFrete); sPrest+=pr; sImp+=imp; sSeg+=seg; sLucro+=lu;
-    const segEfetivo = (f.seguro!=null&&f.seguro!=='') ? num(f.seguro) : (seguroSugerido(f)||0);
-    return `<tr><td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td>
-      <td>${moeda(f.valorFrete)}</td><td>− ${moeda(pr)}</td>
-      <td><label class="chk"><input type="checkbox" ${comNF(f)?'checked':''} onchange="setFin('${f._id}','nf',this.checked?'COM NF':'SEM NF')"> ${comNF(f)?'COM NF':'SEM NF'}</label> ${comNF(f)?('− '+moeda(imp)):'<span class="hint">isento</span>'}</td>
-      <td><input inputmode="decimal" value="${escA(segEfetivo? String(segEfetivo):'')}" placeholder="0,00" onchange="setFin('${f._id}','seguro',this.value)" title="${taxaSeguro(f)!=null?('Taxa RCTR-C '+ufDe(f.origem)+'→'+ufDe(f.destino)+': '+taxaSeguro(f)+'% × valor do veículo'):'Sem taxa na tabela — digite manual'}"></td>
-      <td class="${lu<0?'saldo-neg':'saldo-pos'}"><b>${moeda(lu)}</b></td></tr>`;
-  }).join('');
-  $('#finLucro').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Valor frete</th><th>Prestadores</th><th>Imposto</th><th>Seguro (R$)</th><th>Lucro</th></tr></thead><tbody>${linhasL||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum frete com valor.</td></tr>'}</tbody>`;
-  const margem = sReceita>0 ? (sLucro/sReceita*100) : 0;
-  $('#finLucroResumo').innerHTML=
-    `<div class="box">Receita<b>${moeda(sReceita)}</b></div>`+
-    `<div class="box">Prestadores<b>${moeda(sPrest)}</b></div>`+
-    `<div class="box">Imposto<b>${moeda(sImp)}</b></div>`+
-    `<div class="box">Seguro<b>${moeda(sSeg)}</b></div>`+
-    `<div class="box">Lucro<b class="${sLucro<0?'saldo-neg':'saldo-pos'}">${moeda(sLucro)}</b></div>`+
-    `<div class="box">Margem<b>${margem.toFixed(1)}%</b></div>`;
+  // ---- LUCRO (por mês selecionado) ----
+  const MESNOMES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const comValorL=fretes.filter(f=>num(f.valorFrete)>0);
+  const mesesSet={};
+  comValorL.forEach(f=>{ const d=(f.dataFechamento||'').slice(0,7); if(/^\d{4}-\d\d$/.test(d)) mesesSet[d]=(mesesSet[d]||0)+1; });
+  const meses=Object.keys(mesesSet).sort().reverse();
+  const selMes=$('#finLucroMes'); const mesSel = selMes ? selMes.value : '';
+  if(selMes) selMes.innerHTML='<option value="">— selecione o mês —</option>'+meses.map(m=>{const [y,mo]=m.split('-'); return `<option value="${m}"${m===mesSel?' selected':''}>${MESNOMES[+mo-1]} ${y} (${mesesSet[m]})</option>`;}).join('');
+  if(!mesSel){
+    $('#finLucro').innerHTML='<tbody><tr><td class="hint" style="text-align:center;padding:16px">👆 Selecione um <b>mês</b> acima para ver o lucro por frete do período.</td></tr></tbody>';
+    $('#finLucroResumo').innerHTML='';
+  }else{
+    let sReceita=0,sPrest=0,sImp=0,sSeg=0,sLucro=0;
+    const linhasL=comValorL.filter(f=>(f.dataFechamento||'').slice(0,7)===mesSel).map(f=>{
+      const imp=impostoDe(f), seg=seguroDe(f), pr=somaPrest(f), lu=lucroDe(f);
+      sReceita+=num(f.valorFrete); sPrest+=pr; sImp+=imp; sSeg+=seg; sLucro+=lu;
+      const segEfetivo = (f.seguro!=null&&f.seguro!=='') ? num(f.seguro) : (seguroSugerido(f)||0);
+      return `<tr><td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td>
+        <td>${moeda(f.valorFrete)}</td><td>− ${moeda(pr)}</td>
+        <td><label class="chk"><input type="checkbox" ${comNF(f)?'checked':''} onchange="setFin('${f._id}','nf',this.checked?'COM NF':'SEM NF')"> ${comNF(f)?'COM NF':'SEM NF'}</label> ${comNF(f)?('− '+moeda(imp)):'<span class="hint">isento</span>'}</td>
+        <td><input inputmode="decimal" value="${escA(segEfetivo? String(segEfetivo):'')}" placeholder="0,00" onchange="setFin('${f._id}','seguro',this.value)" title="${taxaSeguro(f)!=null?('Taxa RCTR-C '+ufDe(f.origem)+'→'+ufDe(f.destino)+': '+taxaSeguro(f)+'% × valor do veículo'):'Sem taxa na tabela — digite manual'}"></td>
+        <td class="${lu<0?'saldo-neg':'saldo-pos'}"><b>${moeda(lu)}</b></td></tr>`;
+    }).join('');
+    const [yy,mm]=mesSel.split('-');
+    $('#finLucro').innerHTML=`<thead><tr><th colspan="7" style="text-align:left;background:#fff">Lucro · <b>${MESNOMES[+mm-1]} ${yy}</b></th></tr><tr><th>Nº</th><th>Cliente</th><th>Valor frete</th><th>Prestadores</th><th>Imposto</th><th>Seguro (R$)</th><th>Lucro</th></tr></thead><tbody>${linhasL||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum frete neste mês.</td></tr>'}</tbody>`;
+    const margem = sReceita>0 ? (sLucro/sReceita*100) : 0;
+    $('#finLucroResumo').innerHTML=
+      `<div class="box">Receita<b>${moeda(sReceita)}</b></div>`+
+      `<div class="box">Prestadores<b>${moeda(sPrest)}</b></div>`+
+      `<div class="box">Imposto<b>${moeda(sImp)}</b></div>`+
+      `<div class="box">Seguro<b>${moeda(sSeg)}</b></div>`+
+      `<div class="box">Lucro<b class="${sLucro<0?'saldo-neg':'saldo-pos'}">${moeda(sLucro)}</b></div>`+
+      `<div class="box">Margem<b>${margem.toFixed(1)}%</b></div>`;
+  }
 
   // ---- PRESTADORES (conferência) ----
   let itens=[];
