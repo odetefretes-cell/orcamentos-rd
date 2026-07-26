@@ -840,10 +840,17 @@ function renderVeic(){
         <div class="field"><label>Ano FAB/MOD</label><input data-i="${i}" data-f="ano" value="${escA(v.ano)}" placeholder="Ex.: 2013/2013"></div>
         <div class="field"><label>Cor</label><input data-i="${i}" data-f="cor" value="${escA(v.cor)}" placeholder="Ex.: PRETA"></div>
         <div class="field"><label>Valor do veículo (R$)</label><input data-i="${i}" data-f="valor" value="${escA(v.valor)}" inputmode="decimal" placeholder="Ex.: 12400"></div>
+        <div class="field"><label>Funciona / liga?</label><select data-i="${i}" data-f="funciona">
+          <option value="">—</option><option value="SIM"${v.funciona==='SIM'?' selected':''}>SIM</option><option value="NÃO"${v.funciona==='NÃO'?' selected':''}>NÃO</option></select></div>
+        <div class="field"><label>É blindado?</label><select data-i="${i}" data-f="blindado">
+          <option value="">—</option><option value="SIM"${v.blindado==='SIM'?' selected':''}>SIM</option><option value="NÃO"${v.blindado==='NÃO'?' selected':''}>NÃO</option></select></div>
       </div>
     </div>`).join('');
   wrap.querySelectorAll('input[data-i]').forEach(inp=>{
     inp.addEventListener('input',()=>{ veiculos[+inp.dataset.i][inp.dataset.f]=inp.value; salvarRascunho(); render(); });
+  });
+  wrap.querySelectorAll('select[data-i]').forEach(sel=>{
+    sel.addEventListener('change',()=>{ veiculos[+sel.dataset.i][sel.dataset.f]=sel.value; salvarRascunho(); render(); });
   });
   $('#veicCount').textContent = `${veiculos.length} de ${MAX_VEIC} veículo(s)`;
 }
@@ -1601,6 +1608,8 @@ function veicTxtMsg(f){
     let s='• '+(up(v.modelo)||'VEÍCULO')+(v.placa?(' — Placa '+up(v.placa)):'');
     if(v.chassi) s+=' — Chassi '+up(v.chassi);
     if(v.ano) s+=' — Ano '+v.ano; if(v.cor) s+=' — '+up(v.cor);
+    if(v.funciona) s+='\n   Funciona/liga: '+up(v.funciona);
+    if(v.blindado) s+='\n   Blindado: '+up(v.blindado);
     return s;
   }).join('\n');
 }
@@ -2132,8 +2141,13 @@ function renderPedVeics(){
       <div class="field"><label>Placa</label><input data-pvi="${i}" data-pvf="placa" value="${escA(v.placa)}"></div>
       <div class="field"><label>Ano</label><input data-pvi="${i}" data-pvf="ano" value="${escA(v.ano)}"></div>
       <div class="field"><label>Cor</label><input data-pvi="${i}" data-pvf="cor" value="${escA(v.cor)}"></div>
+      <div class="field"><label>O veículo funciona / liga?</label><select data-pvi="${i}" data-pvf="funciona">
+        <option value="">— selecione —</option><option value="SIM"${v.funciona==='SIM'?' selected':''}>SIM, funciona</option><option value="NÃO"${v.funciona==='NÃO'?' selected':''}>NÃO funciona</option></select></div>
+      <div class="field"><label>É blindado?</label><select data-pvi="${i}" data-pvf="blindado">
+        <option value="">— selecione —</option><option value="SIM"${v.blindado==='SIM'?' selected':''}>SIM, blindado</option><option value="NÃO"${v.blindado==='NÃO'?' selected':''}>NÃO</option></select></div>
     </div></div>`).join('');
   w.querySelectorAll('input[data-pvi]').forEach(inp=>inp.addEventListener('input',()=>{ pedVeics[+inp.dataset.pvi][inp.dataset.pvf]=inp.value; }));
+  w.querySelectorAll('select[data-pvi]').forEach(sel=>sel.addEventListener('change',()=>{ pedVeics[+sel.dataset.pvi][sel.dataset.pvf]=sel.value; }));
 }
 function pedAddVeic(){ if(pedVeics.length<20){ pedVeics.push({}); renderPedVeics(); } }
 function pedDelVeic(i){ pedVeics.splice(i,1); if(!pedVeics.length)pedVeics=[{}]; renderPedVeics(); }
