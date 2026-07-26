@@ -1338,7 +1338,7 @@ async function importarAndamento(){
   arr.forEach(f=>{ const o=(f.operadora||'').toUpperCase(); if(o && !ops.includes(o)) ops.push(o); });
   gravarOperadoras(ops);
   // campos que a operadora edita — preservar se já existirem
-  const PRESERVAR=['status','pago1','pago2','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
+  const PRESERVAR=['status','pago1','pago2','dataPago1','dataPago2','dataFaturamento','dataPagLink','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
   let add=0, upd=0, skip=0;
   arr.forEach(f=>{
     const prev=MEM[f._id];
@@ -1626,7 +1626,8 @@ function liberarOperacional(id){
   flash('Frete '+(db[id].numero||'')+' liberado para o operacional ✔');
 }
 function renderFinanceiro(){
-  const fretes=Object.values(lerDB()).filter(f=>num(f.valorFrete)>0 || somaPrest(f)>0);
+  // cancelados não entram no financeiro (não há recebimento/lucro)
+  const fretes=Object.values(lerDB()).filter(f=>(num(f.valorFrete)>0 || somaPrest(f)>0) && statusDe(f)!=='CANCELADO');
   fretes.sort((a,b)=>num(b.numero)-num(a.numero));
 
   // ---- AGUARDANDO LIBERAÇÃO (financeiro -> operacional) ----
