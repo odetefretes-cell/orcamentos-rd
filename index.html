@@ -188,6 +188,7 @@
     <button id="tabFicha" class="tab tab-on" onclick="switchView('ficha')">📝 Nova Ficha / Frete</button>
     <button id="tabRel" class="tab" onclick="switchView('rel')">📋 Relatório · Operadoras</button>
     <button id="tabFin" class="tab" onclick="switchView('fin')">💰 Financeiro</button>
+    <button id="tabCli" class="tab" onclick="switchView('clientes')">👥 Clientes</button>
   </div>
 
   <div id="viewFicha">
@@ -534,6 +535,19 @@
       </div>
     </div>
     <div id="relLista"></div>
+  </div>
+
+  <!-- ===================== CLIENTES (cadastro + histórico) ===================== -->
+  <div id="viewClientes" style="display:none">
+    <div class="card">
+      <h2>👥 Cadastro de clientes <span id="cliCount" style="float:right;font-size:12px;font-weight:normal;color:#8592a1"></span></h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Cadastro montado automaticamente a partir dos fretes salvos (por CPF/CNPJ). Clique em um cliente para ver o histórico de transportes.</p>
+        <input id="cliBusca" oninput="renderClientes()" placeholder="🔎 buscar por nome, CPF/CNPJ, cidade…"
+               style="width:100%;font-size:14px;padding:9px;border:1px solid var(--linha);border-radius:8px;margin-bottom:12px">
+        <div id="cliLista"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ===================== PÁGINA DO CLIENTE (via link) ===================== -->
@@ -885,8 +899,29 @@ const FIREBASE_CONFIG = {
 };
 const CLOUD_ON = !!(FIREBASE_CONFIG && FIREBASE_CONFIG.projectId);
 let MEM={}, LAST={}, _fb=null, clienteLiveId=null;
+let CLIENTES={};   // cadastro de clientes por CPF/CNPJ (faturamento + histórico de fretes)
 
 function loadLocal(){ try{ return JSON.parse(localStorage.getItem(DB))||{}; }catch(_){ return {}; } }
+function loadClientesLocal(){ try{ return JSON.parse(localStorage.getItem('obs_clientes'))||{}; }catch(_){ return {}; } }
+function cpfKey(v){ return (v||'').toString().replace(/\D/g,''); }
+// grava/atualiza o cadastro do cliente e adiciona o frete ao histórico
+function upsertCliente(f){
+  const cpf=cpfKey(f.cpfCnpj); if(!cpf || cpf.length<11) return;
+  const prev=CLIENTES[cpf]||{historico:[]};
+  const pick=(k)=>{ const nv=(f[k]||'').toString().trim(); return nv || prev[k] || ''; };  // não apaga dado já existente
+  const rec={ cpfCnpj:pick('cpfCnpj'), clienteEmpresa:pick('clienteEmpresa'), rgIe:pick('rgIe'), telefone:pick('telefone'),
+    email:pick('email'), cep:pick('cep'), endereco:pick('endereco'), bairro:pick('bairro'), cidade:pick('cidade'), uf:pick('uf'),
+    historico: Array.isArray(prev.historico)?prev.historico.slice():[] };
+  // atualiza/insere a entrada deste frete no histórico
+  const ent={ id:f._id, numero:f.numero||'', data:f.dataFechamento||(f._salvoEm||'').slice(0,10),
+    origem:f.origem||'', destino:f.destino||'', veiculo:veicResumo(f), status:statusDe(f), valorFrete:f.valorFrete||'' };
+  const ix=rec.historico.findIndex(h=>h.id===f._id);
+  if(ix>=0) rec.historico[ix]=ent; else rec.historico.push(ent);
+  rec._atualizadoEm=new Date().toISOString();
+  CLIENTES[cpf]=rec;
+  if(CLOUD_ON && _fb && _fb.setDoc) _fb.setDoc(_fb.doc(_fb.fs,'clientes',cpf), rec);
+  else localStorage.setItem('obs_clientes', JSON.stringify(CLIENTES));
+}
 function lerDB(){ return MEM; }
 function gravarDB(_){
   if(CLOUD_ON && _fb) cloudSync();
@@ -908,7 +943,7 @@ async function initData(){
       const fsMod =await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
       const app=appMod.initializeApp(FIREBASE_CONFIG);
       const fs=fsMod.getFirestore(app);
-      _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc};
+      _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc};
       // Storage (upload de documentos) — opcional; só funciona se o Storage estiver ativado
       try{
         const stMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
@@ -932,10 +967,15 @@ async function initData(){
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
         }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); });
+        // cadastro de clientes
+        fsMod.onSnapshot(fsMod.collection(fs,'clientes'), snap=>{
+          CLIENTES={}; snap.forEach(d=>CLIENTES[d.id]=d.data());
+          const vcl=$('#viewClientes'); if(vcl && vcl.style.display!=='none') renderClientes();
+        }, ()=>{});
       }
-    }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); setModo('⚠ Sem nuvem — modo local'); }
+    }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('⚠ Sem nuvem — modo local'); }
   } else {
-    MEM=loadLocal(); setModo('Modo local (este computador)');
+    MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('Modo local (este computador)');
   }
 }
 function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
@@ -967,6 +1007,7 @@ function salvar(){
   d.cadastrado=true;   // equipe emitiu o cadastro -> encerra a edição do cliente (vira acompanhamento)
   d._id=id; d._salvoEm=new Date().toISOString();
   db[id]=d; gravarDB(db);
+  upsertCliente(d);                 // atualiza o cadastro do cliente + histórico
   idAtual=id;
   localStorage.removeItem(DRAFT);
   atualizarHist(); atualizarProxNum();
@@ -1526,10 +1567,13 @@ function renderClienteView(data){
 }
 // página do cliente AO VIVO: acompanhamento + (se ainda não cadastrado) formulário do pedido
 let pedVeics=[{}];
+let pedidoEnviadoId=null;
 function renderClienteLive(id){
   const f=MEM[id]; if(!f) return;
   if(f.cadastrado){
     renderClienteView(clienteData(f));   // frete cadastrado -> libera o ACOMPANHAMENTO
+  } else if(id===pedidoEnviadoId){
+    telaConclusaoPedido();               // já enviou -> mantém a tela de conclusão
   } else {
     renderPedidoPage(id,f);              // ainda é pedido -> mostra SÓ o formulário
   }
@@ -1608,8 +1652,12 @@ function injetarFormPedido(id,f){
 
     <div class="sec-cli">🧾 FATURAMENTO (dados do contratante)</div>
     <div class="grid g2">
+      <div class="field"><label>CPF / CNPJ <span class="hint">(já é nosso cliente? buscamos seu cadastro)</span></label>
+        <div style="display:flex;gap:6px">
+          <input id="pc_cpfCnpj" value="${escA(f.cpfCnpj)}" placeholder="Digite e clique em buscar" onblur="buscarCadastroCliente()" style="flex:1">
+          <button type="button" class="btn-ghost" style="padding:6px 12px" onclick="buscarCadastroCliente()">🔍</button>
+        </div><span class="hint" id="cadMsg"></span></div>
       ${campoCli(id,'Nome / Empresa*','clienteEmpresa',f.clienteEmpresa)}
-      ${campoCli(id,'CPF / CNPJ','cpfCnpj',f.cpfCnpj)}
       ${campoCli(id,'RG / IE','rgIe',f.rgIe)}
       ${campoCli(id,'Telefone (WhatsApp)*','telefone',f.telefone)}
       ${campoCli(id,'E-mail','email',f.email)}
@@ -1705,17 +1753,49 @@ async function enviarDoc(id,tipo,inp){
     if(st) st.textContent=txt;
   }
 }
+// cliente busca o próprio cadastro pelo CPF/CNPJ e preenche o faturamento
+async function buscarCadastroCliente(){
+  const cpfEl=document.getElementById('pc_cpfCnpj'); if(!cpfEl) return;
+  const cpf=cpfKey(cpfEl.value); const msg=document.getElementById('cadMsg');
+  if(cpf.length<11){ if(msg) msg.textContent=''; return; }
+  if(msg) msg.textContent='procurando cadastro…';
+  let c=CLIENTES[cpf];
+  if(!c && CLOUD_ON && _fb && _fb.getDoc){
+    try{ const snap=await _fb.getDoc(_fb.doc(_fb.fs,'clientes',cpf)); if(snap.exists()) c=snap.data(); }catch(e){}
+  }
+  if(!c){ if(msg){ msg.style.color='#8592a1'; msg.textContent='Cadastro novo — preencha seus dados.'; } return; }
+  const setF=(k,v)=>{ const el=document.getElementById('pc_'+k); if(el && v) el.value=v; };
+  ['clienteEmpresa','rgIe','telefone','email','cep','endereco','bairro','cidade','uf'].forEach(k=>setF(k,c[k]));
+  if(msg){ msg.style.color='var(--ok)'; msg.textContent='✓ cadastro encontrado — dados preenchidos'; }
+}
+// tela de conclusão após o cliente enviar o pedido
+function telaConclusaoPedido(){
+  const v=$('#viewCliente');
+  v.innerHTML=`<div class="cli-page">
+    <div class="cli-hero"><img src="${logoAtual()}" alt="OBS Transportes"><h1>✅ Pedido enviado!</h1></div>
+    <div class="cli-info" style="text-align:center">
+      <p style="font-size:16px;margin:6px 0"><b>Recebemos os seus dados com sucesso.</b></p>
+      <p class="hint" style="margin:0">Nossa equipe vai conferir as informações e emitir o seu frete.
+      Em breve entraremos em contato pelo WhatsApp. Obrigado por escolher a OBS Transportes! 🚚</p>
+    </div>
+    <p class="hint" style="text-align:center;margin:14px 0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
+  </div>`;
+  window.scrollTo(0,0);
+}
 function salvarPedidoCliente(id){
   const f=MEM[id]; if(!f){ return; }
   const g=k=>{ const el=document.getElementById('pc_'+k); return el?el.value.trim():''; };
   if(!g('clienteEmpresa') || !g('telefone') || !g('origem') || !g('destino')){
-    const m=$('#pedMsg'); if(m){ m.style.color='#c0392b'; m.textContent='Preencha ao menos: Nome, Telefone, Origem e Destino.'; } return;
+    const m=$('#pedMsg'); if(m){ m.style.color='#c0392b'; m.textContent='Preencha ao menos: Nome, Telefone, Origem e Destino.'; }
+    document.getElementById('pc_clienteEmpresa')?.scrollIntoView({behavior:'smooth',block:'center'});
+    return;
   }
   PEDIDO_CAMPOS.forEach(k=>f[k]=g(k));
   f.veiculos = pedVeics.map(v=>({...v}));
   f.pedido=true; f._salvoEm=new Date().toISOString(); if(!f.pedidoEm) f.pedidoEm=f._salvoEm;
   MEM[id]=f; gravarDB();
-  const m=$('#pedMsg'); if(m){ m.style.color='var(--ok)'; m.textContent='✔ Enviado! Recebemos seus dados. Em breve entraremos em contato.'; }
+  pedidoEnviadoId=id;
+  telaConclusaoPedido();       // mensagem de conclusão
 }
 function entrarModoClienteLive(){
   clienteLiveId = decodeURIComponent(location.hash.slice(3));
@@ -1783,11 +1863,46 @@ function switchView(v){
   $('#viewFicha').style.display     = v==='ficha'?'':'none';
   $('#viewRelatorio').style.display = v==='rel'  ?'':'none';
   $('#viewFinanceiro').style.display= v==='fin'  ?'':'none';
+  $('#viewClientes').style.display  = v==='clientes'?'':'none';
   $('#tabFicha').classList.toggle('tab-on', v==='ficha');
   $('#tabRel').classList.toggle('tab-on', v==='rel');
   $('#tabFin').classList.toggle('tab-on', v==='fin');
+  $('#tabCli').classList.toggle('tab-on', v==='clientes');
   if(v==='rel') renderRelatorio();
   if(v==='fin') renderFinanceiro();
+  if(v==='clientes') renderClientes();
+}
+function renderClientes(){
+  const el=$('#cliLista'); if(!el) return;
+  const q=($('#cliBusca')?.value||'').trim().toLowerCase();
+  let lista=Object.entries(CLIENTES).map(([cpf,c])=>({cpf,c}))
+    .sort((a,b)=>(a.c.clienteEmpresa||'').localeCompare(b.c.clienteEmpresa||''));
+  const total=lista.length;
+  if(q) lista=lista.filter(({cpf,c})=>[c.clienteEmpresa,c.cpfCnpj,c.cidade,c.telefone,cpf].join(' ').toLowerCase().includes(q));
+  $('#cliCount').textContent = total? (q?`${lista.length} de ${total}`:`${total} cliente(s)`) : 'nenhum cliente ainda';
+  el.innerHTML = lista.length ? lista.map(({cpf,c})=>{
+    const hist=(c.historico||[]).slice().sort((a,b)=>num(b.numero)-num(a.numero));
+    const linhas=hist.map(h=>`<tr>
+      <td>${esc(h.numero||'—')}</td><td>${esc(dataBR(h.data)||h.data||'')}</td>
+      <td>${esc(up(h.origem))} → ${esc(up(h.destino))}</td><td>${esc(up(h.veiculo))||'—'}</td>
+      <td>${moeda(h.valorFrete)||'—'}</td><td>${esc(h.status||'')}</td>
+      <td><button class="btn-ghost" style="padding:2px 8px;font-size:12px" onclick="abrirFicha('${h.id}')">abrir</button></td></tr>`).join('');
+    return `<div class="fcard" style="border-left:6px solid var(--azul2)">
+      <div class="top">
+        <div><span class="nf">${esc(up(c.clienteEmpresa))||'(sem nome)'}</span> &nbsp;<span class="rota">${esc(c.cpfCnpj)||'—'} · ${esc(c.telefone)||''}</span></div>
+        <div><span class="badge" style="background:var(--azul2)">${hist.length} frete(s)</span></div>
+      </div>
+      <div class="body2">
+        <div class="fld col2"><label>Endereço</label><div class="ro">${esc(up(c.endereco))}${c.bairro?(', '+esc(up(c.bairro))):''}</div></div>
+        <div class="fld"><label>Cidade / UF</label><div class="ro">${esc(up(c.cidade))}${c.uf?(' / '+esc(up(c.uf))):''}</div></div>
+        <div class="fld"><label>E-mail</label><div class="ro">${esc(c.email)||'—'}</div></div>
+        <div class="fld col4"><label>Histórico de transportes</label>
+          <div style="overflow-x:auto"><table class="fin"><thead><tr><th>Nº</th><th>Data</th><th>Trajeto</th><th>Veículo</th><th>Frete</th><th>Status</th><th></th></tr></thead>
+          <tbody>${linhas||'<tr><td colspan="7" class="hint">Sem fretes ainda.</td></tr>'}</tbody></table></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('') : '<p class="hint" style="text-align:center;padding:20px">Nenhum cliente cadastrado ainda. Os clientes aparecem aqui automaticamente quando você salva fretes.</p>';
 }
 
 // inicialização
