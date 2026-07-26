@@ -124,6 +124,9 @@
   .fcard .fld{display:flex;flex-direction:column;gap:3px}
   .fcard .fld.col2{grid-column:span 2}
   .fcard .fld.col4{grid-column:span 4}
+  .fcard .fsec{grid-column:span 4;font-size:12px;font-weight:800;color:var(--azul);letter-spacing:.4px;
+               border-bottom:2px solid var(--linha);padding:8px 0 4px;margin-top:6px;display:flex;align-items:center;gap:6px}
+  .fcard .body2{row-gap:11px}
   .marcos-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
   .marcos-grid .mc{display:flex;flex-direction:column;gap:3px;background:#f6f8fb;border:1px solid var(--linha);border-radius:7px;padding:7px 8px}
   .marcos-grid .mc-l{font-size:11px;font-weight:600;color:#4a5a6b}
@@ -570,13 +573,6 @@
       <h2>Relatório de fretes — Área das operadoras <span id="modoBadge" style="float:right;font-size:12px;font-weight:normal;color:#8592a1"></span></h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Todo frete emitido entra na <b>FILA</b>. Cada operadora <b>puxa</b> a demanda para o seu controle e acompanha até a conclusão (status, atualização e pagamentos salvam sozinhos). O <b>atendente</b> da ficha é o responsável pela venda.</p>
-        <div id="importBanner" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px">
-          <b>📥 Importar do relatório</b> — traz os fretes <b>EM ANDAMENTO</b> e os <b>CANCELADOS</b> da planilha (relatório + cadastros) para o sistema, já na área da operadora (NATALY / YASMIN). Não duplica fretes já existentes.
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn-primary" onclick="importarAndamento()">⬆ Importar em andamento + cancelados</button>
-            <button class="btn-ghost" onclick="importarConcluidos()">📚 Importar concluídos (histórico)</button>
-          </div>
-        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <strong style="font-size:13px;color:#4a5a6b">Ver:</strong>
           <span id="relOperadoras" class="pills"></span>
@@ -599,10 +595,6 @@
       <h2>👥 Cadastro de clientes <span id="cliCount" style="float:right;font-size:12px;font-weight:normal;color:#8592a1"></span></h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Cadastro montado automaticamente a partir dos fretes salvos (por CPF/CNPJ). Clique em um cliente para ver o histórico de transportes.</p>
-        <div id="importCliBanner" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
-          <b>📥 Importar clientes das planilhas</b> — cadastra todos os clientes dos CADASTRO DE FRETES (por CPF/CNPJ), com contato, endereço e histórico. Não apaga os existentes.
-          <div style="margin-top:8px"><button class="btn-primary" onclick="importarClientes()">⬆ Importar cadastro de clientes</button></div>
-        </div>
         <input id="cliBusca" oninput="renderClientes()" placeholder="🔎 buscar por nome, CPF/CNPJ, cidade…"
                style="width:100%;font-size:14px;padding:9px;border:1px solid var(--linha);border-radius:8px;margin-bottom:12px">
         <div id="cliLista"></div>
@@ -1403,7 +1395,6 @@ function jsArg(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").re
 
 function renderRelatorio(){
   const fretes=Object.values(lerDB()).filter(emOperacional);   // só o que o financeiro já liberou
-  const ib=$('#importBanner'); if(ib) ib.style.display='block';
   const operadoras=lerOperadoras();
   const naFila=fretes.filter(f=>!opDe(f)).length;
   const cont={}; operadoras.forEach(o=>cont[o]=0);
@@ -1527,24 +1518,27 @@ function cardFrete(f){
       </div>
     </div>
     <div class="body2">
+      <div class="fld fsec">📋 DADOS DO FRETE</div>
       <div class="fld"><label>Operadora (responsável)</label><select onchange="puxarFrete('${id}',this.value)">${optOp}</select></div>
       <div class="fld"><label>Vendedor(a) / atendente</label><div class="ro">${vend}</div></div>
       <div class="fld"><label>Cliente</label><div class="ro">${cli}</div></div>
       <div class="fld"><label>Veículo(s)</label><div class="ro">${veic}</div></div>
-      <div class="fld col2"><label>📎 Documentos do cliente</label><div class="ro">${docsLinks(f)}</div></div>
+      <div class="fld col4"><label>📎 Documentos do cliente</label><div class="ro">${docsLinks(f)}</div></div>
 
-      <div class="fld col4"><label>Solicitar ao prestador (WhatsApp)</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:2px">
-          <button class="btn-ok" style="padding:7px 14px" onclick="acionarColeta('${id}')">📦 Acionar coleta</button>
-          <button class="btn-primary" style="padding:7px 14px" onclick="acionarEntrega('${id}')">🏁 Acionar entrega</button>
+      <div class="fld fsec">📲 SOLICITAR AO PRESTADOR (WhatsApp)</div>
+      <div class="fld col4">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-ok" style="padding:8px 16px" onclick="acionarColeta('${id}')">📦 Acionar coleta</button>
+          <button class="btn-primary" style="padding:8px 16px" onclick="acionarEntrega('${id}')">🏁 Acionar entrega</button>
         </div>
       </div>
 
+      <div class="fld fsec">🚦 ANDAMENTO &amp; PRAZO</div>
       <div class="fld"><label>Status</label><select onchange="setFrete('${id}','status',this.value)">${optS}</select></div>
       <div class="fld"><label>Nº averbação</label><input value="${escA(f.averbacao)}" onchange="setFrete('${id}','averbacao',this.value)"></div>
       <div class="fld col2"><label>Previsão de entrega (prazo)</label><input value="${escA(f.previsaoEntrega)}" onchange="setFrete('${id}','previsaoEntrega',this.value)" placeholder="Ex.: 10 a 15 dias após embarque"></div>
       <div class="fld col2"><label>📦 Data de embarque</label><input type="date" value="${escA(f.embarqueFeito)}" onchange="setMarco('${id}','embarqueFeito',this.value,'Embarque confirmada')"></div>
-      <div class="fld col4"><label>⏳ Prazo até a entrega</label><div class="ro">${prazoTxt}</div></div>
+      <div class="fld col2"><label>⏳ Prazo até a entrega</label><div class="ro">${prazoTxt}</div></div>
 
       <div class="fld col4"><label>🚚 Marcos do transporte — marque as datas (geram lembrete e preenchem a mensagem do cliente p/ você conferir e enviar)</label>
         <div class="marcos-grid">
@@ -1555,6 +1549,7 @@ function cardFrete(f){
         </div>
       </div>
 
+      <div class="fld fsec">💬 ATUALIZAÇÕES</div>
       <div class="fld col4"><div class="hist-wrap">
         <div class="hist-col">
           <label>🗒️ Atualização (andamento do transporte) — uso interno</label>
@@ -1575,6 +1570,7 @@ function cardFrete(f){
         </div>
       </div></div>
 
+      <div class="fld fsec">💰 FINANCEIRO</div>
       <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
       <div class="fld"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
       <div class="fld"><label>Em aberto</label><div class="ro ${abertoV>0?'saldo-neg':'saldo-pos'}">${moeda(abertoV)}</div></div>
@@ -2388,7 +2384,7 @@ function switchView(v){
   $('#tabMensal').classList.toggle('tab-on', v==='mensal');
   if(v==='rel') renderRelatorio();
   if(v==='fin') renderFinanceiro();
-  if(v==='clientes'){ const ib=$('#importCliBanner'); if(ib) ib.style.display='block'; renderClientes(); }
+  if(v==='clientes'){ renderClientes(); }
   if(v==='mensal') renderMensal();
 }
 
