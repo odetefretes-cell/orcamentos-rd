@@ -3150,7 +3150,7 @@ function renderCRM(){
         </div>
         ${l.veiculoDesc ? `<div class="kc-veiculo">🚗 ${esc(l.veiculoDesc)}</div>` : ''}
         ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
-        ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · cotação '+moeda(l.valorCotacaoSW):''}</div>` : ''}
+        ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
         ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
         <div class="kc-footer">
           <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : (l.valorCotacaoSW?moeda(l.valorCotacaoSW):'—')}</span>
@@ -3290,7 +3290,18 @@ function crmAbrirLead(id){
         </select>
       </div>
     </div>
-    <div class="cm-section">📲 Origem & Cotação automática</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 8px">
+      <label style="font-size:12px;opacity:.8">Categoria:</label>
+      <select id="calcCategoria" style="max-width:190px"></select>
+      <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🧮 Calcular frete</button>
+      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Ver prestadores</button>
+    </div>
+    <div id="crmCalcRes"></div>
+    <div id="crmCompWrap" style="display:none">
+      <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
+      <div id="crmComposicao"></div>
+    </div>
+    <div class="cm-section">📲 Origem do lead & valor médio</div>
     <div class="grid g2">
       <div class="field"><label>Origem do lead</label>
         <select id="crmOrigemLead">
@@ -3304,21 +3315,9 @@ function crmAbrirLead(id){
           <option value="sim" ${l.interesse==='sim'?'selected':''}>✅ SIM, tem interesse</option>
           <option value="nao" ${l.interesse==='nao'?'selected':''}>❌ NÃO</option>
         </select></div>
-      <div class="field"><label>Cotação SW Fretes (R$)</label><input id="crmCotSW" value="${escA(l.valorCotacaoSW||'')}" inputmode="decimal" placeholder="valor médio calculado"></div>
+      <div class="field"><label>Valor médio do frete (R$)</label><input id="crmCotSW" value="${escA(l.valorCotacaoSW||'')}" inputmode="decimal" placeholder="calculado automaticamente"></div>
       <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
-    </div>
-    <div class="cm-section">🧮 Calculadora de frete (tabela OBS)</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 8px">
-      <select id="calcCategoria" style="max-width:200px"></select>
-      <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🧮 Calcular frete</button>
-      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Ver prestadores</button>
-      <span class="hint" style="align-self:center">Usa a origem, o destino e o valor do veículo acima.</span>
-    </div>
-    <div id="crmCalcRes"></div>
-    <div id="crmCompWrap" style="display:none">
-      <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
-      <div id="crmComposicao"></div>
     </div>
     <div class="cm-section">💬 Adicionar Interação</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
@@ -3342,6 +3341,7 @@ function crmAbrirLead(id){
 
   crmRenderComp(id);   // taxas SW editáveis
   crmCalcInit(id);     // popular categorias da calculadora
+  crmAutoCalc(id);     // já calcula o frete (melhor prestador) ao abrir
   modal.style.display = 'flex';
   requestAnimationFrame(()=> modal.classList.add('open'));
   if(isNovo) setTimeout(()=>$('#crmNome')?.focus(), 200);
@@ -3431,12 +3431,17 @@ async function carregarTabelaFretes(){
     return TABELA_FRETES;
   }catch(e){ TABELA_ERRO = e.message||String(e); return null; }
 }
+function crmCategoriaSugerida(l){   // adivinha a categoria pelo modelo do veículo
+  const v = normTxt(l && l.veiculoDesc);
+  if(/\bmoto|cg |cb |cbr|xre|bros|titan|fan|factor|biz|pop|nmax|pcx|hornet|xj6|mt-|cc\b/.test(v)) return 'Moto até 300cc';
+  return 'Carro passeio';
+}
 function crmCalcInit(id){
   const sel = $('#calcCategoria'); if(!sel) return;
   const cats = (TABELA_FRETES && TABELA_FRETES.categorias) ? TABELA_FRETES.categorias
     : ['Moto até 300cc','Moto até 700cc','Moto acima de 700cc','Carro passeio','Carro Grande'];
-  const atual = sel.value;                         // preserva a seleção do operador
-  if(sel.options.length === cats.length && atual) return;
+  const atual = sel.value || crmCategoriaSugerida(CRM_LEADS[id]);   // preserva seleção; senão sugere
+  if(sel.options.length === cats.length && sel.value) return;
   sel.innerHTML = cats.map(c=>`<option value="${escA(c)}"${c===atual?' selected':''}>${esc(c)}</option>`).join('');
 }
 function crmSyncFormLead(id){   // salva no lead o que está no formulário (origem/destino/veículo/valor)
@@ -3526,11 +3531,11 @@ function crmAdjacencia(db){
   }
   db._adj = adj; return adj;
 }
-async function crmCalcAuto(id){
+async function crmCalcAuto(id, auto){
   const box = $('#crmCalcRes'); if(!box) return;
-  box.innerHTML = '<p class="hint">Procurando o melhor caminho…</p>';
+  if(!auto) box.innerHTML = '<p class="hint">Procurando o melhor caminho…</p>';
   const db = await carregarTabelaFretes();
-  if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
+  if(!db){ if(!auto) box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
   crmCalcInit(id);
   crmSyncFormLead(id);
   const o = normTxt($('#crmOrigem')?.value), d = normTxt($('#crmDestino')?.value);
@@ -3543,7 +3548,7 @@ async function crmCalcAuto(id){
   const HOP_PEN = 100;   // penaliza cada transbordo (evita cadeias longas desnecessárias)
   const dist={}, prev={}, hops={}, done={};
   const starts = nodes.filter(isOrig);
-  if(!starts.length){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); return; }
+  if(!starts.length){ if(!auto){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   starts.forEach(s=>{ dist[s]=0; hops[s]=0; });
   // Dijkstra simples (V pequeno)
   const N = nodes.length; let guard=0;
@@ -3566,11 +3571,11 @@ async function crmCalcAuto(id){
   // acha o destino de menor custo
   let end=null, bestD=Infinity;
   for(const k in dist){ if(isDest(k) && done[k] && dist[k]<bestD){ bestD=dist[k]; end=k; } }
-  if(!end){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver prestadores" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); return; }
+  if(!end){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver prestadores" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   // reconstrói o caminho
   const pilha=[]; let cur=end;
   while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; }
-  if(!pilha.length){ box.innerHTML = '<p class="hint">Nenhum trecho encontrado.</p>'; return; }
+  if(!pilha.length){ if(!auto) box.innerHTML = '<p class="hint">Nenhum trecho encontrado.</p>'; return; }
   // mostra o caminho e monta
   const l = CRM_LEADS[id];
   l.trajetos = pilha.map(e=>({
@@ -3582,11 +3587,21 @@ async function crmCalcAuto(id){
   crmRenderComp(id);
   const totalBase = pilha.reduce((s,e)=>s+ (e.valores[cat]||0),0);
   box.innerHTML = `<div style="border:1px solid #16a34a;border-radius:8px;padding:8px;background:rgba(22,163,74,.06)">
-    <div style="font-weight:600;margin-bottom:4px">🔗 ${pilha.length} trecho(s) — frete base ${moeda(totalBase)}</div>
+    <div style="font-weight:600;margin-bottom:4px">🔗 Melhor opção: ${pilha.length} trecho(s) — frete base ${moeda(totalBase)}</div>
     ${pilha.map(e=>`<div class="hint" style="margin:0">${esc(e.oNome)}/${esc(e.oUF)} → ${esc(e.dNome)}/${esc(e.dUF)} · ${esc(e.carrier)} · ${moeda(e.valores[cat])}</div>`).join('')}
-    <div class="hint" style="margin-top:4px">Trechos e taxas preenchidos na composição abaixo — confira e edite se precisar.</div>
+    <div class="hint" style="margin-top:4px">Taxas preenchidas na composição abaixo — confira e edite se precisar. Use "🔍 Ver prestadores" para trocar de transportadora.</div>
   </div>`;
-  flash('Reembarque montado automaticamente ✔');
+  if(!auto) flash('Frete calculado ✔');
+}
+// calcula sozinho ao abrir o lead (melhor prestador + taxas), sem exigir clique
+function crmAutoCalc(id){
+  const l = CRM_LEADS[id]; if(!l) return;
+  if(!l.origem || !l.destino) return;                 // sem rota, nada a calcular
+  if(l.composicao && l.composicao.length) {            // já tem composição: só reflete a média
+    const V = crmValoresOrc(l); const f=$('#crmCotSW'); if(f && V.totalBase) f.value = String(Math.round(V.totalBase*100)/100);
+    return;
+  }
+  crmCalcAuto(id, true);                               // roda em silêncio
 }
 
 // recalcula Frete Base (soma dos trechos), Seguro (RCTR-C somado) e Recebimento a partir dos trechos
@@ -3618,6 +3633,10 @@ function crmRecalcCalc(id){
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
     if(rb){ if(trs.length>1){ rb.ativo=true; if(!numMoeda(rb.valor)) rb.valor='100'; } else { rb.ativo=false; } } }
   crmCompRecalcImposto(id);   // Imposto 12% sobre as demais taxas
+  // "Valor médio do frete" = total base a base (reflete no campo)
+  const V = crmValoresOrc(l);
+  l.valorCotacaoSW = V.totalBase ? String(Math.round(V.totalBase*100)/100) : l.valorCotacaoSW;
+  const fCot=$('#crmCotSW'); if(fCot && V.totalBase) fCot.value = l.valorCotacaoSW;
 }
 
 // ---- Composição do frete (taxas SW): incluir / excluir / editar ----
