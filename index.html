@@ -1535,11 +1535,11 @@ function cardFrete(f){
       <div class="fld col2"><label>📦 Data de embarque</label><input type="date" value="${escA(f.embarqueFeito)}" onchange="setMarco('${id}','embarqueFeito',this.value,'Embarque confirmada')"></div>
       <div class="fld col4"><label>⏳ Prazo até a entrega</label><div class="ro">${prazoTxt}</div></div>
 
-      <div class="fld col4"><label>🚚 Marcos do transporte — marque as datas (geram lembrete e enviam aviso automático ao cliente)</label>
+      <div class="fld col4"><label>🚚 Marcos do transporte — marque as datas (geram lembrete e preenchem a mensagem do cliente p/ você conferir e enviar)</label>
         <div class="marcos-grid">
           ${marcoHTML(id,f,{label:'Coleta',prev:'coletaPrev',feito:'coletaFeito'})}
           ${marcoHTML(id,f,{label:'Embarque',prev:'embarquePrev',feito:'embarqueFeito'})}
-          ${marcoHTML(id,f,{label:'Chegada',feito:'chegadaFeito'})}
+          ${marcoHTML(id,f,{label:'Chegada',prev:'chegadaPrev',feito:'chegadaFeito'})}
           ${marcoHTML(id,f,{label:'Liberação',prev:'liberacaoPrev'})}
         </div>
       </div>
@@ -1547,7 +1547,7 @@ function cardFrete(f){
       <div class="fld col4"><div class="hist-wrap">
         <div class="hist-col">
           <label>🗒️ Atualização (andamento do transporte) — uso interno</label>
-          <div class="hist-box">${histBox(histOf(f,'interno'))}</div>
+          <div class="hist-box">${histBox(histOf(f,'interno'), id, 'interno')}</div>
           <div class="hist-add">
             <textarea id="newInt_${id}" placeholder="Escreva a atualização interna..."></textarea>
             <button class="btn-primary" style="padding:7px 12px" onclick="addAtualizacao('${id}','interno')">Adicionar</button>
@@ -1555,7 +1555,7 @@ function cardFrete(f){
         </div>
         <div class="hist-col">
           <label>📢 Atualização (envio ao cliente) — vai direto para o link do cliente</label>
-          <div class="hist-box">${histBox(histOf(f,'cliente'))}</div>
+          <div class="hist-box">${histBox(histOf(f,'cliente'), id, 'cliente')}</div>
           <div class="hist-add">
             <textarea id="newCli_${id}" placeholder="Ex.: Veículo coletado; em rota para o destino..."></textarea>
             <button class="btn-ok" style="padding:7px 12px" onclick="addAtualizacao('${id}','cliente')">Adicionar</button>
@@ -1593,6 +1593,7 @@ function mensagemClienteMarco(campo, dataISO){
     coletaFeito:`✅ Veículo coletado em ${d}.`,
     embarquePrev:`📅 Embarque previsto para ${d}.`,
     embarqueFeito:`🚚 Veículo embarcado em ${d} — em trânsito para o destino.`,
+    chegadaPrev:`📅 Chegada prevista para ${d}.`,
     chegadaFeito:`📍 Veículo chegou ao destino em ${d}.`,
     liberacaoPrev:`📅 Liberação prevista para ${d}.`,
   };
@@ -1600,15 +1601,15 @@ function mensagemClienteMarco(campo, dataISO){
 }
 function setMarco(id,campo,valor,rotulo){
   const db=lerDB(); const f=db[id]; if(!f) return;
-  f[campo]=valor; f._salvoEm=new Date().toISOString();
-  if(valor){
-    // marcos geram atualização PARA O CLIENTE (vai ao link de acompanhamento). A interna fica livre p/ escrita manual.
-    if(!Array.isArray(f.histCliente)) f.histCliente=histOf(f,'cliente');
-    f.histCliente.push({ts:new Date().toISOString(), texto:mensagemClienteMarco(campo,valor)});
-  }
+  f[campo]=valor; f._salvoEm=new Date().toISOString();   // marca a data (lembrete/prazo)
   gravarDB(db); renderRelatorio();
-  if(clienteLiveId===id && typeof renderClienteLive==='function') renderClienteLive(id);
-  if(valor) flash(`${rotulo}: ${dataBR(valor)} → avisado ao cliente ✔`);
+  if(valor){
+    // NÃO envia automático — só sugere o texto no campo do cliente; o operador confere e clica em "Adicionar".
+    const msg=mensagemClienteMarco(campo,valor);
+    setTimeout(()=>{ const ta=document.getElementById('newCli_'+id);
+      if(ta){ ta.value=(ta.value.trim()?ta.value.trim()+' ':'')+msg; ta.focus(); ta.scrollIntoView({block:'center',behavior:'smooth'}); } }, 60);
+    flash(`${rotulo}: ${dataBR(valor)} — confira a mensagem e clique em "Adicionar" p/ enviar ao cliente`);
+  }
 }
 function lembretesDe(f){
   if(statusDe(f)!=='ANDAMENTO') return [];
@@ -1616,6 +1617,7 @@ function lembretesDe(f){
   const chk=(prev,feito,lbl)=>{ if(f[prev] && !f[feito] && f[prev]<=hoje) out.push(`${lbl} pendente (${dataBR(f[prev])})`); };
   chk('coletaPrev','coletaFeito','Coleta');
   chk('embarquePrev','embarqueFeito','Embarque');
+  chk('chegadaPrev','chegadaFeito','Chegada');
   if(f.liberacaoPrev && f.liberacaoPrev<=hoje) out.push(`Liberação (${dataBR(f.liberacaoPrev)})`);
   // prazo de entrega estourado
   const p=prazoInfo(f); if(p && p.rest<0) out.push(`Prazo de entrega vencido (${dataBR(p.deadline)})`);
@@ -1875,9 +1877,26 @@ function histOf(f,tipo){
   if(tipo==='interno' && !a.length && f.atualizacao) a=[{ts:f._salvoEm||'', texto:f.atualizacao}];
   return a;
 }
-function histBox(arr){
+function histBox(arr, id, tipo){
   if(!arr||!arr.length) return '<div class="hist-empty">Sem atualizações ainda.</div>';
-  return arr.slice().reverse().map(h=>`<div class="hist-item"><span class="hist-ts">${dataHora(h.ts)}</span><div>${esc(h.texto)}</div></div>`).join('');
+  return arr.map((h,i)=>({h,i})).reverse().map(({h,i})=>`<div class="hist-item">
+    <span class="hist-ts">${dataHora(h.ts)}${h.editadoEm?' · editada':''}${id?` <button class="mc-x" style="color:#2563eb" onclick="editarAtualizacao('${id}','${tipo}',${i})" title="editar/remover">✏️</button>`:''}</span>
+    <div>${esc(h.texto)}</div></div>`).join('');
+}
+function editarAtualizacao(id,tipo,idx){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  const key=tipo==='cliente'?'histCliente':'histInterno';
+  if(!Array.isArray(f[key])) f[key]=histOf(f,tipo);
+  const arr=f[key]; if(!arr[idx]) return;
+  const novo=prompt(tipo==='cliente'?'Editar a mensagem (o cliente verá):':'Editar a anotação interna:', arr[idx].texto);
+  if(novo==null) return;
+  const t=novo.trim();
+  if(!t){ if(!confirm('Texto vazio — remover esta atualização?')) return; arr.splice(idx,1); }
+  else arr[idx]={...arr[idx], texto:t, editadoEm:new Date().toISOString()};
+  f[key]=arr; f._salvoEm=new Date().toISOString(); gravarDB(db);
+  renderRelatorio();
+  if(clienteLiveId===id && typeof renderClienteLive==='function') renderClienteLive(id);
+  flash(t?'Atualização editada ✔':'Atualização removida ✔');
 }
 function addAtualizacao(id,tipo){
   const el=document.getElementById((tipo==='cliente'?'newCli_':'newInt_')+id);
