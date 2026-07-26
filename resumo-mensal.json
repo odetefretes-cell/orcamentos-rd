@@ -145,27 +145,27 @@
  },
  {
   "mes": "JUNHO 2026",
-  "total": 178,
-  "concluido": 138,
-  "andamento": 24,
-  "cancelado": 16,
-  "fechados": 162,
-  "nivel": "Abaixo",
-  "bonus": 0,
+  "total": 216,
+  "concluido": 174,
+  "andamento": 25,
+  "cancelado": 17,
+  "fechados": 199,
+  "nivel": "Meta",
+  "bonus": 500,
   "ops": {
    "NATALY": {
-    "total": 91,
-    "concluido": 70,
-    "andamento": 10,
+    "total": 109,
+    "concluido": 87,
+    "andamento": 11,
     "cancelado": 11,
-    "fechados": 80
+    "fechados": 98
    },
    "YASMIN": {
-    "total": 86,
-    "concluido": 68,
+    "total": 106,
+    "concluido": 87,
     "andamento": 14,
-    "cancelado": 4,
-    "fechados": 82
+    "cancelado": 5,
+    "fechados": 101
    },
    "OUTRO": {
     "total": 1,
@@ -178,11 +178,11 @@
  },
  {
   "mes": "JULHO 2026",
-  "total": 166,
-  "concluido": 53,
+  "total": 167,
+  "concluido": 54,
   "andamento": 99,
   "cancelado": 14,
-  "fechados": 152,
+  "fechados": 153,
   "nivel": "Abaixo",
   "bonus": 0,
   "ops": {
@@ -194,11 +194,11 @@
     "fechados": 76
    },
    "YASMIN": {
-    "total": 71,
-    "concluido": 17,
+    "total": 72,
+    "concluido": 18,
     "andamento": 45,
     "cancelado": 9,
-    "fechados": 62
+    "fechados": 63
    },
    "OUTRO": {
     "total": 14,
