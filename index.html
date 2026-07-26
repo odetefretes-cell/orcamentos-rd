@@ -2891,7 +2891,16 @@ function renderRelatorios(){
   if(bm) bm.classList.toggle('btn-primary', relTipo==='mes');
   const lab=$('#relPeriodoLabel');
   if(lab) lab.textContent = relTipo==='semana' ? `${dataBR(R.start)} – ${dataBR(R.end)}` : `${MES_PT[new Date(relRef).getMonth()]} ${new Date(relRef).getFullYear()}`;
-  relRenderComercial(R); relRenderOperacao(R); relRenderFinanceiro(R);
+  // cada setor vê apenas o seu relatório (admin vê todos)
+  const papel = sessaoUser && sessaoUser.papel;
+  const verCom = !papel || papel==='admin' || papel==='comercial';
+  const verOp  = !papel || papel==='admin' || papel==='operacional';
+  const verFin = !papel || papel==='admin' || papel==='financeiro';
+  const setDisp=(id,on)=>{ const e=$(id); if(e) e.style.display = on?'':'none'; };
+  setDisp('#relComercial',verCom); setDisp('#relOperacao',verOp); setDisp('#relFinanceiro',verFin);
+  if(verCom) relRenderComercial(R);
+  if(verOp)  relRenderOperacao(R);
+  if(verFin) relRenderFinanceiro(R);
 }
 function relRenderComercial(R){
   const box=$('#relComercial'); if(!box) return;
@@ -3117,10 +3126,10 @@ const USUARIOS_PADRAO=[
   {user:'operacional', senha:'op2026', papel:'operacional', nome:'Operacional'},
 ];
 const PERMISSOES={
-  admin:['crm','ficha','rel','fin','clientes','mensal','relatorios'],
-  comercial:['crm','ficha','clientes','mensal','relatorios'],
-  operacional:['rel','clientes','mensal','relatorios'],
-  financeiro:['fin','rel','clientes','mensal','relatorios'],
+  admin:['crm','ficha','rel','fin','clientes','mensal','relatorios'],   // acesso total
+  comercial:['crm','relatorios'],           // só a sua área (CRM) + relatório comercial
+  operacional:['rel','ficha','relatorios'], // operacional + emissão de ficha/contrato
+  financeiro:['fin','relatorios'],          // financeiro + relatório financeiro
 };
 const PAPEL_NOME={admin:'Administrador',comercial:'Comercial',operacional:'Operacional',financeiro:'Financeiro'};
 let USUARIOS=[], sessaoUser=null;
