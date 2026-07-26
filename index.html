@@ -3294,7 +3294,7 @@ function crmAbrirLead(id){
       <label style="font-size:12px;opacity:.8">Categoria:</label>
       <select id="calcCategoria" style="max-width:190px"></select>
       <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🧮 Calcular frete</button>
-      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Ver prestadores</button>
+      <button class="btn-primary" onclick="crmCalcOpcoes('${id}')" style="font-size:13px">🔍 Ver todas as opções</button>
     </div>
     <div id="crmCalcRes"></div>
     <div id="crmCompWrap" style="display:none">
@@ -3515,6 +3515,81 @@ function crmCalcAddTrecho(id, i){
   crmRecalcCalc(id);
   crmRenderComp(id);
   flash('Trecho adicionado ✔');
+}
+// ---- Todas as opções: rotas diretas + combinações (reembarque) ----
+async function crmCalcOpcoes(id){
+  const box = $('#crmCalcRes'); if(!box) return;
+  box.innerHTML = '<p class="hint">Buscando opções e combinações…</p>';
+  const db = await carregarTabelaFretes();
+  if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
+  crmCalcInit(id); crmSyncFormLead(id);
+  const o = normTxt($('#crmOrigem')?.value), d = normTxt($('#crmDestino')?.value);
+  const cat = $('#calcCategoria')?.value || '';
+  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino.</p>'; return; }
+  const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
+  const preco = r => r.valores[cat];
+  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:t.o,dN:t.d, prazo:r.prazoDias });
+  const diretas=[], saemDaOrigem=[], chegamNoDestino=[];
+  for(const r of db.rotas){
+    for(const t of (r.trajetos||[])){
+      const so=match(t.o,o), sd=match(t.d,d);
+      if(so && sd){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
+      else { if(so) saemDaOrigem.push(leg(r,t)); if(sd) chegamNoDestino.push(leg(r,t)); }
+    }
+  }
+  // combinações de 2 trechos: origem -> M -> destino (M = cidade intermediária)
+  const porOrigemMeio = {};
+  for(const g of chegamNoDestino){ (porOrigemMeio[g.oN]=porOrigemMeio[g.oN]||[]).push(g); }
+  const combos=[];
+  const vistos=new Set();
+  for(const a of saemDaOrigem){
+    const conex = porOrigemMeio[a.dN]; if(!conex) continue;
+    for(const b of conex){
+      if(a.valor==null || b.valor==null) continue;
+      const k = a.transportadora+'|'+a.dNome+'|'+b.transportadora;
+      if(vistos.has(k)) continue; vistos.add(k);
+      combos.push({ tipo:'combinacao', legs:[a,b], total:(a.valor+b.valor), prazo:(a.prazo||0)+(b.prazo||0) });
+    }
+  }
+  // dedup diretas por transportadora
+  const dvist=new Set(); const diretasU=diretas.filter(x=>{ const k=x.legs[0].transportadora+'|'+x.total; if(dvist.has(k))return false; dvist.add(k); return true; });
+  diretasU.sort((a,b)=>(a.total==null)-(b.total==null)||(a.total||0)-(b.total||0));
+  combos.sort((a,b)=>a.total-b.total);
+  const opts = diretasU.concat(combos.slice(0,25));
+  window.__crmOpcoes = opts;
+  if(!opts.length){ box.innerHTML = `<p class="hint">Nenhuma opção encontrada para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b>. Preencha manualmente.</p>`; crmAbrirComposicaoManual(id); return; }
+  const cardOpt = (x,i)=>{
+    const legTxt = x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
+    const tag = x.tipo==='direta' ? '<span style="background:#16a34a;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px">DIRETA</span>'
+                                  : `<span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px">${x.legs.length} TRECHOS</span>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--linha)">
+      <div style="min-width:0">
+        <div style="margin-bottom:2px">${tag} ${x.prazo?`<span class="hint">· ${x.prazo}d</span>`:''}</div>
+        <div class="hint" style="margin:0;font-size:11.5px;line-height:1.35">${legTxt}</div>
+      </div>
+      <div style="text-align:right;white-space:nowrap">
+        <div style="font-weight:700;color:#16a34a">${x.total!=null?moeda(x.total):'—'}</div>
+        <button class="btn-ok" style="font-size:12px;padding:4px 9px;margin-top:3px" onclick='crmUsarOpcao("${id}",${i})'>✓ Usar</button>
+      </div>
+    </div>`;
+  };
+  box.innerHTML = `
+    <div style="font-size:12px;font-weight:600;margin:2px 0 4px">${diretasU.length} rota(s) direta(s) e ${combos.length} combinação(ões) — a mais barata já está aplicada</div>
+    <div style="max-height:280px;overflow:auto;border:1px solid var(--linha);border-radius:8px;padding:6px">
+      ${opts.map((x,i)=>cardOpt(x,i)).join('')}
+    </div>`;
+}
+function crmUsarOpcao(id, i){
+  const l = CRM_LEADS[id]; const x = (window.__crmOpcoes||[])[i]; if(!l||!x) return;
+  l.trajetos = x.legs.map(g=>({
+    de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
+    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'',
+    oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null
+  }));
+  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  crmRecalcCalc(id);
+  crmRenderComp(id);
+  flash('Opção aplicada ✔');
 }
 // ---- Reembarque automático: menor custo origem -> destino (Dijkstra) ----
 function crmAdjacencia(db){
