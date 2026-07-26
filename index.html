@@ -1106,14 +1106,14 @@ const LOGO='obs_logo';
 // Logo padrão (SVG) — recriação da marca OBS TRANSPORTES; aparece sozinho.
 // Você pode substituir pelo PNG oficial em "Escolher logo" (fica salvo).
 const DEFAULT_LOGO='data:image/svg+xml;utf8,'+encodeURIComponent(
-  `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='108' viewBox='0 0 360 108'>
+  `<svg xmlns='http://www.w3.org/2000/svg' width='300' height='150' viewBox='0 0 300 150'>
      <g fill='none' stroke='#e2001a' stroke-linecap='round'>
-       <path d='M80 16 A 40 40 0 1 0 96 86' stroke-width='13'/>
-       <path d='M72 36 A 23 23 0 1 0 86 72' stroke-width='12'/>
-       <path d='M67 50 A 10 10 0 1 0 78 63' stroke-width='9'/>
+       <path d='M96 18 A 46 46 0 1 0 138 74' stroke-width='17'/>
+       <path d='M92 40 A 26 26 0 1 0 114 70' stroke-width='14'/>
+       <path d='M96 58 A 10 10 0 1 0 104 74' stroke-width='11'/>
      </g>
-     <text x='122' y='50' font-family='Arial, sans-serif' font-size='44' font-weight='bold' fill='#1a1a1a'>OBS</text>
-     <text x='122' y='92' font-family='Arial, sans-serif' font-size='30' font-weight='bold' fill='#e2001a' letter-spacing='1'>TRANSPORTES</text>
+     <text x='84' y='88' font-family='Arial, sans-serif' font-size='50' font-weight='900' fill='#111'>OBS</text>
+     <text x='14' y='134' font-family='Arial, sans-serif' font-size='33' font-weight='800' letter-spacing='1' fill='#e2001a'>TRANSPORTES</text>
    </svg>`);
 function logoAtual(){ return localStorage.getItem(LOGO) || DEFAULT_LOGO; }
 function carregarLogo(inp){
