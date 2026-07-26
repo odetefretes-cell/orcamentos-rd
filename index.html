@@ -97,10 +97,10 @@
   .rel-resumo .box b{font-size:18px;display:block;color:var(--azul)}
   /* lista compacta do operacional (clicar p/ abrir edição) */
   .fitem{border:1px solid var(--linha);border-left:5px solid #9aa7b4;border-radius:8px;margin-bottom:6px;overflow:hidden;background:#fff}
-  .fitem.s-andamento{border-left-color:#e6a100}
+  .fitem.s-andamento{border-left-color:#2563eb}
   .fitem.s-concluido{border-left-color:var(--ok)}
   .fitem.s-cancelado{border-left-color:#c0392b}
-  .fitem.s-aguardando{border-left-color:#2563eb}
+  .fitem.s-aguardando{border-left-color:#e6a100}
   .fitem.open{margin-bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
   .frow{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;user-select:none}
   .frow:hover{background:var(--cinza)}
@@ -114,7 +114,7 @@
   .fitem .fcard{border:none;border-left:none;border-radius:0;margin:0;box-shadow:none}
   @media(max-width:720px){.frow .frota{display:none}}
   .fcard{background:#fff;border:1px solid var(--linha);border-left:6px solid #9aa7b4;border-radius:10px;margin-bottom:12px;overflow:hidden}
-  .fcard.s-andamento{border-left-color:#e6a100}
+  .fcard.s-andamento{border-left-color:#2563eb}
   .fcard.s-concluido{border-left-color:var(--ok)}
   .fcard.s-cancelado{border-left-color:#c0392b}
   .fcard .top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--cinza);border-bottom:1px solid var(--linha)}
@@ -139,7 +139,7 @@
   .fcard input,.fcard select,.fcard textarea{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--linha);border-radius:6px}
   .fcard textarea{resize:vertical;min-height:38px}
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:bold;color:#fff}
-  .badge.s-andamento{background:#e6a100}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#c0392b}.badge.s-aguardando{background:#2563eb}
+  .badge.s-andamento{background:#2563eb}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#c0392b}.badge.s-aguardando{background:#e6a100}
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#c0392b;font-weight:bold}
   .badge.atraso{background:#c0392b}
   table.fin{width:100%;border-collapse:collapse;font-size:13px}
@@ -234,9 +234,54 @@
 </head>
 <body>
 
+<!-- ===================== LOGIN ===================== -->
+<div id="loginOverlay" class="no-print" style="display:none;position:fixed;inset:0;z-index:10000;background:linear-gradient(135deg,#d80f1f 0%,#7d0810 100%);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px 26px;width:340px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.35)">
+    <img id="loginLogo" alt="OBS" style="height:70px;object-fit:contain;display:block;margin:0 auto 10px">
+    <h2 style="text-align:center;font-size:18px;color:#222;margin:0 0 4px">Acesso ao sistema</h2>
+    <p class="hint" style="text-align:center;margin:0 0 16px">OBS Transportes</p>
+    <label style="font-size:12px;font-weight:600;color:#4a5a6b">Usuário</label>
+    <input id="loginUser" autocomplete="username" style="width:100%;font-size:15px;padding:10px;border:1px solid var(--linha);border-radius:8px;margin:3px 0 12px" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+    <label style="font-size:12px;font-weight:600;color:#4a5a6b">Senha</label>
+    <input id="loginPass" type="password" autocomplete="current-password" style="width:100%;font-size:15px;padding:10px;border:1px solid var(--linha);border-radius:8px;margin:3px 0 6px" onkeydown="if(event.key==='Enter')fazerLogin()">
+    <div id="loginErro" style="color:#c0392b;font-size:12px;min-height:16px;margin-bottom:8px"></div>
+    <button class="btn-primary" style="width:100%;padding:11px;font-size:15px" onclick="fazerLogin()">Entrar</button>
+  </div>
+</div>
+
 <div class="topbar no-print">
   <img id="topLogo" alt="OBS Transportes" style="height:44px;object-fit:contain">
   <span class="sub" style="border-left:2px solid var(--linha);padding-left:14px">Autorização de Transporte + Contrato · sistema interno</span>
+  <span style="flex:1"></span>
+  <span id="userChip" style="display:none;align-items:center;gap:10px;font-size:13px">
+    <span><b id="userNome"></b> <span id="userPapel" style="background:var(--azul);color:#fff;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700"></span></span>
+    <button id="btnUsuarios" class="btn-ghost" style="padding:5px 10px;font-size:12px;display:none" onclick="abrirUsuarios()">👤 Usuários</button>
+    <button class="btn-ghost" style="padding:5px 10px;font-size:12px" onclick="logout()">Sair</button>
+  </span>
+</div>
+
+<!-- ===================== USUÁRIOS (admin) ===================== -->
+<div id="usuariosModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px">
+  <div style="background:#fff;border-radius:12px;padding:20px;width:640px;max-width:96vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="font-size:17px;margin:0">👤 Usuários e acessos</h2>
+      <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('usuariosModal').style.display='none'">✕ fechar</button>
+    </div>
+    <p class="hint" style="margin-top:0">Cadastre login, senha e o papel de cada colaborador. O papel define quais abas a pessoa vê.</p>
+    <div id="usuariosLista"></div>
+    <div style="border-top:1px solid var(--linha);margin-top:12px;padding-top:12px">
+      <b style="font-size:13px">Adicionar / atualizar usuário</b>
+      <div class="grid g2" style="margin-top:8px">
+        <div class="field"><label>Nome</label><input id="nuNome" placeholder="Ex.: Nataly"></div>
+        <div class="field"><label>Login (usuário)</label><input id="nuUser" placeholder="ex.: nataly"></div>
+        <div class="field"><label>Senha</label><input id="nuSenha" placeholder="senha"></div>
+        <div class="field"><label>Papel</label><select id="nuPapel">
+          <option value="operacional">Operacional</option><option value="comercial">Comercial</option>
+          <option value="financeiro">Financeiro</option><option value="admin">Administrador</option></select></div>
+      </div>
+      <button class="btn-primary" style="margin-top:6px" onclick="salvarUsuario()">Salvar usuário</button>
+    </div>
+  </div>
 </div>
 
 <div class="wrap">
@@ -1084,7 +1129,7 @@ async function initData(){
         // APP DA EQUIPE: sincroniza a coleção inteira
         setModo('☁ Compartilhado (tempo real)');
         fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
-          MEM={}; snap.forEach(d=>MEM[d.id]=d.data()); LAST=JSON.parse(JSON.stringify(MEM));
+          MEM={}; snap.forEach(d=>{ if(!d.id.startsWith('_')) MEM[d.id]=d.data(); }); LAST=JSON.parse(JSON.stringify(MEM));
           atualizarHist(); atualizarProxNum();
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
@@ -1435,9 +1480,9 @@ function renderRelatorio(){
   const and=list.filter(f=>opDe(f)&&statusDe(f)==='ANDAMENTO').length, con=list.filter(f=>statusDe(f)==='CONCLUÍDO').length, can=list.filter(f=>statusDe(f)==='CANCELADO').length;
   const aberto=list.filter(f=>statusDe(f)!=='CANCELADO').reduce((s,f)=>s+(num(f.valorFrete)-num(f.pago1)-num(f.pago2)),0);
   $('#relResumo').innerHTML=
-    `<div class="box">Aguardando (fila)<b style="color:#2563eb">${naFila}</b></div>`+
-    `<div class="box">Exibindo<b>${list.length}</b></div>`+
-    `<div class="box">Em andamento<b style="color:#e6a100">${and}</b></div>`+
+    `<div class="box">Aguardando (fila)<b style="color:#e6a100">${naFila}</b></div>`+
+    `<div class="box">Exibindo<b style="color:#111">${list.length}</b></div>`+
+    `<div class="box">Em andamento<b style="color:#2563eb">${and}</b></div>`+
     `<div class="box">Cancelados<b style="color:#c0392b">${can}</b></div>`+
     `<div class="box">⚠ Sem atualização 24h<b style="color:#c0392b">${nAtras}</b></div>`+
     `<div class="box">Total em aberto<b>${moeda(aberto)}</b></div>`;
@@ -1483,7 +1528,7 @@ function cardFrete(f){
   // ----- Frete na FILA (AGUARDANDO): operador assume p/ INICIAR o transporte -----
   if(!op){
     const botoes=operadoras.map(o=>`<button class="btn-ok" style="padding:5px 12px;font-size:12px" onclick="puxarFrete('${id}','${jsArg(o)}')">▶ Iniciar transporte (${esc(o)})</button>`).join(' ');
-    return `<div class="fcard s-fila" style="border-left-color:#2563eb">
+    return `<div class="fcard s-fila" style="border-left-color:#e6a100">
       <div class="top">
         <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -1944,7 +1989,7 @@ function renderFinanceiro(){
   }
   const totP=vis.reduce((t,x)=>t+num(x.p.valor),0), totPagar=itens.filter(x=>!pago(x)).reduce((t,x)=>t+num(x.p.valor),0), totPago=itens.filter(pago).reduce((t,x)=>t+num(x.p.valor),0);
   $('#finPrestResumo').innerHTML=
-    `<div class="box">Exibindo<b>${moeda(totP)}</b></div>`+
+    `<div class="box">Exibindo<b style="color:#111">${moeda(totP)}</b></div>`+
     `<div class="box">⏳ Em aberto<b style="color:#c0392b">${moeda(totPagar)}</b></div>`+
     `<div class="box">✅ Conferido/pago<b style="color:var(--ok)">${moeda(totPago)}</b></div>`;
 }
@@ -2529,10 +2574,84 @@ function clienteItem(cpf,c){
   return `<div class="fitem open" style="border-left-color:var(--azul2)">${row}${card}</div>`;
 }
 
+// ===================== ACESSO (login + papéis) =====================
+const USUARIOS_KEY='obs_usuarios', SESSAO_KEY='obs_sessao';
+const USUARIOS_PADRAO=[
+  {user:'admin', senha:'obs2026', papel:'admin', nome:'Administrador'},
+  {user:'financeiro', senha:'fin2026', papel:'financeiro', nome:'Financeiro'},
+  {user:'comercial', senha:'com2026', papel:'comercial', nome:'Comercial'},
+  {user:'operacional', senha:'op2026', papel:'operacional', nome:'Operacional'},
+];
+const PERMISSOES={
+  admin:['ficha','rel','fin','clientes','mensal'],
+  comercial:['ficha','clientes','mensal'],
+  operacional:['rel','clientes','mensal'],
+  financeiro:['fin','rel','clientes','mensal'],   // rel incluído p/ decisão (abrir no operacional)
+};
+const PAPEL_NOME={admin:'Administrador',comercial:'Comercial',operacional:'Operacional',financeiro:'Financeiro'};
+let USUARIOS=[], sessaoUser=null;
+function lerUsuarios(){ try{ const a=JSON.parse(localStorage.getItem(USUARIOS_KEY)); if(Array.isArray(a)&&a.length) return a; }catch(_){} return USUARIOS_PADRAO.slice(); }
+function gravarUsuarios(a){ USUARIOS=a; localStorage.setItem(USUARIOS_KEY, JSON.stringify(a)); if(CLOUD_ON && _fb && _fb.setDoc) _fb.setDoc(_fb.doc(_fb.fs,'fretes','_acesso'), {lista:a}); }
+async function carregarUsuariosNuvem(){
+  if(CLOUD_ON && _fb && _fb.getDoc){
+    try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_acesso')); if(s.exists()&&Array.isArray(s.data().lista)&&s.data().lista.length){ USUARIOS=s.data().lista; localStorage.setItem(USUARIOS_KEY, JSON.stringify(USUARIOS)); } }catch(_){}
+  }
+}
+function fazerLogin(){
+  const u=($('#loginUser').value||'').trim().toLowerCase(), s=$('#loginPass').value||'';
+  const found=USUARIOS.find(x=>(x.user||'').toLowerCase()===u && String(x.senha)===String(s));
+  if(!found){ $('#loginErro').textContent='Usuário ou senha inválidos.'; return; }
+  sessaoUser={user:found.user, papel:found.papel, nome:found.nome||found.user, ts:Date.now()};
+  localStorage.setItem(SESSAO_KEY, JSON.stringify(sessaoUser));
+  $('#loginOverlay').style.display='none'; $('#loginPass').value='';
+  aplicarPermissoes(); flash('Bem-vindo(a), '+sessaoUser.nome+' ✔');
+}
+function logout(){ localStorage.removeItem(SESSAO_KEY); location.reload(); }
+function aplicarPermissoes(){
+  if(!sessaoUser) return;
+  const perm=PERMISSOES[sessaoUser.papel]||['ficha'];
+  const map={ficha:'#tabFicha',rel:'#tabRel',fin:'#tabFin',clientes:'#tabCli',mensal:'#tabMensal'};
+  Object.entries(map).forEach(([v,sel])=>{ const el=$(sel); if(el) el.style.display=perm.includes(v)?'':'none'; });
+  $('#userChip').style.display='inline-flex';
+  $('#userNome').textContent=sessaoUser.nome;
+  $('#userPapel').textContent=PAPEL_NOME[sessaoUser.papel]||sessaoUser.papel;
+  $('#btnUsuarios').style.display = sessaoUser.papel==='admin'?'':'none';
+  switchView(perm[0]||'ficha');
+}
+function iniciarAcesso(){
+  USUARIOS=lerUsuarios();
+  $('#loginLogo').src=logoAtual();
+  let sess=null; try{ sess=JSON.parse(localStorage.getItem(SESSAO_KEY)); }catch(_){}
+  if(sess && sess.papel){ sessaoUser=sess; aplicarPermissoes(); }
+  else { $('#loginOverlay').style.display='flex'; setTimeout(()=>$('#loginUser')?.focus(),100); }
+  carregarUsuariosNuvem();   // atualiza a lista compartilhada quando a nuvem conectar
+}
+// gestão de usuários (admin)
+function abrirUsuarios(){ if(sessaoUser?.papel!=='admin') return; renderUsuariosLista(); $('#usuariosModal').style.display='flex'; }
+function renderUsuariosLista(){
+  const el=$('#usuariosLista'); if(!el) return;
+  el.innerHTML=`<div style="overflow-x:auto"><table class="fin"><thead><tr><th>Nome</th><th>Login</th><th>Papel</th><th>Senha</th><th></th></tr></thead><tbody>`+
+    USUARIOS.map((u,i)=>`<tr><td>${esc(u.nome||'')}</td><td>${esc(u.user)}</td><td>${esc(PAPEL_NOME[u.papel]||u.papel)}</td><td>${esc(u.senha)}</td>
+      <td><button class="mc-x" style="color:#2563eb" onclick="editarUsuario(${i})" title="editar">✏️</button>${(u.papel==='admin'&&USUARIOS.filter(x=>x.papel==='admin').length<=1)?'':` <button class="mc-x" style="color:#c0392b" onclick="removerUsuario(${i})" title="remover">🗑</button>`}</td></tr>`).join('')+
+    `</tbody></table></div>`;
+}
+function editarUsuario(i){ const u=USUARIOS[i]; if(!u)return; $('#nuNome').value=u.nome||''; $('#nuUser').value=u.user; $('#nuSenha').value=u.senha; $('#nuPapel').value=u.papel; }
+function salvarUsuario(){
+  const nome=($('#nuNome').value||'').trim(), user=($('#nuUser').value||'').trim().toLowerCase(), senha=$('#nuSenha').value||'', papel=$('#nuPapel').value;
+  if(!user||!senha){ alert('Preencha login e senha.'); return; }
+  const a=USUARIOS.slice(); const ix=a.findIndex(x=>(x.user||'').toLowerCase()===user);
+  const rec={user, senha, papel, nome:nome||user};
+  if(ix>=0) a[ix]=rec; else a.push(rec);
+  gravarUsuarios(a); renderUsuariosLista();
+  $('#nuNome').value=''; $('#nuUser').value=''; $('#nuSenha').value=''; flash('Usuário salvo ✔');
+}
+function removerUsuario(i){ const u=USUARIOS[i]; if(!u)return; if(!confirm('Remover o usuário "'+u.user+'"?'))return; const a=USUARIOS.slice(); a.splice(i,1); gravarUsuarios(a); renderUsuariosLista(); }
+
 // inicialização
 (function init(){
   // indicador de carregamento da sessão (só no app da equipe, não na página do cliente)
   const isCliente = location.hash.startsWith('#f=') || location.hash.startsWith('#t=');
+  if(!isCliente) iniciarAcesso();   // login/papéis (a página do cliente não pede login)
   const loadT = isCliente ? null : flash('Carregando sessão…','load');
   window.__sessaoPronta = function(msg, tipo){
     if(window.__sp) return; window.__sp=true;
