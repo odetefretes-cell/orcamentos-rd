@@ -585,9 +585,10 @@
     <div class="card">
       <h2>📊 Levantamento mensal · Metas</h2>
       <div class="body">
-        <p class="hint" style="margin-top:0">Quantidade de <b>contratos fechados</b>, concluídos, em andamento e cancelamentos por mês (a partir do RELATORIO_FRETES_NATALY), com o <b>nível de meta</b> atingido pela empresa.</p>
+        <p class="hint" style="margin-top:0">Quantidade de <b>contratos fechados</b> (total − cancelados), concluídos, em andamento e cancelamentos por mês. O <b>operacional</b> recebe o bônus pela <b>meta da empresa</b> (mesmo valor para todos).</p>
         <div id="mensalTabela" style="overflow-x:auto"></div>
-        <h3 style="font-size:14px;margin:22px 0 8px;color:#333">Por operadora</h3>
+        <h3 style="font-size:14px;margin:22px 0 6px;color:#333">Comercial — bônus individual por vendedor</h3>
+        <p class="hint" style="margin:0 0 8px">Cada vendedor recebe pelo <b>próprio</b> número de contratos fechados (requisito: 60 = Meta · 70 = Acelerado · 80 = Turbo · 100 = Máquina).</p>
         <div id="mensalOps" style="overflow-x:auto"></div>
         <h3 style="font-size:14px;margin:22px 0 8px;color:#333">Plano de comissionamento (metas do escritório)</h3>
         <div style="overflow-x:auto">
@@ -2153,18 +2154,21 @@ async function renderMensal(){
       <td style="text-align:right;font-weight:700">${m.bonus?('R$ '+m.bonus.toLocaleString('pt-BR')+',00'):'—'}</td>
     </tr>`;
   };
-  tab.innerHTML=`<table class="fin" style="min-width:720px">
-    <thead><tr><th>Mês</th><th style="text-align:center">Contratos fechados</th><th style="text-align:center">Concluídos</th><th style="text-align:center">Em andamento</th><th style="text-align:center">Cancelados</th><th style="text-align:center">Nível (empresa)</th><th style="text-align:right">Bônus</th></tr></thead>
+  tab.innerHTML=`<table class="fin" style="min-width:760px">
+    <thead><tr><th>Mês</th><th style="text-align:center">Contratos fechados</th><th style="text-align:center">Concluídos</th><th style="text-align:center">Em andamento</th><th style="text-align:center">Cancelados</th><th style="text-align:center">Nível empresa</th><th style="text-align:right">Bônus operacional<br><span style="font-weight:normal;font-size:11px;color:#8592a1">(igual p/ todos)</span></th></tr></thead>
     <tbody>${dados.map(linha).join('')}</tbody></table>`;
-  // por operadora
+  // por vendedor (comercial) — bônus INDIVIDUAL pelo próprio nº de contratos
   const ops=$('#mensalOps');
-  const nomes=[...new Set(dados.flatMap(m=>Object.keys(m.ops||{})))];
-  const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center">${esc(n)}<br><span style="font-weight:normal;font-size:11px;color:#8592a1">fechados · andam.</span></th>`).join('')}</tr>`;
+  const nomes=[...new Set(dados.flatMap(m=>Object.keys(m.ops||{}).filter(k=>k!=='OUTRO')))];
+  const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center" colspan="2">${esc(n)}</th>`).join('')}</tr>`
+    +`<tr><th></th>${nomes.map(()=>`<th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">fechados</th><th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">bônus individual</th>`).join('')}</tr>`;
   const rows=dados.map(m=>`<tr><td><b>${esc(m.mes)}</b></td>${nomes.map(n=>{
-    const o=(m.ops||{})[n]; if(!o) return '<td style="text-align:center">—</td>';
-    return `<td style="text-align:center"><b>${o.fechados}</b> <span style="color:#e6a100">· ${o.andamento}</span></td>`;
+    const o=(m.ops||{})[n]; if(!o) return '<td style="text-align:center">—</td><td style="text-align:center">—</td>';
+    const cor=NIVEL_COR[o.nivelInd]||'#9aa7b4';
+    return `<td style="text-align:center"><b>${o.fechados}</b></td>`+
+      `<td style="text-align:center">${o.bonusInd?`<span style="background:${cor};color:#fff;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">${esc(o.nivelInd)}</span> <b>R$ ${o.bonusInd.toLocaleString('pt-BR')}</b>`:'<span class="hint">sem bônus</span>'}</td>`;
   }).join('')}</tr>`).join('');
-  ops.innerHTML=`<table class="fin" style="min-width:520px"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  ops.innerHTML=`<table class="fin" style="min-width:620px"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
 }
 function renderClientes(){
   const el=$('#cliLista'); if(!el) return;
