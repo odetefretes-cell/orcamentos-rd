@@ -1421,9 +1421,13 @@ function linhaFrete(f){
   const id=f._id, st=statusDe(f), k=stKey(st), op=opDe(f);
   const aberto=fretesAbertos.has(id);
   const rota=`${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}`;
+  const pg = (num(f.valorFrete)>0 && st!=='CANCELADO')
+    ? (abertoDe(f)<=0.005 ? '<span class="badge" style="background:#0f8a4a">💰 QUITADO</span>'
+      : `<span class="badge" style="background:#b7791f" title="em aberto">💰 falta ${moeda(abertoDe(f))}</span>`) : '';
   const badges = (op?`<span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>`
                     :`<span class="badge" style="background:#8a6d00">🕓 FILA</span>`)
     +`<span class="badge s-${k}">${esc(st)}</span>`
+    +pg
     +(atrasado(f)?`<span class="badge atraso">⚠ ${horasSemAtualizacao(f)}h</span>`:'')
     +((f.pedido&&!f.cadastrado)?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO</span>':'');
   const row=`<div class="frow" onclick="toggleFrete('${id}')">
@@ -1654,9 +1658,10 @@ function renderFinanceiro(){
   }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum frete aguardando liberação.</p>';
 
   // ---- A RECEBER ----
-  let totFrete=0,totRec=0,totAberto=0,totVenc=0;
+  let totFrete=0,totRec=0,totAberto=0,totVenc=0,nQuit=0,nReceber=0;
   const linhasR=fretes.filter(f=>num(f.valorFrete)>0).map(f=>{
     const s=situacaoReceber(f), ab=abertoDe(f); totFrete+=num(f.valorFrete); totRec+=recebidoDe(f); totAberto+=Math.max(0,ab); if(s.k==='venc') totVenc+=ab;
+    if(s.k==='quit') nQuit++; else nReceber++;
     return `<tr class="${s.k==='venc'?'vencido':''}">
       <td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td><td>${esc(up(f.operadora))||'—'}</td>
       <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</td>
@@ -1668,7 +1673,9 @@ function renderFinanceiro(){
     `<div class="box">Receita (fretes)<b>${moeda(totFrete)}</b></div>`+
     `<div class="box">Recebido<b style="color:var(--ok)">${moeda(totRec)}</b></div>`+
     `<div class="box">Em aberto<b>${moeda(totAberto)}</b></div>`+
-    `<div class="box">Vencido<b style="color:#c0392b">${moeda(totVenc)}</b></div>`;
+    `<div class="box">Vencido<b style="color:#c0392b">${moeda(totVenc)}</b></div>`+
+    `<div class="box">✓ Quitados<b style="color:var(--ok)">${nQuit}</b></div>`+
+    `<div class="box">A receber<b style="color:#e6a100">${nReceber}</b></div>`;
 
   // ---- LUCRO ----
   let sReceita=0,sPrest=0,sImp=0,sSeg=0,sLucro=0;
