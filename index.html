@@ -878,8 +878,16 @@
       <select id="crmFiltroVendedor" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todos vendedores</option>
       </select>
+      <select id="crmFiltroTarefa" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+        <option value="">Todas as tarefas</option>
+        <option value="atrasada">🔴 Tarefas atrasadas</option>
+        <option value="hoje">🟠 Tarefas de hoje</option>
+        <option value="semana">🔵 Próximos 7 dias</option>
+        <option value="sem">⚪ Sem tarefa agendada</option>
+      </select>
     </div>
 
+    <div id="crmAvisoTarefas" style="margin:0 4px 6px"></div>
     <!-- Kanban Board (colunas/funis geradas dinamicamente) -->
     <div style="display:flex;justify-content:flex-end;margin:2px 4px 6px">
       <button class="btn-ghost" onclick="crmAddEtapa()" style="font-size:12px;padding:5px 12px">➕ Nova etapa do funil</button>
@@ -3145,6 +3153,27 @@ function renderCRM(){
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
+  const filtroTarefa = $('#crmFiltroTarefa')?.value||'';
+  const casaTarefa = l => {
+    if(!filtroTarefa) return true;
+    const t = crmProxTarefa(l);
+    if(filtroTarefa==='sem') return !t;
+    if(!t) return false;
+    const s = crmStatusTarefa(t.data);
+    if(filtroTarefa==='atrasada') return s==='atrasada';
+    if(filtroTarefa==='hoje') return s==='hoje';
+    if(filtroTarefa==='semana'){ const h=hojeISO(); const d7=new Date(Date.now()+7*864e5).toISOString().slice(0,10); return t.data>=h && t.data<=d7; }
+    return true;
+  };
+  // aviso de tarefas atrasadas / de hoje
+  (function(){
+    const av=$('#crmAvisoTarefas'); if(!av) return;
+    let atr=0, hj=0;
+    Object.values(CRM_LEADS).forEach(l=>{ if(l._novo) return; const t=crmProxTarefa(l); if(!t) return; const s=crmStatusTarefa(t.data); if(s==='atrasada') atr++; else if(s==='hoje') hj++; });
+    if(!atr && !hj){ av.innerHTML=''; return; }
+    const partes=[]; if(atr) partes.push(`<b>${atr}</b> atrasada${atr>1?'s':''}`); if(hj) partes.push(`<b>${hj}</b> para hoje`);
+    av.innerHTML=`<div onclick="const s=document.getElementById('crmFiltroTarefa'); if(s){s.value='${atr?'atrasada':'hoje'}';renderCRM();}" style="cursor:pointer;background:#fdeaea;border:1px solid #dc2626;border-radius:8px;padding:8px 12px;color:#7a0a0f;font-size:13px;font-weight:600">⏰ Você tem ${partes.join(' e ')} — clique para ver.</div>`;
+  })();
 
   // atualizar select de vendedores
   const vendedores = [...new Set(Object.values(CRM_LEADS).map(l=>l.vendedor).filter(Boolean))].sort();
@@ -3173,6 +3202,7 @@ function renderCRM(){
       ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
       ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
       ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
+      ${(()=>{ const t=crmProxTarefa(l); if(!t) return ''; const s=crmStatusTarefa(t.data); const c=s==='atrasada'?'#dc2626':s==='hoje'?'#d97706':'#2563eb'; const ic=s==='atrasada'?'⏰':s==='hoje'?'📌':'🗓️'; return `<div style="margin-top:4px;font-size:11px;color:${c};font-weight:600" title="${escA(t.texto)}">${ic} ${esc(t.texto.length>26?t.texto.slice(0,26)+'…':t.texto)} · ${dataBR(t.data)}</div>`; })()}
       <div class="kc-footer">
         <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : (l.valorCotacaoSW?moeda(l.valorCotacaoSW):'—')}</span>
         <span class="kc-data">${dataBR((l.ultimaInteracao||l.dataEntrada||'').slice(0,10))}</span>
@@ -3188,6 +3218,7 @@ function renderCRM(){
     if(busca) leads = leads.filter(l => `${l.nome} ${l.empresa} ${l.veiculoDesc} ${l.origem} ${l.destino} ${l.telefone} ${l.email}`.toLowerCase().includes(busca));
     if(filtroPrio) leads = leads.filter(l => l.prioridade === filtroPrio);
     if(filtroVendedor) leads = leads.filter(l => l.vendedor === filtroVendedor);
+    if(filtroTarefa) leads = leads.filter(casaTarefa);
     leads.sort((a,b) => (b.ultimaInteracao||b.dataEntrada||'').localeCompare(a.ultimaInteracao||a.dataEntrada||''));
     const cor = etapa.cor||'#64748b';
     return `<div class="kanban-col" data-etapa="${etapa.id}">
@@ -3273,6 +3304,7 @@ function crmNovoLead(){
     interesse:'', valorCotacaoSW:'', prazoSW:'', cotacaoId:'',
     composicao:[], trajetos:[],   // taxas (SW) e trechos p/ conferência e PDF
     enderecoColeta:'', enderecoEntrega:'',   // endereços completos p/ porta a porta (PDF)
+    dataUltimoContato:'', dataFechamento:'', tarefas:[],   // agendamento + tarefas
     dataEntrada: new Date().toISOString().slice(0,10),
     ultimaInteracao: new Date().toISOString(),
     motivoPerda:'',
@@ -3369,6 +3401,17 @@ function crmAbrirLead(id){
       <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
     </div>
+    <div class="cm-section">🗓️ Agendamento & Tarefas</div>
+    <div class="grid g2">
+      <div class="field"><label>Data de último contato</label><input id="crmUltContato" type="date" value="${escA(l.dataUltimoContato||'')}" oninput="crmEndSet('${id}','dataUltimoContato',this.value)"></div>
+      <div class="field"><label>Data de fechamento (previsão)</label><input id="crmDataFech" type="date" value="${escA(l.dataFechamento||'')}" oninput="crmEndSet('${id}','dataFechamento',this.value)"></div>
+    </div>
+    <div id="crmTarefas"></div>
+    <div style="display:flex;gap:6px;align-items:flex-end;margin-top:6px;flex-wrap:wrap">
+      <div class="field" style="flex:1;min-width:160px;margin:0"><label>Nova tarefa</label><input id="crmTarefaTexto" placeholder="Ex.: ligar para o cliente"></div>
+      <div class="field" style="margin:0"><label>Data</label><input id="crmTarefaData" type="date"></div>
+      <button class="btn-primary" onclick="crmAddTarefa('${id}')" style="white-space:nowrap">＋ Agendar</button>
+    </div>
     <div class="cm-section">💬 Adicionar Interação</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
       <textarea id="crmNovaInteracao" placeholder="Descreva o contato realizado..." style="flex:1;min-height:50px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px;resize:vertical"></textarea>
@@ -3391,6 +3434,7 @@ function crmAbrirLead(id){
 
   crmRenderComp(id);   // taxas SW editáveis
   crmCalcInit(id);     // popular categorias da calculadora
+  crmRenderTarefas(id);// tarefas agendadas do lead
   crmAutoCalc(id);     // já calcula o frete (melhor prestador) ao abrir
   modal.style.display = 'flex';
   requestAnimationFrame(()=> modal.classList.add('open'));
@@ -3944,6 +3988,56 @@ function crmRenderComp(id){
   const wrap=$('#crmCompWrap'); if(wrap) wrap.style.display = comp.length ? '' : 'none';
 }
 function crmEndSet(id,campo,val){ const l=CRM_LEADS[id]; if(l) l[campo]=val; }
+// ---- Tarefas agendadas dos leads ----
+function hojeISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function crmProxTarefa(l){   // próxima tarefa pendente (menor data)
+  const pend=(l.tarefas||[]).filter(t=>!t.feita);
+  if(!pend.length) return null;
+  pend.sort((a,b)=>(a.data||'9999').localeCompare(b.data||'9999'));
+  return pend[0];
+}
+function crmStatusTarefa(data){ if(!data) return 'futura'; const h=hojeISO(); return data<h?'atrasada':data===h?'hoje':'futura'; }
+function crmAddTarefa(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  const texto=($('#crmTarefaTexto')?.value||'').trim();
+  const data=($('#crmTarefaData')?.value||'').trim();
+  if(!texto){ flash('Descreva a tarefa.','erro'); return; }
+  if(!data){ flash('Escolha a data da tarefa.','erro'); return; }
+  if(!l.tarefas) l.tarefas=[];
+  l.tarefas.push({ id:'t'+Date.now().toString(36), texto, data, feita:false });
+  crmAddTimeline(id,'tarefa',`Tarefa agendada p/ ${dataBR(data)}: ${texto}`);
+  if(l._novo) delete l._novo;              // agendar tarefa já efetiva o lead
+  if(crmDraftId===id) crmDraftId=null;
+  saveCRM(); crmRenderTarefas(id); renderCRM();
+  if($('#crmTarefaTexto')) $('#crmTarefaTexto').value=''; if($('#crmTarefaData')) $('#crmTarefaData').value='';
+  flash('Tarefa agendada ✔');
+}
+function crmConcluirTarefa(id,tid){
+  const l=CRM_LEADS[id]; if(!l) return; const t=(l.tarefas||[]).find(x=>x.id===tid); if(!t) return;
+  t.feita=true; t.feitoEm=hojeISO(); l.dataUltimoContato=hojeISO();
+  crmAddTimeline(id,'tarefa',`Tarefa concluída: ${t.texto}`);
+  saveCRM(); crmRenderTarefas(id); renderCRM(); flash('Tarefa concluída ✔');
+}
+function crmExcluirTarefa(id,tid){
+  const l=CRM_LEADS[id]; if(!l) return; l.tarefas=(l.tarefas||[]).filter(x=>x.id!==tid);
+  saveCRM(); crmRenderTarefas(id); renderCRM();
+}
+function crmRenderTarefas(id){
+  const l=CRM_LEADS[id]; const box=$('#crmTarefas'); if(!l||!box) return;
+  const cor={atrasada:'#dc2626',hoje:'#d97706',futura:'#2563eb'};
+  const lab={atrasada:'atrasada',hoje:'hoje',futura:'agendada'};
+  const pend=(l.tarefas||[]).filter(t=>!t.feita).sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  const feitas=(l.tarefas||[]).filter(t=>t.feita).slice(-3).reverse();
+  const linha=t=>{ const s=crmStatusTarefa(t.data); return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--linha)">
+      <span style="width:8px;height:8px;border-radius:50%;background:${cor[s]};flex:0 0 auto"></span>
+      <div style="flex:1;min-width:0"><div style="font-size:13px">${esc(t.texto)}</div>
+        <div class="hint" style="margin:0;color:${cor[s]}">${dataBR(t.data)} · ${lab[s]}</div></div>
+      <button class="btn-ok" style="font-size:11px;padding:3px 8px" onclick="crmConcluirTarefa('${id}','${t.id}')">✓ Concluir</button>
+      <button style="border:none;background:none;cursor:pointer" title="Excluir" onclick="crmExcluirTarefa('${id}','${t.id}')">🗑️</button>
+    </div>`; };
+  box.innerHTML = (pend.length?pend.map(linha).join(''):'<p class="hint" style="margin:4px 0">Nenhuma tarefa pendente.</p>')
+    + (feitas.length?`<div class="hint" style="margin-top:6px">Concluídas: ${feitas.map(t=>esc(t.texto)+' ('+dataBR(t.feitoEm||t.data)+')').join(' · ')}</div>`:'');
+}
 function crmAbrirComposicaoManual(id){   // abre as taxas p/ edição mesmo sem rota calculada
   const l=CRM_LEADS[id]; if(!l) return;
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
