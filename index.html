@@ -231,6 +231,15 @@
     <span class="status" id="logoStatus"></span>
   </div>
 
+  <!-- ===================== FILA DO COMERCIAL (pedidos dos clientes) ===================== -->
+  <div id="comercialCard" class="card no-print" style="display:none;border:2px solid #6a1b9a">
+    <h2 style="background:#f3e8fb;color:#6a1b9a">📥 Pedidos de clientes — aguardando cadastro (Comercial)</h2>
+    <div class="body">
+      <p class="hint" style="margin-top:0">Pedidos enviados pelos clientes. Abra, revise e clique em <b>Salvar frete</b> — aí o frete vai para a fila do operacional (NATALY / YASMIN).</p>
+      <div id="comercialLista"></div>
+    </div>
+  </div>
+
   <!-- ===================== FORMULÁRIO ===================== -->
   <form id="form" class="no-print" oninput="render()">
 
@@ -978,6 +987,7 @@ function atualizarHist(){
   $('#hstatus').textContent = total
     ? (q ? `${itens.length} de ${total} frete(s)` : `${total} frete(s) salvo(s)`)
     : 'nenhum frete salvo ainda';
+  renderComercial();
 }
 function carregarFrete(id){
   if(!id){ novoFrete(); return; }
@@ -1085,6 +1095,8 @@ function veicResumo(f){
   return p+(vs.length>1?`  (+${vs.length-1})`:'');
 }
 function statusDe(f){ return (f.status||'ANDAMENTO').toString().toUpperCase(); }
+// pedido do cliente ainda não cadastrado = está na FILA DO COMERCIAL (não vai para o operacional)
+function emComercial(f){ return !!f.pedido && !f.cadastrado; }
 function docsLinks(f){
   const d=f.docs||{}; const map={veiculo:'Doc. veículo',cnh:'CNH/RG',comprovante:'Comprovante'};
   const links=Object.keys(map).filter(k=>d[k]).map(k=>`<a href="${d[k]}" target="_blank">📎 ${map[k]}</a>`);
@@ -1119,7 +1131,7 @@ function pill(txt,on,n,onclick){ return `<button class="pill${on?' on':''}" oncl
 function jsArg(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
 function renderRelatorio(){
-  const fretes=Object.values(lerDB());
+  const fretes=Object.values(lerDB()).filter(f=>!emComercial(f));   // pedidos ficam no comercial
   const operadoras=lerOperadoras();
   const naFila=fretes.filter(f=>!opDe(f)).length;
   const cont={}; operadoras.forEach(o=>cont[o]=0);
@@ -1725,6 +1737,38 @@ function setFrete(id,campo,valor){
   gravarDB(db); renderRelatorio(); atualizarHist();
 }
 function abrirFicha(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); }
+
+// ---- Fila do Comercial: pedidos de clientes aguardando cadastro ----
+function renderComercial(){
+  const el=$('#comercialLista'); const card=$('#comercialCard'); if(!el||!card) return;
+  const pend=Object.values(lerDB()).filter(emComercial).sort((a,b)=>(b.pedidoEm||'').localeCompare(a.pedidoEm||''));
+  if(!pend.length){ card.style.display='none'; el.innerHTML=''; return; }
+  card.style.display='';
+  el.innerHTML=pend.map(f=>{
+    const dt=f.pedidoEm?new Date(f.pedidoEm).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+    return `<div class="fcard" style="border-left:6px solid #6a1b9a">
+      <div class="top">
+        <div><span class="nf" style="color:#6a1b9a">📥 PEDIDO</span> &nbsp;<span class="rota">${esc(up(f.clienteEmpresa))||'(sem nome)'} · ${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="hint">${dt}</span>
+          <button class="btn-ok" style="padding:5px 12px;font-size:13px" onclick="abrirPedidoComercial('${f._id}')">Abrir / Revisar</button>
+          <button class="btn-ghost" style="padding:5px 10px;font-size:12px" onclick="recusarPedido('${f._id}')">Excluir</button>
+        </div>
+      </div>
+      <div class="body2">
+        <div class="fld"><label>Cliente</label><div class="ro">${esc(up(f.clienteEmpresa))||'—'}</div></div>
+        <div class="fld"><label>Telefone</label><div class="ro">${esc(f.telefone)||'—'}</div></div>
+        <div class="fld"><label>Veículo(s)</label><div class="ro">${esc(veicResumo(f))||'—'}</div></div>
+        <div class="fld"><label>📎 Documentos</label><div class="ro">${docsLinks(f)}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function abrirPedidoComercial(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); flash('Pedido carregado — revise e clique em Salvar frete'); }
+function recusarPedido(id){
+  if(!confirm('Excluir este pedido do cliente?')) return;
+  const db=lerDB(); delete db[id]; gravarDB(db); atualizarHist(); renderComercial();
+}
 // cria um pedido em branco e mostra o link para o cliente preencher (mesmo link do acompanhamento)
 function novoPedidoLink(){
   if(!CLOUD_ON){ alert('O link de pedido do cliente funciona na versão publicada (nuvem).'); }
