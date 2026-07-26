@@ -221,17 +221,6 @@
     <span class="status" id="hstatus"></span>
   </div>
 
-  <!-- ===================== LOGO / CONFIG ===================== -->
-  <div class="toolbar no-print" style="top:118px">
-    <label style="font-size:13px;font-weight:600;color:#4a5a6b">Logo da empresa (aparece nos documentos):</label>
-    <button class="btn-ghost" onclick="document.getElementById('logoInput').click()">🖼️ Escolher logo</button>
-    <input id="logoInput" type="file" accept="image/*" style="display:none" onchange="carregarLogo(this)">
-    <button class="btn-ghost" onclick="removerLogo()">Remover logo</button>
-    <img id="logoPreview" alt="" style="height:34px;max-width:160px;object-fit:contain;display:none;border:1px solid var(--linha);border-radius:6px;padding:2px;background:#fff">
-    <span class="spacer"></span>
-    <span class="status" id="logoStatus"></span>
-  </div>
-
   <!-- ===================== FILA DO COMERCIAL (pedidos dos clientes) ===================== -->
   <div id="comercialCard" class="card no-print" style="display:none;border:2px solid #6a1b9a">
     <h2 style="background:#f3e8fb;color:#6a1b9a">📥 Pedidos de clientes — aguardando cadastro (Comercial)</h2>
@@ -1137,13 +1126,11 @@ function carregarLogo(inp){
 function removerLogo(){ localStorage.removeItem(LOGO); aplicarLogo(); flash('Voltou ao logo padrão'); }
 function aplicarLogo(){
   const src=logoAtual();
-  const personalizado=!!localStorage.getItem(LOGO);
   document.querySelectorAll('.logo-doc').forEach(img=>{
     img.src=src; img.style.display='block'; img.style.height='46px'; img.style.maxWidth='170px'; img.style.objectFit='contain';
   });
-  const prev=$('#logoPreview'); prev.src=src; prev.style.display='block';
-  const top=$('#topLogo'); if(top){ top.src=src; }
-  $('#logoStatus').textContent = personalizado ? 'logo personalizado' : 'logo padrão';
+  const top=$('#topLogo'); if(top) top.src=src;
+  const prev=$('#logoPreview'); if(prev){ prev.src=src; prev.style.display='block'; }
 }
 
 // rascunho automático: guarda o que está sendo digitado (não perde ao recarregar)
