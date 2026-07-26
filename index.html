@@ -6,18 +6,18 @@
 <title>OBS Transportes · Autorização de Transporte + Contrato</title>
 <style>
   :root{
-    --azul:#12395c; --azul2:#1d5c91; --amarelo:#ffd23f; --amarelo-bg:#fff7d6;
-    --linha:#c8d0da; --cinza:#f4f6f9; --texto:#1a2330; --ok:#1c8a4d;
+    --azul:#cc1016; --azul2:#e8202a; --amarelo:#ffd23f; --amarelo-bg:#fff7d6;
+    --linha:#d7dbe0; --cinza:#f5f6f8; --texto:#222; --ok:#1c8a4d;
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:Arial,Helvetica,sans-serif;color:var(--texto);background:#eef1f5}
+  body{margin:0;font-family:"Segoe UI",Arial,Helvetica,sans-serif;color:var(--texto);background:#eef1f5}
   h1,h2,h3{margin:0}
   a{color:var(--azul2)}
 
   /* ---------- App shell ---------- */
-  .topbar{background:var(--azul);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .topbar .logo{font-weight:bold;font-size:20px;letter-spacing:.5px}
-  .topbar .sub{opacity:.85;font-size:13px}
+  .topbar{background:#fff;color:var(--azul);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-bottom:3px solid var(--azul);box-shadow:0 2px 6px rgba(0,0,0,.06)}
+  .topbar .logo{font-weight:800;font-size:21px;letter-spacing:.5px;color:var(--azul)}
+  .topbar .sub{color:#6a7480;font-size:13px}
   .wrap{max-width:1180px;margin:0 auto;padding:20px}
 
   .toolbar{position:sticky;top:0;z-index:20;background:#fff;border:1px solid var(--linha);border-radius:10px;
@@ -34,7 +34,7 @@
 
   /* ---------- Form ---------- */
   .card{background:#fff;border:1px solid var(--linha);border-radius:10px;margin-bottom:16px;overflow:hidden}
-  .card > h2{background:var(--cinza);border-bottom:1px solid var(--linha);padding:11px 16px;font-size:15px;color:var(--azul)}
+  .card > h2{background:#fff;border-bottom:2px solid var(--azul);padding:11px 16px;font-size:15px;color:#222;font-weight:700}
   .card .body{padding:14px 16px}
   .grid{display:grid;gap:12px}
   .g2{grid-template-columns:repeat(2,1fr)}
@@ -45,7 +45,7 @@
   .field label{font-size:12px;font-weight:600;color:#4a5a6b}
   .field input,.field select,.field textarea{font-family:inherit;font-size:14px;padding:8px 9px;border:1px solid var(--linha);
            border-radius:7px;background:#fff;color:var(--texto)}
-  .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--amarelo);border-color:var(--amarelo)}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--azul2);border-color:var(--azul2)}
   .field textarea{resize:vertical;min-height:46px}
   .hint{font-size:11px;color:#8592a1}
   .checks{display:flex;flex-direction:column;gap:9px}
@@ -177,8 +177,8 @@
 <body>
 
 <div class="topbar no-print">
-  <span class="logo">OBS TRANSPORTES</span>
-  <span class="sub">Autorização de Transporte + Contrato · preenchimento automático</span>
+  <img id="topLogo" alt="OBS Transportes" style="height:44px;object-fit:contain">
+  <span class="sub" style="border-left:2px solid var(--linha);padding-left:14px">Autorização de Transporte + Contrato · sistema interno</span>
 </div>
 
 <div class="wrap">
@@ -1142,6 +1142,7 @@ function aplicarLogo(){
     img.src=src; img.style.display='block'; img.style.height='46px'; img.style.maxWidth='170px'; img.style.objectFit='contain';
   });
   const prev=$('#logoPreview'); prev.src=src; prev.style.display='block';
+  const top=$('#topLogo'); if(top){ top.src=src; }
   $('#logoStatus').textContent = personalizado ? 'logo personalizado' : 'logo padrão';
 }
 
