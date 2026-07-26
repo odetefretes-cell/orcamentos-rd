@@ -1740,6 +1740,7 @@ async function enviarDoc(id,tipo,inp){
     const r=_fb.ref(_fb.storage, path);
     await _fb.uploadBytes(r, file);
     const url=await _fb.getDownloadURL(r);
+    capturarPedido(id);           // preserva o que o cliente já digitou antes de salvar/re-renderizar
     const f=MEM[id]; f.docs=f.docs||{}; f.docs[tipo]=url; f._salvoEm=new Date().toISOString(); MEM[id]=f; gravarDB();
     if(st) st.innerHTML='✓ enviado — <a href="'+url+'" target="_blank">ver</a>';
   }catch(e){
@@ -1781,6 +1782,13 @@ function telaConclusaoPedido(){
     <p class="hint" style="text-align:center;margin:14px 0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
   </div>`;
   window.scrollTo(0,0);
+}
+// captura o que já foi digitado no formulário do pedido (sem validar) — evita perder dados ao subir documento
+function capturarPedido(id){
+  const f=MEM[id]; if(!f) return;
+  PEDIDO_CAMPOS.forEach(k=>{ const el=document.getElementById('pc_'+k); if(el) f[k]=el.value.trim(); });
+  if(Array.isArray(pedVeics)) f.veiculos=pedVeics.map(v=>({...v}));
+  MEM[id]=f;
 }
 function salvarPedidoCliente(id){
   const f=MEM[id]; if(!f){ return; }
