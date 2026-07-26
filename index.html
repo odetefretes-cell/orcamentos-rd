@@ -880,33 +880,11 @@
       </select>
     </div>
 
-    <!-- Kanban Board -->
-    <div class="kanban" id="kanbanBoard">
-      <div class="kanban-col" data-etapa="novo">
-        <div class="kanban-col-header"><span class="kch-dot"></span><span class="kch-title">Novo Lead</span><span class="kch-count" id="crmCountNovo">0</span></div>
-        <div class="kanban-cards" id="crmColNovo"></div>
-      </div>
-      <div class="kanban-col" data-etapa="contato">
-        <div class="kanban-col-header"><span class="kch-dot"></span><span class="kch-title">Contato Feito</span><span class="kch-count" id="crmCountContato">0</span></div>
-        <div class="kanban-cards" id="crmColContato"></div>
-      </div>
-      <div class="kanban-col" data-etapa="orcamento">
-        <div class="kanban-col-header"><span class="kch-dot"></span><span class="kch-title">Orçamento Enviado</span><span class="kch-count" id="crmCountOrcamento">0</span></div>
-        <div class="kanban-cards" id="crmColOrcamento"></div>
-      </div>
-      <div class="kanban-col" data-etapa="negociacao">
-        <div class="kanban-col-header"><span class="kch-dot"></span><span class="kch-title">Em Negociação</span><span class="kch-count" id="crmCountNegociacao">0</span></div>
-        <div class="kanban-cards" id="crmColNegociacao"></div>
-      </div>
-      <div class="kanban-col" data-etapa="fechado">
-        <div class="kanban-col-header"><span class="kch-dot"></span><span class="kch-title">Venda Fechada</span><span class="kch-count" id="crmCountFechado">0</span></div>
-        <div class="kanban-cards" id="crmColFechado"></div>
-      </div>
-      <div class="kanban-col" data-etapa="perdido">
-        <div class="kanban-col-header"><span class="kch-dot"></span><span class="kch-title">Perdido</span><span class="kch-count" id="crmCountPerdido">0</span></div>
-        <div class="kanban-cards" id="crmColPerdido"></div>
-      </div>
+    <!-- Kanban Board (colunas/funis geradas dinamicamente) -->
+    <div style="display:flex;justify-content:flex-end;margin:2px 4px 6px">
+      <button class="btn-ghost" onclick="crmAddEtapa()" style="font-size:12px;padding:5px 12px">➕ Nova etapa do funil</button>
     </div>
+    <div class="kanban" id="kanbanBoard"></div>
   </div>
 
   <!-- CRM Modal (Lead) -->
@@ -3023,6 +3001,7 @@ function iniciarAcesso(){
   if(sess && sess.papel){ sessaoUser=sess; aplicarPermissoes(); }
   else { $('#loginOverlay').style.display='flex'; setTimeout(()=>$('#loginUser')?.focus(),100); }
   carregarUsuariosNuvem();   // atualiza a lista compartilhada quando a nuvem conectar
+  if(typeof carregarEtapasCloud==='function') carregarEtapasCloud();   // funis compartilhados
 }
 // gestão de usuários (admin)
 function abrirUsuarios(){ if(sessaoUser?.papel!=='admin') return; renderUsuariosLista(); $('#usuariosModal').style.display='flex'; }
@@ -3032,14 +3011,70 @@ function removerUsuario(i){ const u=USUARIOS[i]; if(!u)return; if(!confirm('Remo
 //  CRM — MÓDULO COMPLETO (leads, kanban, drag & drop, orçamentos)
 // ================================================================
 const CRM_KEY = 'obs_crm_leads';
-const CRM_ETAPAS = [
-  { id:'novo',       titulo:'Novo Lead',         icon:'📥' },
-  { id:'contato',    titulo:'Contato Feito',      icon:'📞' },
-  { id:'orcamento',  titulo:'Orçamento Enviado',  icon:'📋' },
-  { id:'negociacao', titulo:'Em Negociação',       icon:'🤝' },
-  { id:'fechado',    titulo:'Venda Fechada',       icon:'✅' },
-  { id:'perdido',    titulo:'Perdido',             icon:'❌' },
+const CRM_ETAPAS_DEFAULT = [
+  { id:'novo',       titulo:'Novo Lead',          icon:'📥', cor:'#9aa7b4' },
+  { id:'contato',    titulo:'Contato Feito',      icon:'📞', cor:'#2563eb' },
+  { id:'orcamento',  titulo:'Orçamento Enviado',  icon:'📋', cor:'#e6a100' },
+  { id:'negociacao', titulo:'Em Negociação',      icon:'🤝', cor:'#d97706' },
+  { id:'fechado',    titulo:'Venda Fechada',      icon:'✅', cor:'#16a34a' },
+  { id:'perdido',    titulo:'Perdido',            icon:'❌', cor:'#c0392b' },
 ];
+const CRM_ETAPAS_KEY = 'obs_crm_etapas';
+function loadEtapas(){
+  try{ const a=JSON.parse(localStorage.getItem(CRM_ETAPAS_KEY)); if(Array.isArray(a)&&a.length) return a; }catch(_){}
+  return CRM_ETAPAS_DEFAULT.map(e=>({...e}));
+}
+let CRM_ETAPAS = loadEtapas();
+function gravarEtapas(){
+  localStorage.setItem(CRM_ETAPAS_KEY, JSON.stringify(CRM_ETAPAS));
+  if(CLOUD_ON && _fb && _fb.setDoc){ try{ _fb.setDoc(_fb.doc(_fb.fs,'fretes','_etapas'), {lista:CRM_ETAPAS}); }catch(_){} }
+}
+async function carregarEtapasCloud(){
+  if(!(CLOUD_ON && _fb && _fb.getDoc)) return;
+  try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_etapas'));
+    if(s.exists() && Array.isArray(s.data().lista) && s.data().lista.length){
+      CRM_ETAPAS = s.data().lista; localStorage.setItem(CRM_ETAPAS_KEY, JSON.stringify(CRM_ETAPAS));
+      if(typeof renderCRM==='function') renderCRM();
+    }
+  }catch(_){}
+}
+function crmEtapaTitulo(id){ const e=CRM_ETAPAS.find(x=>x.id===id); return e?e.titulo:id; }
+// ---- Gerenciar funis: incluir / editar / excluir ----
+function crmAddEtapa(){
+  const nome = prompt('Nome da nova etapa do funil:'); if(nome===null) return;
+  const t = nome.trim(); if(!t){ flash('Informe um nome.','erro'); return; }
+  const icon = (prompt('Emoji/ícone (opcional):','🏷️')||'').trim();
+  const id = 'et_' + Date.now().toString(36);
+  CRM_ETAPAS.push({ id, titulo:t, icon, cor:'#64748b' });
+  gravarEtapas(); renderCRM(); flash('Etapa criada ✔');
+}
+function crmRenomearEtapa(id){
+  const e = CRM_ETAPAS.find(x=>x.id===id); if(!e) return;
+  const nome = prompt('Novo nome da etapa:', e.titulo); if(nome===null) return;
+  const t = nome.trim(); if(!t){ flash('Informe um nome.','erro'); return; }
+  const icon = (prompt('Emoji/ícone:', e.icon||'')||'').trim();
+  e.titulo = t; e.icon = icon;
+  gravarEtapas(); renderCRM(); flash('Etapa renomeada ✔');
+}
+function crmExcluirEtapa(id){
+  if(CRM_ETAPAS.length<=1){ flash('Deixe pelo menos uma etapa.','erro'); return; }
+  const idx = CRM_ETAPAS.findIndex(x=>x.id===id); if(idx<0) return;
+  const destino = CRM_ETAPAS.find(x=>x.id!==id);   // 1ª etapa restante
+  const naEtapa = Object.values(CRM_LEADS).filter(l=>!l._novo && l.etapa===id);
+  let msg = `Excluir a etapa "${crmEtapaTitulo(id)}"?`;
+  if(naEtapa.length) msg += `\n\n${naEtapa.length} lead(s) serão movidos para "${destino.titulo}".`;
+  if(!confirm(msg)) return;
+  naEtapa.forEach(l=>{ l.etapa=destino.id; l.ultimaInteracao=new Date().toISOString(); });
+  CRM_ETAPAS.splice(idx,1);
+  gravarEtapas(); if(naEtapa.length) saveCRM(); renderCRM();
+  flash('Etapa excluída ✔');
+}
+function crmMoverEtapaOrdem(id, dir){
+  const i = CRM_ETAPAS.findIndex(x=>x.id===id); const j=i+dir;
+  if(i<0||j<0||j>=CRM_ETAPAS.length) return;
+  const t=CRM_ETAPAS[i]; CRM_ETAPAS[i]=CRM_ETAPAS[j]; CRM_ETAPAS[j]=t;
+  gravarEtapas(); renderCRM();
+}
 const CRM_PRIO = { quente:'🔥', morno:'⚡', frio:'❄️' };
 
 let CRM_LEADS = {};
@@ -3120,56 +3155,59 @@ function renderCRM(){
     selV.value = atual;
   }
 
-  CRM_ETAPAS.forEach(etapa => {
-    const col = $(`#crmCol${etapa.id.charAt(0).toUpperCase()+etapa.id.slice(1)}`);
-    const count = $(`#crmCount${etapa.id.charAt(0).toUpperCase()+etapa.id.slice(1)}`);
-    if(!col) return;
-
+  const board = $('#kanbanBoard'); if(!board) return;
+  const cardHTML = l => `
+    <div class="k-card" draggable="true" data-id="${l.id}"
+         ondragstart="crmDragStart(event)" ondragend="crmDragEnd(event)"
+         onclick="crmAbrirLead('${l.id}')">
+      <div class="kc-actions">
+        <button onclick="event.stopPropagation();crmWhatsApp('${l.id}')" title="WhatsApp">📱</button>
+        <button onclick="event.stopPropagation();crmEnviarOrcamento('${l.id}')" title="Orçamento">📧</button>
+        <button onclick="event.stopPropagation();crmExcluirLead('${l.id}')" title="Excluir">🗑️</button>
+      </div>
+      <div class="kc-header">
+        <div class="kc-nome">${esc(l.nome||'Sem nome')}</div>
+        <div class="kc-prio">${CRM_PRIO[l.prioridade]||'⚡'}</div>
+      </div>
+      ${l.veiculoDesc ? `<div class="kc-veiculo">🚗 ${esc(l.veiculoDesc)}</div>` : ''}
+      ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
+      ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
+      ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
+      <div class="kc-footer">
+        <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : (l.valorCotacaoSW?moeda(l.valorCotacaoSW):'—')}</span>
+        <span class="kc-data">${dataBR((l.ultimaInteracao||l.dataEntrada||'').slice(0,10))}</span>
+      </div>
+      ${l.vendedor ? `<div class="kc-vendedor">👤 ${esc(l.vendedor)}</div>` : ''}
+      <div style="margin-top:4px">
+        <span class="kc-tag ${l.prioridade||'morno'}">${l.prioridade==='quente'?'Quente':l.prioridade==='frio'?'Frio':'Morno'}</span>
+      </div>
+    </div>`;
+  const tbtn = 'border:none;background:none;cursor:pointer;font-size:11px;color:rgba(228,228,240,.55);padding:0 2px';
+  board.innerHTML = CRM_ETAPAS.map((etapa, ci) => {
     let leads = Object.values(CRM_LEADS).filter(l => l.etapa === etapa.id && !l._novo);
-
-    // filtros
-    if(busca) leads = leads.filter(l => {
-      const txt = `${l.nome} ${l.empresa} ${l.veiculoDesc} ${l.origem} ${l.destino} ${l.telefone} ${l.email}`.toLowerCase();
-      return txt.includes(busca);
-    });
+    if(busca) leads = leads.filter(l => `${l.nome} ${l.empresa} ${l.veiculoDesc} ${l.origem} ${l.destino} ${l.telefone} ${l.email}`.toLowerCase().includes(busca));
     if(filtroPrio) leads = leads.filter(l => l.prioridade === filtroPrio);
     if(filtroVendedor) leads = leads.filter(l => l.vendedor === filtroVendedor);
-
-    // ordenar por última interação (mais recente primeiro)
     leads.sort((a,b) => (b.ultimaInteracao||b.dataEntrada||'').localeCompare(a.ultimaInteracao||a.dataEntrada||''));
-
-    if(count) count.textContent = leads.length;
-
-    col.innerHTML = leads.map(l => `
-      <div class="k-card" draggable="true" data-id="${l.id}"
-           ondragstart="crmDragStart(event)" ondragend="crmDragEnd(event)"
-           onclick="crmAbrirLead('${l.id}')">
-        <div class="kc-actions">
-          <button onclick="event.stopPropagation();crmWhatsApp('${l.id}')" title="WhatsApp">📱</button>
-          <button onclick="event.stopPropagation();crmEnviarOrcamento('${l.id}')" title="Orçamento">📧</button>
-          <button onclick="event.stopPropagation();crmExcluirLead('${l.id}')" title="Excluir">🗑️</button>
-        </div>
-        <div class="kc-header">
-          <div class="kc-nome">${esc(l.nome||'Sem nome')}</div>
-          <div class="kc-prio">${CRM_PRIO[l.prioridade]||'⚡'}</div>
-        </div>
-        ${l.veiculoDesc ? `<div class="kc-veiculo">🚗 ${esc(l.veiculoDesc)}</div>` : ''}
-        ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
-        ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
-        ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
-        <div class="kc-footer">
-          <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : (l.valorCotacaoSW?moeda(l.valorCotacaoSW):'—')}</span>
-          <span class="kc-data">${dataBR((l.ultimaInteracao||l.dataEntrada||'').slice(0,10))}</span>
-        </div>
-        ${l.vendedor ? `<div class="kc-vendedor">👤 ${esc(l.vendedor)}</div>` : ''}
-        <div style="margin-top:4px">
-          <span class="kc-tag ${l.prioridade||'morno'}">${l.prioridade==='quente'?'Quente':l.prioridade==='frio'?'Frio':'Morno'}</span>
-        </div>
-      </div>`).join('');
-  });
+    const cor = etapa.cor||'#64748b';
+    return `<div class="kanban-col" data-etapa="${etapa.id}">
+      <div class="kanban-col-header" style="border-bottom-color:${cor}">
+        <span class="kch-dot" style="background:${cor}"></span>
+        <span class="kch-title">${etapa.icon?esc(etapa.icon)+' ':''}${esc(etapa.titulo)}</span>
+        <span class="kch-count">${leads.length}</span>
+        <span class="kch-tools" style="display:flex;gap:1px;margin-left:4px">
+          <button style="${tbtn}" title="Mover ◀" onclick="crmMoverEtapaOrdem('${etapa.id}',-1)" ${ci===0?'disabled':''}>◀</button>
+          <button style="${tbtn}" title="Mover ▶" onclick="crmMoverEtapaOrdem('${etapa.id}',1)" ${ci===CRM_ETAPAS.length-1?'disabled':''}>▶</button>
+          <button style="${tbtn}" title="Renomear" onclick="crmRenomearEtapa('${etapa.id}')">✎</button>
+          <button style="${tbtn}" title="Excluir etapa" onclick="crmExcluirEtapa('${etapa.id}')">🗑️</button>
+        </span>
+      </div>
+      <div class="kanban-cards" data-etapa="${etapa.id}">${leads.map(cardHTML).join('')}</div>
+    </div>`;
+  }).join('');
 
   // inicializar drag & drop nas colunas
-  document.querySelectorAll('.kanban-cards').forEach(col => {
+  board.querySelectorAll('.kanban-cards').forEach(col => {
     col.ondragover = e => { e.preventDefault(); col.closest('.kanban-col').classList.add('drag-over'); };
     col.ondragleave = e => { col.closest('.kanban-col').classList.remove('drag-over'); };
     col.ondrop = e => { e.preventDefault(); crmDrop(e, col); };
@@ -3204,8 +3242,7 @@ function crmDrop(e, col){
   } else if(novaEtapa === 'fechado'){
     crmAddTimeline(id, 'convertido', 'Venda fechada! Lead convertido.');
   } else {
-    const nomes = {novo:'Novo Lead',contato:'Contato Feito',orcamento:'Orçamento Enviado',negociacao:'Em Negociação'};
-    crmAddTimeline(id, 'movido', `Movido para: ${nomes[novaEtapa]||novaEtapa}`);
+    crmAddTimeline(id, 'movido', `Movido para: ${crmEtapaTitulo(novaEtapa)}`);
   }
 
   CRM_LEADS[id].etapa = novaEtapa;
