@@ -3625,9 +3625,10 @@ async function crmCalcAuto(id, auto){
   const starts = nodes.filter(isOrig);
   if(!starts.length){ if(!auto){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   starts.forEach(s=>{ dist[s]=0; hops[s]=0; });
-  // Dijkstra simples (V pequeno)
-  const N = nodes.length; let guard=0;
-  while(guard++ < N+5){
+  // Dijkstra simples — o dist contém também cidades-folha (só destino),
+  // então o limite é bem maior que o nº de nós com saída. done garante o fim.
+  let guard=0;
+  while(guard++ < 200000){
     let u=null, best=Infinity;
     for(const k in dist){ if(!done[k] && dist[k]<best){ best=dist[k]; u=k; } }
     if(u===null) break;
@@ -3646,7 +3647,7 @@ async function crmCalcAuto(id, auto){
   // acha o destino de menor custo
   let end=null, bestD=Infinity;
   for(const k in dist){ if(isDest(k) && done[k] && dist[k]<bestD){ bestD=dist[k]; end=k; } }
-  if(!end){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver prestadores" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
+  if(!end){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   // reconstrói o caminho
   const pilha=[]; let cur=end;
   while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; }
