@@ -1102,9 +1102,16 @@ async function initData(){
 function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
 
 // numeração sequencial: próximo = maior número existente + 1
+const SEQ_2026_FIM=1531;   // numeração de 2026 vai de 01 a 1531; novos emitidos seguem 1532, 1533...
 function proximoNumero(){
-  const nums=Object.values(lerDB()).map(f=>parseInt(String(f.numero||'').replace(/\D/g,''),10)).filter(n=>!isNaN(n));
-  return (nums.length?Math.max(...nums):0)+1;
+  // importados (planilha) só contam até 1531 — ignora números de ciclos antigos (out/nov/dez 2025: 1799, 2138, 2205…).
+  // fretes novos emitidos aqui (não importados) contam sempre, para a sequência continuar.
+  const nums=Object.values(lerDB())
+    .filter(f=> !f._importado || parseInt(String(f.numero||'').replace(/\D/g,''),10)<=SEQ_2026_FIM )
+    .map(f=>parseInt(String(f.numero||'').replace(/\D/g,''),10))
+    .filter(n=>!isNaN(n));
+  const base=nums.length?Math.max(...nums):0;
+  return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1532
 }
 function atualizarProxNum(){
   const el=$('#proxNumHint'); if(!el) return;
