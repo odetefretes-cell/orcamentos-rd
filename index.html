@@ -3230,6 +3230,7 @@ function crmNovoLead(){
     origemLead:'manual', valorVeiculo:'', funciona:'', blindado:'', dataEnvio:'',
     interesse:'', valorCotacaoSW:'', prazoSW:'', cotacaoId:'',
     composicao:[], trajetos:[],   // taxas (SW) e trechos p/ conferência e PDF
+    enderecoColeta:'', enderecoEntrega:'',   // endereços completos p/ porta a porta (PDF)
     dataEntrada: new Date().toISOString().slice(0,10),
     ultimaInteracao: new Date().toISOString(),
     motivoPerda:'',
@@ -3280,7 +3281,7 @@ function crmAbrirLead(id){
       <div class="field"><label>Placa</label><input id="crmPlaca" value="${escA(l.placa||'')}"></div>
       <div class="field"><label>Origem</label><input id="crmOrigem" value="${escA(l.origem||'')}" placeholder="Ex.: BAURU SP"></div>
       <div class="field"><label>Destino</label><input id="crmDestino" value="${escA(l.destino||'')}" placeholder="Ex.: NATAL RN"></div>
-      <div class="field"><label>Valor estimado (R$)</label><input id="crmValor" value="${escA(l.valorEstimado||'')}" inputmode="decimal"></div>
+      <div class="field"><label>Valor do veículo (R$)</label><input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="Ex.: 20.000"></div>
       <div class="field"><label>Prioridade</label>
         <select id="crmPrioridade">
           <option value="quente" ${l.prioridade==='quente'?'selected':''}>🔥 Quente</option>
@@ -3303,25 +3304,22 @@ function crmAbrirLead(id){
           <option value="sim" ${l.interesse==='sim'?'selected':''}>✅ SIM, tem interesse</option>
           <option value="nao" ${l.interesse==='nao'?'selected':''}>❌ NÃO</option>
         </select></div>
-      <div class="field"><label>Valor do veículo (R$)</label><input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal"></div>
       <div class="field"><label>Cotação SW Fretes (R$)</label><input id="crmCotSW" value="${escA(l.valorCotacaoSW||'')}" inputmode="decimal" placeholder="valor médio calculado"></div>
       <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
     </div>
     <div class="cm-section">🧮 Calculadora de frete (tabela OBS)</div>
-    <div class="grid g2" style="align-items:end">
-      <div class="field"><label>Origem</label><input id="calcOrigem" value="${escA(l.origem||'')}" placeholder="Cidade de coleta"></div>
-      <div class="field"><label>Destino</label><input id="calcDestino" value="${escA(l.destino||'')}" placeholder="Cidade de entrega"></div>
-      <div class="field"><label>Categoria do veículo</label><select id="calcCategoria"></select></div>
-      <div class="field"><label>Valor do veículo (p/ seguro)</label><input id="calcValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="R$"></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 8px">
+      <select id="calcCategoria" style="max-width:200px"></select>
       <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🧮 Calcular frete</button>
-      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Ver prestadores (rota direta)</button>
+      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Ver prestadores</button>
+      <span class="hint" style="align-self:center">Usa a origem, o destino e o valor do veículo acima.</span>
     </div>
     <div id="crmCalcRes"></div>
-    <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
-    <div id="crmComposicao"></div>
+    <div id="crmCompWrap" style="display:none">
+      <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
+      <div id="crmComposicao"></div>
+    </div>
     <div class="cm-section">💬 Adicionar Interação</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
       <textarea id="crmNovaInteracao" placeholder="Descreva o contato realizado..." style="flex:1;min-height:50px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px;resize:vertical"></textarea>
@@ -3368,7 +3366,6 @@ function crmSalvarLead(id){
   l.placa = ($('#crmPlaca')?.value||'').trim();
   l.origem = ($('#crmOrigem')?.value||'').trim();
   l.destino = ($('#crmDestino')?.value||'').trim();
-  l.valorEstimado = ($('#crmValor')?.value||'').trim();
   l.prioridade = $('#crmPrioridade')?.value||'morno';
   l.origemLead = $('#crmOrigemLead')?.value||'manual';
   l.interesse = $('#crmInteresse')?.value||'';
@@ -3442,6 +3439,14 @@ function crmCalcInit(id){
   if(sel.options.length === cats.length && atual) return;
   sel.innerHTML = cats.map(c=>`<option value="${escA(c)}"${c===atual?' selected':''}>${esc(c)}</option>`).join('');
 }
+function crmSyncFormLead(id){   // salva no lead o que está no formulário (origem/destino/veículo/valor)
+  const l=CRM_LEADS[id]; if(!l) return;
+  const g=(sel)=>($(sel)?.value||'').trim();
+  if(g('#crmOrigem')) l.origem=g('#crmOrigem');
+  if(g('#crmDestino')) l.destino=g('#crmDestino');
+  if(g('#crmVeiculo')) l.veiculoDesc=g('#crmVeiculo');
+  if(g('#crmValorVeic')) l.valorVeiculo=g('#crmValorVeic');
+}
 function ufTxt(s){   // extrai UF de "Cidade/UF" ou "Cidade (UF)" ou "Cidade UF"
   const m = String(s||'').toUpperCase().match(/\b([A-Z]{2})\b\s*$/) || String(s||'').match(/\(([A-Za-z]{2})\)/);
   return m ? m[1].toUpperCase() : '';
@@ -3452,9 +3457,10 @@ async function crmCalcBuscar(id){
   const db = await carregarTabelaFretes();
   if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}). Funciona na versão publicada (online).</p>`; return; }
   crmCalcInit(id);
-  const o = normTxt($('#calcOrigem')?.value), d = normTxt($('#calcDestino')?.value);
+  crmSyncFormLead(id);
+  const o = normTxt($('#crmOrigem')?.value), d = normTxt($('#crmDestino')?.value);
   const cat = $('#calcCategoria')?.value || '';
-  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha origem e destino.</p>'; return; }
+  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino (na seção Veículo e Rota).</p>'; return; }
   const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
   const res=[];
   for(const r of db.rotas){
@@ -3469,7 +3475,7 @@ async function crmCalcBuscar(id){
     }
   }
   if(!res.length){
-    box.innerHTML = `<p class="hint">Nenhuma rota direta ${esc($('#calcOrigem').value)} → ${esc($('#calcDestino').value)}. Para <b>reembarque</b>, busque um trecho até uma cidade intermediária, adicione, e busque o próximo trecho a partir dela.</p>`;
+    box.innerHTML = `<p class="hint">Nenhuma rota direta ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)}. Para <b>reembarque</b>, busque um trecho até uma cidade intermediária, adicione, e busque o próximo trecho a partir dela.</p>`;
     return;
   }
   // ordena: com valor na categoria primeiro, por preço; depois os sem valor
@@ -3526,9 +3532,10 @@ async function crmCalcAuto(id){
   const db = await carregarTabelaFretes();
   if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
   crmCalcInit(id);
-  const o = normTxt($('#calcOrigem')?.value), d = normTxt($('#calcDestino')?.value);
+  crmSyncFormLead(id);
+  const o = normTxt($('#crmOrigem')?.value), d = normTxt($('#crmDestino')?.value);
   const cat = $('#calcCategoria')?.value || '';
-  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha origem e destino.</p>'; return; }
+  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino (na seção Veículo e Rota).</p>'; return; }
   const adj = crmAdjacencia(db);
   const nodes = Object.keys(adj);
   const isOrig = k => k===o || (o.length>3 && k.includes(o)) || (k.length>3 && o.includes(k));
@@ -3536,7 +3543,7 @@ async function crmCalcAuto(id){
   const HOP_PEN = 100;   // penaliza cada transbordo (evita cadeias longas desnecessárias)
   const dist={}, prev={}, hops={}, done={};
   const starts = nodes.filter(isOrig);
-  if(!starts.length){ box.innerHTML = `<p class="hint">Origem "${esc($('#calcOrigem').value)}" não encontrada na tabela.</p>`; return; }
+  if(!starts.length){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); return; }
   starts.forEach(s=>{ dist[s]=0; hops[s]=0; });
   // Dijkstra simples (V pequeno)
   const N = nodes.length; let guard=0;
@@ -3559,7 +3566,7 @@ async function crmCalcAuto(id){
   // acha o destino de menor custo
   let end=null, bestD=Infinity;
   for(const k in dist){ if(isDest(k) && done[k] && dist[k]<bestD){ bestD=dist[k]; end=k; } }
-  if(!end){ box.innerHTML = `<p class="hint">Sem caminho ${esc($('#calcOrigem').value)} → ${esc($('#calcDestino').value)} para a categoria <b>${esc(cat)}</b> (pode faltar preço em algum trecho). Tente "Buscar rota direta" ou monte manualmente.</p>`; return; }
+  if(!end){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver prestadores" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); return; }
   // reconstrói o caminho
   const pilha=[]; let cur=end;
   while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; }
@@ -3587,7 +3594,7 @@ function crmRecalcCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
   const trs = l.trajetos||[];
   const base = trs.reduce((s,t)=> s + numMoeda(t.valor), 0);
-  const valorVeic = numMoeda($('#calcValorVeic')?.value || l.valorVeiculo);
+  const valorVeic = numMoeda($('#crmValorVeic')?.value || l.valorVeiculo);
   let seguro = 0;
   for(const t of trs){
     const ou = (t.oUF||ufTxt(t.de)).toUpperCase(), du = (t.dUF||ufTxt(t.para)).toUpperCase();
@@ -3607,8 +3614,9 @@ function crmRecalcCalc(id){
     const cidDest = TABELA_FRETES.cidades[normTxt((ult.para||'').split('/')[0])];
     if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento, true);
   }
-  // Reembarque: ativa e mantém a taxa quando há mais de um trecho
-  if(trs.length>1){ const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque'); if(rb){ rb.ativo=true; if(!numMoeda(rb.valor)) rb.valor='100'; } }
+  // Reembarque: só quando há mais de um trecho (reembarque de fato)
+  { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
+    if(rb){ if(trs.length>1){ rb.ativo=true; if(!numMoeda(rb.valor)) rb.valor='100'; } else { rb.ativo=false; } } }
   crmCompRecalcImposto(id);   // Imposto 12% sobre as demais taxas
 }
 
@@ -3710,20 +3718,37 @@ function crmRenderComp(id){
       <input value="${escA(c.valor||'')}" placeholder="R$ 0,00" inputmode="decimal" oninput="crmCompSet('${id}',${i},'valor',this.value)" style="font-size:13px;padding:6px;border:1px solid var(--linha);border-radius:6px;text-align:right">
       <button onclick="crmCompDel('${id}',${i})" title="Excluir taxa" style="border:none;background:none;cursor:pointer">🗑️</button>
     </div>`).join('');
+  const ativo = d => { const c=comp.find(c=>normTxt(c.desc)===normTxt(d)); return c && c.ativo; };
+  const endHTML = (label, campo, on) => on ? `
+    <div class="field" style="margin:6px 0 0">
+      <label style="font-size:12px">${label} — endereço completo (sai no PDF)</label>
+      <input value="${escA(l[campo]||'')}" placeholder="Rua, nº, bairro, cidade/UF, CEP" oninput="crmEndSet('${id}','${campo}',this.value)"
+        style="font-size:12px;padding:6px;border:1px solid var(--linha);border-radius:6px;width:100%">
+    </div>` : '';
   box.innerHTML = `
     <div style="font-size:12px;font-weight:600;opacity:.75;margin:2px 0 6px">🛣️ Trajetos / trechos</div>
-    ${trajHTML || '<p class="hint" style="margin:0 0 6px">Nenhum trecho. Serão preenchidos pela SW; você pode adicionar manualmente.</p>'}
+    ${trajHTML || '<p class="hint" style="margin:0 0 6px">Nenhum trecho. Clique em 🧮 Calcular frete ou adicione manualmente.</p>'}
     <button class="btn-ghost" onclick="crmTrajAdd('${id}')" style="font-size:12px;padding:4px 10px;margin-bottom:10px">➕ Trecho</button>
     <div style="font-size:12px;font-weight:600;opacity:.75;margin:6px 0">💵 Taxas (ligue/desligue, edite ou exclua)</div>
     ${compHTML || '<p class="hint" style="margin:0 0 6px">Nenhuma taxa lançada ainda.</p>'}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
       <button class="btn-ghost" onclick="crmCompAdd('${id}')" style="font-size:12px;padding:4px 10px">➕ Taxa</button>
-      ${comp.length?'':`<button class="btn-ghost" onclick="crmCompModelo('${id}')" style="font-size:12px;padding:4px 10px">📋 Usar taxas padrão (SW)</button>`}
+      ${comp.length?'':`<button class="btn-ghost" onclick="crmCompModelo('${id}')" style="font-size:12px;padding:4px 10px">📋 Usar taxas padrão</button>`}
     </div>
+    ${endHTML('Coleta','enderecoColeta',ativo('Coleta'))}
+    ${endHTML('Entrega','enderecoEntrega',ativo('Entrega'))}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:2px solid var(--linha)">
       <span style="font-weight:700">Total do frete (confirmado)</span>
       <span id="crmCompTotal" style="font-weight:800;font-size:17px;color:#16a34a">${moeda(crmCompTotal(l))}</span>
     </div>`;
+  const wrap=$('#crmCompWrap'); if(wrap) wrap.style.display = comp.length ? '' : 'none';
+}
+function crmEndSet(id,campo,val){ const l=CRM_LEADS[id]; if(l) l[campo]=val; }
+function crmAbrirComposicaoManual(id){   // abre as taxas p/ edição mesmo sem rota calculada
+  const l=CRM_LEADS[id]; if(!l) return;
+  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  crmRecalcCalc(id);
+  crmRenderComp(id);
 }
 
 // ---- Orçamento em PDF (estrutura do Emissor OBS) ----
@@ -3800,9 +3825,9 @@ function crmEnviarOrcamento(id){
     ${(V.coleta||V.entrega)?`
     <h2>3 · Transporte porta a porta</h2>
     <p class="desc">(Nesta modalidade enviamos um caminhão guincho plataforma para coleta e entrega nos endereços — confirmar endereços.)</p>
-    <table><tr><th>Item</th><th>Descrição</th><th>Local</th><th>Valor</th></tr>
-      <tr><td>1</td><td>Coleta no endereço</td><td>${esc(origem)}</td><td class="num">${M(V.coleta)}</td></tr>
-      <tr><td>2</td><td>Entrega no endereço</td><td>${esc(destino)}</td><td class="num">${M(V.entrega)}</td></tr>
+    <table><tr><th>Item</th><th>Descrição</th><th>Local (endereço)</th><th>Valor</th></tr>
+      ${V.coleta?`<tr><td>1</td><td>Coleta no endereço</td><td>${esc(l.enderecoColeta||origem)}</td><td class="num">${M(V.coleta)}</td></tr>`:''}
+      ${V.entrega?`<tr><td>2</td><td>Entrega no endereço</td><td>${esc(l.enderecoEntrega||destino)}</td><td class="num">${M(V.entrega)}</td></tr>`:''}
       <tr class="tot"><td colspan="3">Total com coleta e entrega</td><td class="num">${M(V.totalPorta)}</td></tr>
     </table>`:''}
 
