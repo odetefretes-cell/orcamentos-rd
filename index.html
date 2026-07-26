@@ -92,6 +92,8 @@
   .pill .n{opacity:.7;font-weight:normal;margin-left:4px}
   .rel-resumo{display:flex;gap:10px;flex-wrap:wrap;font-size:13px}
   .rel-resumo .box{background:var(--cinza);border:1px solid var(--linha);border-radius:8px;padding:8px 14px}
+  .rel-resumo .box[onclick]:hover{background:#e8edf3;border-color:var(--azul2)}
+  .rel-resumo .box.box-on{background:#fff;border:2px solid var(--azul2);box-shadow:0 2px 8px rgba(204,16,22,.12)}
   .rel-resumo .box b{font-size:18px;display:block;color:var(--azul)}
   /* lista compacta do operacional (clicar p/ abrir edição) */
   .fitem{border:1px solid var(--linha);border-left:5px solid #9aa7b4;border-radius:8px;margin-bottom:6px;overflow:hidden;background:#fff}
@@ -1459,7 +1461,7 @@ function linhaFrete(f){
     <span class="fval">${moeda(f.valorFrete)||'—'}</span>
     <span class="fchev">${aberto?'▲':'▼'}</span>
   </div>`;
-  return `<div class="fitem s-${k}${aberto?' open':''}">${row}${aberto?cardFrete(f):''}</div>`;
+  return `<div class="fitem s-${k}${aberto?' open':''}" data-fid="${id}">${row}${aberto?cardFrete(f):''}</div>`;
 }
 function cardFrete(f){
   const id=f._id, st=statusDe(f), k=stKey(st);
@@ -1712,6 +1714,16 @@ function liberarOperacional(id){
   const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
   flash('Frete '+(db[id].numero||'')+' liberado para o operacional ✔');
 }
+// filtro clicável do financeiro (A receber) + abrir no operacional
+let finFiltro='todos';
+function setFinFiltro(k){ finFiltro = (finFiltro===k?'todos':k); renderFinanceiro(); }
+function abrirNoOperacional(id){
+  if(!MEM[id]) return;
+  switchView('rel'); relFiltro='TODAS'; relStatusF='TODOS';
+  const bu=$('#relBusca'); if(bu) bu.value='';
+  fretesAbertos.add(id); renderRelatorio();
+  setTimeout(()=>{ const elx=document.querySelector(`.fitem[data-fid="${id}"]`); if(elx) elx.scrollIntoView({behavior:'smooth',block:'center'}); }, 120);
+}
 function renderFinanceiro(){
   // cancelados não entram no financeiro (não há recebimento/lucro)
   const fretes=Object.values(lerDB()).filter(f=>(num(f.valorFrete)>0 || somaPrest(f)>0) && statusDe(f)!=='CANCELADO');
@@ -1742,23 +1754,35 @@ function renderFinanceiro(){
 
   // ---- A RECEBER ----
   let totFrete=0,totRec=0,totAberto=0,totVenc=0,nQuit=0,nReceber=0;
-  const linhasR=fretes.filter(f=>num(f.valorFrete)>0).map(f=>{
-    const s=situacaoReceber(f), ab=abertoDe(f); totFrete+=num(f.valorFrete); totRec+=recebidoDe(f); totAberto+=Math.max(0,ab); if(s.k==='venc') totVenc+=ab;
-    if(s.k==='quit') nQuit++; else nReceber++;
+  const comValor=fretes.filter(f=>num(f.valorFrete)>0);
+  comValor.forEach(f=>{ const s=situacaoReceber(f),ab=abertoDe(f); totFrete+=num(f.valorFrete); totRec+=recebidoDe(f); totAberto+=Math.max(0,ab); if(s.k==='venc') totVenc+=ab; if(s.k==='quit') nQuit++; else nReceber++; });
+  // aplica o filtro clicável
+  const passaFin=f=>{ const s=situacaoReceber(f), ab=abertoDe(f);
+    if(finFiltro==='aberto') return ab>0.005;
+    if(finFiltro==='recebido') return recebidoDe(f)>0.005;
+    if(finFiltro==='quit') return s.k==='quit';
+    if(finFiltro==='areceber') return s.k!=='quit';
+    if(finFiltro==='venc') return s.k==='venc';
+    return true; };
+  const linhasR=comValor.filter(passaFin).map(f=>{
+    const s=situacaoReceber(f), ab=abertoDe(f);
     return `<tr class="${s.k==='venc'?'vencido':''}">
       <td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td><td>${esc(up(f.operadora))||'—'}</td>
       <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</td>
       <td><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setFin('${f._id}','previsaoRecebimento',this.value)"></td>
-      <td><span class="tagv ${s.k}">${s.t}</span></td></tr>`;
+      <td><span class="tagv ${s.k}">${s.t}</span></td>
+      <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="abrirNoOperacional('${f._id}')" title="Abrir no operacional p/ atualizar e registrar pagamento">▶ abrir</button></td></tr>`;
   }).join('');
-  $('#finReceber').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Operadora</th><th>Valor frete</th><th>Recebido</th><th>Em aberto</th><th>Previsão receb.</th><th>Situação</th></tr></thead><tbody>${linhasR||'<tr><td colspan="8" class="hint" style="text-align:center">Nenhum frete com valor.</td></tr>'}</tbody>`;
+  const lf=finFiltro!=='todos'?` <span style="font-weight:normal;font-size:12px;color:#8592a1">· filtro: ${finFiltro} <button class="mc-x" onclick="setFinFiltro('todos')" title="limpar">✕</button></span>`:'';
+  $('#finReceber').innerHTML=`<thead><tr><th>Nº</th><th>Cliente</th><th>Operadora</th><th>Valor frete</th><th>Recebido</th><th>Em aberto</th><th>Previsão receb.</th><th>Situação</th><th></th></tr></thead><tbody>${linhasR||'<tr><td colspan="9" class="hint" style="text-align:center">Nenhum frete neste filtro.</td></tr>'}</tbody>`;
+  const boxF=(lbl,val,cor,k)=>`<div class="box${finFiltro===k?' box-on':''}" ${k?`onclick="setFinFiltro('${k}')" style="cursor:pointer"`:''}>${lbl}<b style="color:${cor||'inherit'}">${val}</b></div>`;
   $('#finReceberResumo').innerHTML=
-    `<div class="box">Receita (fretes)<b>${moeda(totFrete)}</b></div>`+
-    `<div class="box">Recebido<b style="color:var(--ok)">${moeda(totRec)}</b></div>`+
-    `<div class="box">Em aberto<b>${moeda(totAberto)}</b></div>`+
-    `<div class="box">Vencido<b style="color:#c0392b">${moeda(totVenc)}</b></div>`+
-    `<div class="box">✓ Quitados<b style="color:var(--ok)">${nQuit}</b></div>`+
-    `<div class="box">A receber<b style="color:#e6a100">${nReceber}</b></div>`;
+    boxF('Receita (fretes)',moeda(totFrete),'')+
+    boxF('Recebido',moeda(totRec),'var(--ok)','recebido')+
+    boxF('Em aberto',moeda(totAberto),'','aberto')+
+    boxF('Vencido',moeda(totVenc),'#c0392b','venc')+
+    boxF('✓ Quitados',nQuit,'var(--ok)','quit')+
+    boxF('A receber',nReceber,'#e6a100','areceber')+lf;
 
   // ---- LUCRO ----
   let sReceita=0,sPrest=0,sImp=0,sSeg=0,sLucro=0;
@@ -2331,29 +2355,43 @@ function renderClientes(){
   const total=lista.length;
   if(q) lista=lista.filter(({cpf,c})=>[c.clienteEmpresa,c.cpfCnpj,c.cidade,c.telefone,cpf].join(' ').toLowerCase().includes(q));
   $('#cliCount').textContent = total? (q?`${lista.length} de ${total}`:`${total} cliente(s)`) : 'nenhum cliente ainda';
-  el.innerHTML = lista.length ? lista.map(({cpf,c})=>{
-    const hist=(c.historico||[]).slice().sort((a,b)=>num(b.numero)-num(a.numero));
-    const linhas=hist.map(h=>`<tr>
-      <td>${esc(h.numero||'—')}</td><td>${esc(dataBR(h.data)||h.data||'')}</td>
-      <td>${esc(up(h.origem))} → ${esc(up(h.destino))}</td><td>${esc(up(h.veiculo))||'—'}</td>
-      <td>${moeda(h.valorFrete)||'—'}</td><td>${esc(h.status||'')}</td>
-      <td><button class="btn-ghost" style="padding:2px 8px;font-size:12px" onclick="abrirFicha('${h.id}')">abrir</button></td></tr>`).join('');
-    return `<div class="fcard" style="border-left:6px solid var(--azul2)">
-      <div class="top">
-        <div><span class="nf">${esc(up(c.clienteEmpresa))||'(sem nome)'}</span> &nbsp;<span class="rota">${esc(c.cpfCnpj)||'—'} · ${esc(c.telefone)||''}</span></div>
-        <div><span class="badge" style="background:var(--azul2)">${hist.length} frete(s)</span></div>
-      </div>
+  // limita a exibição quando não há busca (1385 clientes) — mostra os primeiros e pede busca
+  const LIMITE=200; let avisoLimite='';
+  if(!q && lista.length>LIMITE){ avisoLimite=`<p class="hint" style="text-align:center;padding:6px">Mostrando ${LIMITE} de ${lista.length}. Use a busca para encontrar um cliente específico.</p>`; lista=lista.slice(0,LIMITE); }
+  el.innerHTML = lista.length ? (avisoLimite + lista.map(({cpf,c})=>clienteItem(cpf,c)).join(''))
+    : '<p class="hint" style="text-align:center;padding:20px">Nenhum cliente encontrado.</p>';
+}
+const clientesAbertos=new Set();
+function toggleCliente(cpf){ if(clientesAbertos.has(cpf)) clientesAbertos.delete(cpf); else clientesAbertos.add(cpf); renderClientes(); }
+function clienteItem(cpf,c){
+  const aberto=clientesAbertos.has(cpf);
+  const hist=(c.historico||[]).slice().sort((a,b)=>num(b.numero)-num(a.numero));
+  const row=`<div class="frow" onclick="toggleCliente('${esc(cpf)}')">
+    <span class="fcli" style="flex:1.4">${esc(up(c.clienteEmpresa))||'(sem nome)'}</span>
+    <span class="frota" style="flex:.9">${esc(c.cpfCnpj)||'—'}</span>
+    <span class="frota" style="flex:.9">${esc(up(c.cidade))}${c.uf?(' / '+esc(up(c.uf))):''}</span>
+    <span class="fbadges"><span class="badge" style="background:var(--azul2)">${hist.length} frete(s)</span></span>
+    <span class="fchev">${aberto?'▲':'▼'}</span></div>`;
+  if(!aberto) return `<div class="fitem" style="border-left-color:var(--azul2)">${row}</div>`;
+  const linhas=hist.map(h=>`<tr>
+    <td>${esc(h.numero||'—')}</td><td>${esc(dataBR(h.data)||h.data||'')}</td>
+    <td>${esc(up(h.origem))} → ${esc(up(h.destino))}</td><td>${esc(up(h.veiculo))||'—'}</td>
+    <td>${moeda(h.valorFrete)||'—'}</td><td>${esc(h.status||'')}</td>
+    <td><button class="btn-ghost" style="padding:2px 8px;font-size:12px" onclick="abrirFicha('${h.id}')">abrir</button></td></tr>`).join('');
+  const card=`<div class="fcard" style="border:none;border-radius:0;margin:0">
       <div class="body2">
+        <div class="fld"><label>CPF / CNPJ</label><div class="ro">${esc(c.cpfCnpj)||'—'}</div></div>
+        <div class="fld"><label>Telefone</label><div class="ro">${esc(c.telefone)||'—'}</div></div>
         <div class="fld col2"><label>Endereço</label><div class="ro">${esc(up(c.endereco))}${c.bairro?(', '+esc(up(c.bairro))):''}</div></div>
         <div class="fld"><label>Cidade / UF</label><div class="ro">${esc(up(c.cidade))}${c.uf?(' / '+esc(up(c.uf))):''}</div></div>
-        <div class="fld"><label>E-mail</label><div class="ro">${esc(c.email)||'—'}</div></div>
+        <div class="fld"><label>CEP</label><div class="ro">${esc(c.cep)||'—'}</div></div>
+        <div class="fld col2"><label>E-mail</label><div class="ro">${esc(c.email)||'—'}</div></div>
         <div class="fld col4"><label>Histórico de transportes</label>
           <div style="overflow-x:auto"><table class="fin"><thead><tr><th>Nº</th><th>Data</th><th>Trajeto</th><th>Veículo</th><th>Frete</th><th>Status</th><th></th></tr></thead>
           <tbody>${linhas||'<tr><td colspan="7" class="hint">Sem fretes ainda.</td></tr>'}</tbody></table></div>
         </div>
-      </div>
-    </div>`;
-  }).join('') : '<p class="hint" style="text-align:center;padding:20px">Nenhum cliente cadastrado ainda. Os clientes aparecem aqui automaticamente quando você salva fretes.</p>';
+      </div></div>`;
+  return `<div class="fitem open" style="border-left-color:var(--azul2)">${row}${card}</div>`;
 }
 
 // inicialização
