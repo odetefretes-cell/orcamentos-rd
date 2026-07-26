@@ -342,13 +342,17 @@
     </div>
 
     <div class="card">
-      <h2>7 · Documentos recebidos via WhatsApp (ChatGuru)</h2>
-      <div class="body checks">
+      <h2>7 · Documentos</h2>
+      <div class="body">
+        <div id="fichaDocsBox"></div>
+        <div class="checks">
+        <label style="font-size:12px;font-weight:600;color:#4a5a6b;background:none;border:none;padding:0;margin-bottom:2px">Checklist (recebidos via WhatsApp / ChatGuru):</label>
         <label><input type="checkbox" name="docVeiculo"> Foto do documento do veículo (CRLV)</label>
         <label><input type="checkbox" name="docCnhRg"> Foto da CNH ou RG (Contratante)</label>
         <label><input type="checkbox" name="docComprovante"> Foto do comprovante de residência</label>
         <label><input type="checkbox" name="docColeta"> (Opcional) Endereço e contato de coleta</label>
         <label><input type="checkbox" name="docEntrega"> (Opcional) Endereço e contato de entrega</label>
+        </div>
       </div>
     </div>
 
@@ -660,6 +664,7 @@ function dados(){
   $$('#form input[type=checkbox]').forEach(c=>d[c.name]=c.checked);
   d.veiculos = veiculos.map(v=>({...v}));
   d.prestadores = prestadores.map(p=>({...p}));
+  d.docs = fichaDocs;
   return d;
 }
 // veículos preenchidos (ao menos 1 linha, mesmo em branco, para a tabela)
@@ -676,6 +681,20 @@ function blocoPessoa(nome,cpf,tel,end,bairro,cid,uf,cep){
     ${row('Nome',nome)}${row('CPF/CNPJ',cpf)}${row('Telefone',tel)}
     ${row('Endereço',end)}${row('Bairro',bairro)}${row('Cidade / UF',(cid?cid:'')+(uf?(' / '+uf):''))}${row('CEP',cep)}
   </table>`;
+}
+
+// ---- documentos enviados pelo cliente (mostrados na ficha) ----
+let fichaDocs={};
+function renderFichaDocs(){
+  const box=$('#fichaDocsBox'); if(!box) return;
+  const map={veiculo:'Documento do veículo (CRLV)',cnh:'CNH / RG do contratante',comprovante:'Comprovante de residência'};
+  const itens=Object.keys(map).filter(k=>fichaDocs&&fichaDocs[k]);
+  if(!itens.length){ box.innerHTML=''; return; }
+  box.innerHTML=`<div style="border:1px solid #bfe6cd;border-radius:8px;padding:10px;margin-bottom:12px;background:#eafbf0">
+    <div style="font-size:12px;font-weight:700;color:var(--ok);margin-bottom:8px">📎 Documentos enviados pelo cliente (clique para abrir):</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">`+
+    itens.map(k=>`<a href="${fichaDocs[k]}" target="_blank" class="btn-ghost" style="text-decoration:none;font-size:13px;padding:7px 12px">📎 ${map[k]}</a>`).join('')+
+    `</div></div>`;
 }
 
 // ---- prestadores (lista dinâmica) ----
@@ -861,6 +880,7 @@ function render(){
   set('c_hoje', hojeBR());
   set('c_assnome', up(d.clienteEmpresa)); set('c_asscpf', d.cpfCnpj);
   atualizarProxNum();
+  renderFichaDocs();
 }
 
 // ---- impressão (com nome de PDF automático) ----
@@ -1037,7 +1057,7 @@ function carregarFrete(id){
 }
 function novoFrete(){
   idAtual=null; form.reset(); localStorage.removeItem(DRAFT);
-  veiculos=[{}]; renderVeic(); prestadores=[]; renderPrest();
+  veiculos=[{}]; renderVeic(); prestadores=[]; renderPrest(); fichaDocs={};
   $('#hist').value=''; render(); flash('Novo frete');
 }
 function excluirFrete(){
@@ -1060,6 +1080,7 @@ function aplicar(d){
     veiculos=[{modelo:d.veiculo||'',placa:d.placa||'',chassi:d.chassi||'',ano:d.anoFabMod||'',cor:d.cor||'',valor:d.valorVeiculo||''}];
   else veiculos=[{}];
   prestadores = prestDe(d).map(p=>({...p}));   // array novo ou migração do formato antigo
+  fichaDocs = (d.docs && typeof d.docs==='object') ? d.docs : {};
   renderVeic(); renderPrest();
   render();
 }
