@@ -1865,7 +1865,7 @@ function renderFinanceiro(){
     if(finPrestF==='NOPAG' && !p.incl) return false;
     if(finPrestF==='APAGAR' && p.pago) return false;
     if(finPrestF==='PAGOS' && !p.pago) return false;
-    if(qp){ const hay=[p.emp,p.placa,f.numero,p.valor,String(num(p.valor))].join(' ').toLowerCase(); if(!hay.includes(qp)) return false; }
+    if(qp){ const hay=[p.emp,p.placa,f.numero,p.valor,String(num(p.valor)),veicResumo(f),up(f.origem),up(f.destino)].join(' ').toLowerCase(); if(!hay.includes(qp)) return false; }
     return true; };
   const vis=itens.filter(passa);
   const pill=(txt,val,n)=>`<button class="pill${finPrestF===val?' on':''}" onclick="setFinPrestF('${val}')">${txt}${n!=null?`<span class="n">${n}</span>`:''}</button>`;
@@ -1873,12 +1873,17 @@ function renderFinanceiro(){
     pill('Todos','TODOS',itens.length)+pill('A conferir','ACONFERIR',itens.filter(x=>!x.p.conf).length)+
     pill('Conferidos','CONFERIDOS',itens.filter(x=>x.p.conf).length)+pill('No pagamento','NOPAG',itens.filter(x=>x.p.incl).length)+
     pill('A pagar','APAGAR',itens.filter(x=>!x.p.pago).length)+pill('Pagos','PAGOS',itens.filter(x=>x.p.pago).length);
-  const linhasP=vis.map(({f,p,idx})=>`<tr class="${p.conf?'conf':''}">
-    <td>${esc(f.numero||'')}</td><td>${esc(up(p.emp))}</td><td>${esc(up(p.placa))||'—'}</td><td>${moeda(p.valor)}</td>
+  const linhasP=vis.map(({f,p,idx})=>{
+    const veic = esc(veicResumo(f)) || (p.placa?esc(up(p.placa)):'—');
+    return `<tr class="${p.conf?'conf':''}">
+    <td><b>${esc(f.numero||'')}</b></td><td>${esc(up(p.emp))}</td>
+    <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div></td>
+    <td>${moeda(p.valor)}</td>
     <td><label class="chk"><input type="checkbox" ${p.conf?'checked':''} onchange="setPrestFin('${f._id}',${idx},'conf',this.checked)"> Conferido</label></td>
     <td><label class="chk"><input type="checkbox" ${p.incl?'checked':''} onchange="setPrestFin('${f._id}',${idx},'incl',this.checked)"> No pagamento</label></td>
-    <td><label class="chk"><input type="checkbox" ${p.pago?'checked':''} onchange="setPrestFin('${f._id}',${idx},'pago',this.checked)"> Pago</label></td></tr>`).join('');
-  $('#finPrest').innerHTML=`<thead><tr><th>Nº frete</th><th>Empresa / Motorista</th><th>Placa</th><th>Valor</th><th>Conferência</th><th>Pagamento</th><th>Baixa</th></tr></thead><tbody>${linhasP||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
+    <td><label class="chk"><input type="checkbox" ${p.pago?'checked':''} onchange="setPrestFin('${f._id}',${idx},'pago',this.checked)"> Pago</label></td></tr>`;
+  }).join('');
+  $('#finPrest').innerHTML=`<thead><tr><th>Nº frete</th><th>Empresa / Motorista</th><th>Veículo transportado</th><th>Valor</th><th>Conferência</th><th>Pagamento</th><th>Baixa</th></tr></thead><tbody>${linhasP||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
   const totP=vis.reduce((t,x)=>t+num(x.p.valor),0), totPagar=itens.filter(x=>!x.p.pago).reduce((t,x)=>t+num(x.p.valor),0), totPago=itens.filter(x=>x.p.pago).reduce((t,x)=>t+num(x.p.valor),0);
   $('#finPrestResumo').innerHTML=
     `<div class="box">Exibindo<b>${moeda(totP)}</b></div>`+
