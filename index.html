@@ -3316,8 +3316,8 @@ function crmAbrirLead(id){
       <div class="field"><label>Valor do veículo (p/ seguro)</label><input id="calcValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="R$"></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px">
-      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Buscar rota</button>
-      <span class="hint" style="align-self:center">Adicione um trecho por vez (reembarque = vários trechos).</span>
+      <button class="btn-primary" onclick="crmCalcBuscar('${id}')" style="font-size:13px">🔍 Buscar rota direta</button>
+      <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🔗 Montar automático (reembarque)</button>
     </div>
     <div id="crmCalcRes"></div>
     <div class="cm-section">🧾 Composição do frete — conferir antes de emitir</div>
@@ -3505,6 +3505,83 @@ function crmCalcAddTrecho(id, i){
   crmRenderComp(id);
   flash('Trecho adicionado ✔');
 }
+// ---- Reembarque automático: menor custo origem -> destino (Dijkstra) ----
+function crmAdjacencia(db){
+  if(db._adj) return db._adj;
+  const adj = {};   // cidadeNorm -> [ {to, valores, carrier, oNome,dNome,oUF,dUF, prazo} ]
+  for(const r of db.rotas){
+    for(const t of (r.trajetos||[])){
+      if(!t.o || !t.d || t.o===t.d) continue;
+      (adj[t.o] = adj[t.o] || []).push({
+        to:t.d, valores:r.valores, carrier:r.transportadora,
+        oNome:t.oNome, dNome:t.dNome, oUF:t.oUF, dUF:t.dUF, prazo:r.prazoDias
+      });
+    }
+  }
+  db._adj = adj; return adj;
+}
+async function crmCalcAuto(id){
+  const box = $('#crmCalcRes'); if(!box) return;
+  box.innerHTML = '<p class="hint">Procurando o melhor caminho…</p>';
+  const db = await carregarTabelaFretes();
+  if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
+  crmCalcInit(id);
+  const o = normTxt($('#calcOrigem')?.value), d = normTxt($('#calcDestino')?.value);
+  const cat = $('#calcCategoria')?.value || '';
+  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha origem e destino.</p>'; return; }
+  const adj = crmAdjacencia(db);
+  const nodes = Object.keys(adj);
+  const isOrig = k => k===o || (o.length>3 && k.includes(o)) || (k.length>3 && o.includes(k));
+  const isDest = k => k===d || (d.length>3 && k.includes(d)) || (k.length>3 && d.includes(k));
+  const HOP_PEN = 100;   // penaliza cada transbordo (evita cadeias longas desnecessárias)
+  const dist={}, prev={}, hops={}, done={};
+  const starts = nodes.filter(isOrig);
+  if(!starts.length){ box.innerHTML = `<p class="hint">Origem "${esc($('#calcOrigem').value)}" não encontrada na tabela.</p>`; return; }
+  starts.forEach(s=>{ dist[s]=0; hops[s]=0; });
+  // Dijkstra simples (V pequeno)
+  const N = nodes.length; let guard=0;
+  while(guard++ < N+5){
+    let u=null, best=Infinity;
+    for(const k in dist){ if(!done[k] && dist[k]<best){ best=dist[k]; u=k; } }
+    if(u===null) break;
+    done[u]=true;
+    if(isDest(u)) break;
+    if((hops[u]||0) >= 6) continue;   // limite de transbordos
+    for(const e of (adj[u]||[])){
+      const custo = e.valores[cat];
+      if(custo==null) continue;        // sem preço p/ categoria neste trecho
+      const nd = dist[u] + custo + HOP_PEN;
+      if(dist[e.to]==null || nd < dist[e.to]){
+        dist[e.to]=nd; prev[e.to]={from:u,e}; hops[e.to]=(hops[u]||0)+1;
+      }
+    }
+  }
+  // acha o destino de menor custo
+  let end=null, bestD=Infinity;
+  for(const k in dist){ if(isDest(k) && done[k] && dist[k]<bestD){ bestD=dist[k]; end=k; } }
+  if(!end){ box.innerHTML = `<p class="hint">Sem caminho ${esc($('#calcOrigem').value)} → ${esc($('#calcDestino').value)} para a categoria <b>${esc(cat)}</b> (pode faltar preço em algum trecho). Tente "Buscar rota direta" ou monte manualmente.</p>`; return; }
+  // reconstrói o caminho
+  const pilha=[]; let cur=end;
+  while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; }
+  if(!pilha.length){ box.innerHTML = '<p class="hint">Nenhum trecho encontrado.</p>'; return; }
+  // mostra o caminho e monta
+  const l = CRM_LEADS[id];
+  l.trajetos = pilha.map(e=>({
+    de:`${e.oNome}/${e.oUF}`, para:`${e.dNome}/${e.dUF}`,
+    transportadora:e.carrier, valor:String(e.valores[cat]), oUF:e.oUF, dUF:e.dUF
+  }));
+  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  crmRecalcCalc(id);
+  crmRenderComp(id);
+  const totalBase = pilha.reduce((s,e)=>s+ (e.valores[cat]||0),0);
+  box.innerHTML = `<div style="border:1px solid #16a34a;border-radius:8px;padding:8px;background:rgba(22,163,74,.06)">
+    <div style="font-weight:600;margin-bottom:4px">🔗 ${pilha.length} trecho(s) — frete base ${moeda(totalBase)}</div>
+    ${pilha.map(e=>`<div class="hint" style="margin:0">${esc(e.oNome)}/${esc(e.oUF)} → ${esc(e.dNome)}/${esc(e.dUF)} · ${esc(e.carrier)} · ${moeda(e.valores[cat])}</div>`).join('')}
+    <div class="hint" style="margin-top:4px">Trechos e taxas preenchidos na composição abaixo — confira e edite se precisar.</div>
+  </div>`;
+  flash('Reembarque montado automaticamente ✔');
+}
+
 // recalcula Frete Base (soma dos trechos), Seguro (RCTR-C somado) e Recebimento a partir dos trechos
 function crmRecalcCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
@@ -3530,19 +3607,30 @@ function crmRecalcCalc(id){
     const cidDest = TABELA_FRETES.cidades[normTxt((ult.para||'').split('/')[0])];
     if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento, true);
   }
+  // Reembarque: ativa e mantém a taxa quando há mais de um trecho
+  if(trs.length>1){ const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque'); if(rb){ rb.ativo=true; if(!numMoeda(rb.valor)) rb.valor='100'; } }
+  crmCompRecalcImposto(id);   // Imposto 12% sobre as demais taxas
 }
 
 // ---- Composição do frete (taxas SW): incluir / excluir / editar ----
 const CRM_COMP_MODELO = [
-  { desc:'Frete Base',  valor:'', ativo:true,  opcional:false },
-  { desc:'Recebimento', valor:'', ativo:true,  opcional:false },
-  { desc:'Taxa Fixa',   valor:'', ativo:true,  opcional:false },
-  { desc:'Transbordo',  valor:'', ativo:true,  opcional:false },
-  { desc:'Seguro',      valor:'', ativo:true,  opcional:false },
-  { desc:'Imposto',     valor:'', ativo:true,  opcional:false },
-  { desc:'Coleta',      valor:'', ativo:false, opcional:true },
-  { desc:'Entrega',     valor:'', ativo:false, opcional:true }
+  { desc:'Frete Base',        valor:'',    ativo:true,  opcional:false },
+  { desc:'Recebimento',       valor:'',    ativo:true,  opcional:false },
+  { desc:'Taxa Fixa (Lucro)', valor:'500', ativo:true,  opcional:false },
+  { desc:'Reembarque',        valor:'100', ativo:true,  opcional:false },
+  { desc:'Seguro',            valor:'',    ativo:true,  opcional:false },
+  { desc:'Imposto',           valor:'',    ativo:true,  opcional:false, auto:true },
+  { desc:'Coleta',            valor:'',    ativo:false, opcional:true },
+  { desc:'Entrega',           valor:'',    ativo:false, opcional:true }
 ];
+function crmCompRecalcImposto(id){
+  const l = CRM_LEADS[id]; if(!l||!l.composicao) return;
+  const imp = l.composicao.find(c=>normTxt(c.desc)==='imposto'); if(!imp) return;
+  const base = l.composicao
+    .filter(c=>c.ativo && normTxt(c.desc)!=='imposto')
+    .reduce((s,c)=>s+numMoeda(c.valor),0);
+  imp.valor = (Math.round(base*IMPOSTO_PCT*100)/100).toString();  // 12% das demais taxas
+}
 function crmCompTotal(l){
   return (l.composicao||[]).filter(c=>c.ativo).reduce((s,c)=>s+numMoeda(c.valor),0);
 }
@@ -3553,11 +3641,23 @@ function crmCompUpdTotal(id){
 function crmCompSet(id,i,campo,val){
   const l=CRM_LEADS[id]; if(!l||!l.composicao[i]) return;
   l.composicao[i][campo]=val;
-  if(campo==='valor') crmCompUpdTotal(id);
+  if(campo==='valor'){
+    // editar qualquer taxa que não seja o Imposto recalcula o Imposto (12%)
+    if(normTxt(l.composicao[i].desc)!=='imposto'){ crmCompRecalcImposto(id); crmCompReflectImposto(id); }
+    crmCompUpdTotal(id);
+  }
+}
+function crmCompReflectImposto(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  const idx=l.composicao.findIndex(c=>normTxt(c.desc)==='imposto'); if(idx<0) return;
+  const rows=document.querySelectorAll('#crmComposicao .crm-comp-row');
+  const inp=rows[idx] && rows[idx].querySelector('input[inputmode="decimal"]');
+  if(inp) inp.value=l.composicao[idx].valor||'';
 }
 function crmCompToggle(id,i){
   const l=CRM_LEADS[id]; if(!l||!l.composicao[i]) return;
   l.composicao[i].ativo=!l.composicao[i].ativo;
+  crmCompRecalcImposto(id);
   crmRenderComp(id);
 }
 function crmCompAdd(id){
