@@ -1553,7 +1553,7 @@ document.addEventListener('click', e=>{
 const LOGO='obs_logo';
 // Logo padrão — arquivo logo.png na mesma pasta do index.html.
 // Você pode substituir pelo PNG oficial em "Escolher logo" (fica salvo no localStorage).
-const DEFAULT_LOGO='logo.png';
+const DEFAULT_LOGO='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNDAgMjQwIj48cGF0aCBkPSJNIDE5Ny42NyA1My4xNSBBIDEwNCAxMDQgMCAxIDAgMTk3LjY3IDE4Ni44NSBMIDE2MC45MCAxNTYuMDAgQSA1NiA1NiAwIDEgMSAxNjAuOTAgODQuMDAgWiIgZmlsbD0iI0UzMDYxMyIvPjxwYXRoIGQ9Ik0gMTU4LjcwIDkwLjU2IEEgNDQgNDQgMCAxIDAgMTU4LjcwIDE0OS40NCBMIDE0NS4zMiAxMzcuNDAgQSAyNiAyNiAwIDEgMSAxNDUuMzIgMTAyLjYwIFoiIGZpbGw9IiNFMzA2MTMiLz48L3N2Zz4=';   // logo OBS (CC vermelho) embutido — SVG data URI
 // Força usar o novo logo.png — remove qualquer logo antigo salvo
 localStorage.removeItem(LOGO);
 function logoAtual(){ return DEFAULT_LOGO; }
@@ -3942,6 +3942,8 @@ function crmEnviarOrcamento(id){
     .req{font-size:11px;color:#333;margin:3px 0} .req b{color:#1f2b4d}
     .pay{font-size:11px;margin:3px 0}
     .foot{margin-top:16px;border-top:2px solid #1f2b4d;padding-top:8px;font-size:11px;color:#333;text-align:center}
+    .venda{margin:10px 0;border:2px solid #E30613;border-radius:8px;background:#fdeaea;padding:9px 12px}
+    .venda div{font-size:12px;color:#7a0a0f;margin:2px 0;font-weight:600}
     @media print{body{padding:0 6mm}}
   </style></head><body>
     <div class="hd"><img src="${logoAtual()}" alt="OBS"><div>
@@ -3950,6 +3952,11 @@ function crmEnviarOrcamento(id){
     </div></div>
     <div class="meta">São Bernardo do Campo, ${hojeBR()}${l.nome?' &nbsp;|&nbsp; Cliente: <b>'+esc(l.nome)+'</b>':''}${l.telefone?' &nbsp;|&nbsp; '+esc(l.telefone):''}<br>
     Referente à: <b>TRANSPORTE DE VEÍCULOS</b></div>
+
+    <div class="venda">
+      <div>🛰️ Transporte MONITORADO via link de rastreio — atualização diária e automática.</div>
+      <div>🏆 OBS Transportes — 20 anos de história, pioneira no ramo de transporte de veículos.</div>
+    </div>
 
     <h2>1 · Dados do veículo a ser transportado</h2>
     <table><tr><th>Item</th><th>Marca / Modelo</th><th>Valor (FIPE)</th><th>Observações</th></tr>
