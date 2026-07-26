@@ -1307,6 +1307,9 @@ const FIREBASE_CONFIG = {
   appId: "1:307588629600:web:0914b25247953b56b06f05"
 };
 const CLOUD_ON = !!(FIREBASE_CONFIG && FIREBASE_CONFIG.projectId);
+// WhatsApp oficial (ChatGuru) — número que recebe o pedido de orçamento do site.
+// Formato internacional só com dígitos: 55 + DDD + número (ex.: 5511999999999).
+const WPP_NUMERO = '5511943524103';   // AJUSTE p/ o WhatsApp da OBS/ChatGuru
 let MEM={}, LAST={}, _fb=null, clienteLiveId=null;
 let CLIENTES={};   // cadastro de clientes por CPF/CNPJ (faturamento + histórico de fretes)
 
@@ -2662,9 +2665,96 @@ function entrarModoClienteLive(){
       h:[{t:new Date().toISOString(), x:'Este link requer a versão publicada online. Fale com a OBS Transportes.'}] });
   }
 }
+/* ============================================================
+   PÁGINA PÚBLICA DE ORÇAMENTO (#orc)
+   Cliente preenche → cai no WhatsApp (ChatGuru) com a mensagem
+   já montada p/ cálculo do orçamento (SW Fretes). Sem login.
+   ============================================================ */
+function renderOrcamentoPage(){
+  const tabs=document.querySelector('.tabs'); if(tabs) tabs.style.display='none';
+  const lm=$('#linkModal'); if(lm) lm.style.display='none';
+  ['viewFicha','viewRelatorio','viewFinanceiro','viewClientes','viewMensal','viewCrm']
+    .forEach(vid=>{ const e=$('#'+vid); if(e) e.style.display='none'; });
+  const lo=$('#loginOverlay'); if(lo) lo.style.display='none';
+  const v=$('#viewCliente'); v.style.display='';
+  v.innerHTML=`<div class="cli-page">
+    <div class="cli-hero">
+      <img src="${logoAtual()}" alt="OBS Transportes">
+      <h1>Solicite seu orçamento</h1>
+      <p style="opacity:.9;font-size:14px;margin:0">Preencha os dados do transporte. Você será direcionado ao nosso WhatsApp com um cálculo automático do valor.</p>
+    </div>
+    <div class="cli-info"><div class="grid2">
+      <div class="field"><label>Nome *</label><input id="or_nome" placeholder="Seu nome completo"></div>
+      <div class="field"><label>E-mail</label><input id="or_email" placeholder="voce@email.com"></div>
+      <div class="field"><label>Telefone / WhatsApp *</label><input id="or_tel" placeholder="(11) 90000-0000"></div>
+      <div class="field"><label>Tipo de transporte</label><select id="or_tipo">
+        <option value="Empresa">Empresa</option>
+        <option value="Particular">Particular</option>
+      </select></div>
+      <div class="field"><label>Modelo do veículo *</label><input id="or_modelo" placeholder="Ex.: HONDA/CIVIC 2020"></div>
+      <div class="field"><label>Valor do veículo (R$)</label><input id="or_valor" placeholder="Ex.: 80.000"></div>
+      <div class="field"><label>O veículo funciona / liga?</label><select id="or_funciona">
+        <option value="SIM">SIM, funciona</option>
+        <option value="NÃO">NÃO funciona</option>
+      </select></div>
+      <div class="field"><label>É blindado?</label><select id="or_blindado">
+        <option value="NÃO">NÃO</option>
+        <option value="SIM">SIM, blindado</option>
+      </select></div>
+      <div class="field"><label>Cidade de origem *</label><input id="or_origem" placeholder="Cidade / UF de coleta"></div>
+      <div class="field"><label>Cidade de destino *</label><input id="or_destino" placeholder="Cidade / UF de entrega"></div>
+      <div class="field"><label>Data de envio (previsão)</label><input id="or_data" type="date"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:13px">
+      <input type="checkbox" id="or_aceite" checked style="margin-top:3px">
+      <span>Aceito receber o orçamento e comunicações da OBS Transportes pelo WhatsApp.</span></label>
+    <div id="or_msg" class="hint" style="color:#dc2626;min-height:18px;margin-top:6px"></div>
+    <button class="btn-ok" style="width:100%;padding:13px;font-size:16px;margin-top:6px" onclick="enviarOrcamentoWpp()">
+      💬 Calcular no WhatsApp</button>
+    </div>
+    <p class="hint" style="text-align:center;margin:16px 0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
+  </div>`;
+  window.scrollTo(0,0);
+}
+function enviarOrcamentoWpp(){
+  const g=id=>((document.getElementById(id)||{}).value||'').trim();
+  const nome=g('or_nome'), tel=g('or_tel'), modelo=g('or_modelo'),
+        origem=g('or_origem'), destino=g('or_destino');
+  const aceite=(document.getElementById('or_aceite')||{}).checked;
+  const msg=$('#or_msg');
+  const faltando=[];
+  if(!nome) faltando.push('Nome');
+  if(!tel) faltando.push('Telefone');
+  if(!modelo) faltando.push('Modelo do veículo');
+  if(!origem) faltando.push('Cidade de origem');
+  if(!destino) faltando.push('Cidade de destino');
+  if(faltando.length){ if(msg) msg.textContent='Preencha: '+faltando.join(', ')+'.'; return; }
+  if(!aceite){ if(msg) msg.textContent='É preciso aceitar o recebimento do orçamento pelo WhatsApp.'; return; }
+  if(msg) msg.textContent='';
+  const linhas=[
+    '*Solicitação de orçamento — OBS Transportes*',
+    '',
+    'Nome: '+nome,
+    'Telefone: '+tel,
+    (g('or_email')?'E-mail: '+g('or_email'):null),
+    'Tipo: '+(g('or_tipo')||'Empresa'),
+    'Veículo: '+modelo,
+    (g('or_valor')?'Valor do veículo: R$ '+g('or_valor'):null),
+    'Funciona/liga: '+(g('or_funciona')||'SIM'),
+    'Blindado: '+(g('or_blindado')||'NÃO'),
+    'Origem: '+origem,
+    'Destino: '+destino,
+    (g('or_data')?'Data de envio: '+g('or_data').split('-').reverse().join('/'):null),
+    '',
+    'Gostaria de receber o valor do transporte.'
+  ].filter(Boolean);
+  const texto=encodeURIComponent(linhas.join('\n'));
+  window.location.href='https://wa.me/'+WPP_NUMERO+'?text='+texto;
+}
 function rotearHash(){
   if(location.hash.startsWith('#t=')) entrarModoCliente();
   else if(location.hash.startsWith('#f=')) entrarModoClienteLive();
+  else if(location.hash==='#orc'||location.hash==='#orcamento') renderOrcamentoPage();
 }
 window.addEventListener('hashchange', rotearHash);
 function setFrete(id,campo,valor){
@@ -3046,8 +3136,10 @@ function renderCRM(){
         </div>
         ${l.veiculoDesc ? `<div class="kc-veiculo">🚗 ${esc(l.veiculoDesc)}</div>` : ''}
         ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
+        ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · cotação '+moeda(l.valorCotacaoSW):''}</div>` : ''}
+        ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
         <div class="kc-footer">
-          <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : '—'}</span>
+          <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : (l.valorCotacaoSW?moeda(l.valorCotacaoSW):'—')}</span>
           <span class="kc-data">${dataBR((l.ultimaInteracao||l.dataEntrada||'').slice(0,10))}</span>
         </div>
         ${l.vendedor ? `<div class="kc-vendedor">👤 ${esc(l.vendedor)}</div>` : ''}
@@ -3120,6 +3212,9 @@ function crmNovoLead(){
     veiculoDesc:'', placa:'', origem:'', destino:'',
     valorEstimado:'', etapa:'novo', prioridade:'morno',
     vendedor: sessaoUser?.nome || '',
+    // integração WhatsApp/ChatGuru + cálculo SW Fretes
+    origemLead:'manual', valorVeiculo:'', funciona:'', blindado:'', dataEnvio:'',
+    interesse:'', valorCotacaoSW:'', prazoSW:'', cotacaoId:'',
     dataEntrada: new Date().toISOString().slice(0,10),
     ultimaInteracao: new Date().toISOString(),
     motivoPerda:'',
@@ -3179,6 +3274,25 @@ function crmAbrirLead(id){
         </select>
       </div>
     </div>
+    <div class="cm-section">📲 Origem & Cotação automática</div>
+    <div class="grid g2">
+      <div class="field"><label>Origem do lead</label>
+        <select id="crmOrigemLead">
+          <option value="manual" ${(l.origemLead||'manual')==='manual'?'selected':''}>Manual</option>
+          <option value="whatsapp" ${l.origemLead==='whatsapp'?'selected':''}>📱 WhatsApp (ChatGuru)</option>
+          <option value="site" ${l.origemLead==='site'?'selected':''}>🌐 Site</option>
+        </select></div>
+      <div class="field"><label>Interesse do cliente</label>
+        <select id="crmInteresse">
+          <option value="" ${!l.interesse?'selected':''}>— aguardando —</option>
+          <option value="sim" ${l.interesse==='sim'?'selected':''}>✅ SIM, tem interesse</option>
+          <option value="nao" ${l.interesse==='nao'?'selected':''}>❌ NÃO</option>
+        </select></div>
+      <div class="field"><label>Valor do veículo (R$)</label><input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal"></div>
+      <div class="field"><label>Cotação SW Fretes (R$)</label><input id="crmCotSW" value="${escA(l.valorCotacaoSW||'')}" inputmode="decimal" placeholder="valor médio calculado"></div>
+      <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
+      <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
+    </div>
     <div class="cm-section">💬 Adicionar Interação</div>
     <div style="display:flex;gap:8px;align-items:flex-start">
       <textarea id="crmNovaInteracao" placeholder="Descreva o contato realizado..." style="flex:1;min-height:50px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px;resize:vertical"></textarea>
@@ -3225,6 +3339,12 @@ function crmSalvarLead(id){
   l.destino = ($('#crmDestino')?.value||'').trim();
   l.valorEstimado = ($('#crmValor')?.value||'').trim();
   l.prioridade = $('#crmPrioridade')?.value||'morno';
+  l.origemLead = $('#crmOrigemLead')?.value||'manual';
+  l.interesse = $('#crmInteresse')?.value||'';
+  l.valorVeiculo = ($('#crmValorVeic')?.value||'').trim();
+  l.valorCotacaoSW = ($('#crmCotSW')?.value||'').trim();
+  l.prazoSW = ($('#crmPrazoSW')?.value||'').trim();
+  l.dataEnvio = ($('#crmDataEnvio')?.value||'').trim();
   l.ultimaInteracao = new Date().toISOString();
   if(!l.nome){ flash('Preencha o nome do lead.','erro'); $('#crmNome')?.focus(); return; }
   saveCRM();
@@ -3364,8 +3484,9 @@ function salvarUsuario(){
 // inicialização
 (function init(){
   // indicador de carregamento da sessão (só no app da equipe, não na página do cliente)
-  const isCliente = location.hash.startsWith('#f=') || location.hash.startsWith('#t=');
-  if(!isCliente) iniciarAcesso();   // login/papéis (a página do cliente não pede login)
+  const isCliente = location.hash.startsWith('#f=') || location.hash.startsWith('#t=')
+                    || location.hash==='#orc' || location.hash==='#orcamento';
+  if(!isCliente) iniciarAcesso();   // login/papéis (as páginas públicas não pedem login)
   const loadT = isCliente ? null : flash('Carregando sessão…','load');
   window.__sessaoPronta = function(msg, tipo){
     if(window.__sp) return; window.__sp=true;

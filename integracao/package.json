@@ -1,0 +1,10 @@
+{
+  "name": "obs-integracao",
+  "description": "Ponte ChatGuru ⇄ SW Fretes ⇄ CRM (Firebase Cloud Functions)",
+  "engines": { "node": "18" },
+  "main": "webhook.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0"
+  }
+}
