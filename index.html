@@ -694,6 +694,9 @@
         <input id="finBusca" oninput="renderFinanceiro()" placeholder="🔎 buscar por nome, CPF/CNPJ ou valor…"
                style="width:100%;font-size:14px;padding:9px;border:1px solid var(--linha);border-radius:8px;margin-bottom:10px">
         <div style="overflow-x:auto"><table class="fin" id="finReceber"></table></div>
+        <h3 style="font-size:14px;margin:22px 0 6px;color:#333">📅 Entradas programadas (por dia de recebimento)</h3>
+        <p class="hint" style="margin:0 0 8px">Soma do que está <b>em aberto</b> agrupado pela <b>previsão de recebimento</b>. Preencha a previsão em cada frete acima para ele entrar na programação.</p>
+        <div style="overflow-x:auto"><table class="fin" id="finProgramadas"></table></div>
       </div>
     </div>
     <div class="card">
@@ -1846,6 +1849,7 @@ function liberarOperacional(id){
 // filtro clicável do financeiro (A receber) + abrir no operacional
 let finFiltro='';   // '' = lista oculta; clicar num valor exibe
 function setFinFiltro(k){ finFiltro = (finFiltro===k?'':k); renderFinanceiro(); }
+function verEntradasDia(d){ const s=$('#finBusca'); if(s) s.value=d; finFiltro='aberto'; renderFinanceiro(); setTimeout(()=>$('#finReceber')?.scrollIntoView({behavior:'smooth',block:'start'}),100); }
 function abrirNoOperacional(id){
   if(!MEM[id]) return;
   switchView('rel'); relFiltro='TODAS'; relStatusF='TODOS';
@@ -1895,7 +1899,7 @@ function renderFinanceiro(){
     return true; };
   const NOMES={aberto:'Em aberto',recebido:'Recebido',quit:'Quitados',areceber:'A receber',venc:'Vencido'};
   const qf=($('#finBusca')?.value||'').trim().toLowerCase();
-  const buscaFin=f=>{ if(!qf) return true; const hay=[f.numero,f.clienteEmpresa,f.cpfCnpj,f.valorFrete,moeda(f.valorFrete),up(f.operadora)].join(' ').toLowerCase(); return hay.includes(qf); };
+  const buscaFin=f=>{ if(!qf) return true; const hay=[f.numero,f.clienteEmpresa,f.cpfCnpj,f.valorFrete,moeda(f.valorFrete),up(f.operadora),f.previsaoRecebimento||'',dataBR(f.previsaoRecebimento)].join(' ').toLowerCase(); return hay.includes(qf); };
   if(!finFiltro && !qf){
     $('#finReceber').innerHTML=`<tbody><tr><td class="hint" style="text-align:center;padding:16px">👆 Clique em <b>Recebido</b>, <b>Em aberto</b>, <b>A receber</b>, <b>Quitados</b> ou <b>Vencido</b> acima — ou <b>pesquise</b> por nome, CPF ou valor — para ver os fretes.</td></tr></tbody>`;
   }else{
@@ -1920,6 +1924,20 @@ function renderFinanceiro(){
     boxF('Vencido',moeda(totVenc),'#c0392b','venc')+
     boxF('✓ Quitados',nQuit,'var(--ok)','quit')+
     boxF('A receber',nReceber,'#e6a100','areceber');
+
+  // ---- ENTRADAS PROGRAMADAS (por dia de previsão de recebimento) ----
+  const prog={};
+  comValor.forEach(f=>{ const ab=abertoDe(f); const d=f.previsaoRecebimento;
+    if(ab>0.005 && d && /^\d{4}-\d\d-\d\d$/.test(d)){ (prog[d]=prog[d]||{tot:0,n:0}); prog[d].tot+=ab; prog[d].n++; } });
+  const diasProg=Object.keys(prog).sort();
+  const hojeP=hojeISO(); let acumP=0;
+  const linhasProg=diasProg.map(d=>{ const {tot,n}=prog[d]; acumP+=tot; const venc=d<hojeP;
+    return `<tr class="${venc?'vencido':''}"><td><b>${dataBR(d)}</b>${venc?' <span class="tagv venc" style="font-size:10px">vencido</span>':''}</td>
+      <td style="text-align:center">${n}</td><td style="text-align:right"><b>${moeda(tot)}</b></td>
+      <td style="text-align:right;color:#8592a1">${moeda(acumP)}</td>
+      <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="verEntradasDia('${d}')">ver fretes</button></td></tr>`; }).join('');
+  const totProg=diasProg.reduce((s,d)=>s+prog[d].tot,0);
+  $('#finProgramadas').innerHTML=`<thead><tr><th>Dia do recebimento</th><th style="text-align:center">Fretes</th><th style="text-align:right">Entrada prevista</th><th style="text-align:right">Acumulado</th><th></th></tr></thead><tbody>${linhasProg||'<tr><td colspan="5" class="hint" style="text-align:center">Nenhuma entrada programada — preencha a previsão de recebimento nos fretes.</td></tr>'}${diasProg.length?`<tr style="background:#f6f8fb"><td><b>TOTAL programado</b></td><td style="text-align:center"><b>${diasProg.reduce((s,d)=>s+prog[d].n,0)}</b></td><td style="text-align:right"><b>${moeda(totProg)}</b></td><td></td><td></td></tr>`:''}</tbody>`;
 
   // ---- LUCRO (por mês selecionado) ----
   const MESNOMES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
