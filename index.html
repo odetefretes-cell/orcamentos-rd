@@ -32,6 +32,34 @@
   .toolbar .spacer{flex:1}
   .status{font-size:12px;color:#5a6b7d}
 
+  /* ---------- Feedback de clique nos botões ---------- */
+  button{transition:filter .12s, transform .06s}
+  button:active{filter:brightness(.9)}
+  @keyframes btnPress{0%{transform:scale(.94)}55%{transform:scale(1.03)}100%{transform:scale(1)}}
+  .btn-press{animation:btnPress .30s ease}
+  @keyframes btnDone{0%{box-shadow:0 0 0 0 rgba(22,163,74,.55)}100%{box-shadow:0 0 0 10px rgba(22,163,74,0)}}
+  .btn-done{animation:btnDone .55s ease-out}
+
+  /* ---------- Toast (mensagem de concluído) ---------- */
+  #toastBox{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;
+            display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+  .toast{display:flex;align-items:center;gap:10px;min-width:230px;max-width:90vw;
+         background:#0f2b1c;color:#fff;padding:12px 16px;border-radius:12px;font-size:14px;font-weight:600;
+         box-shadow:0 10px 30px rgba(0,0,0,.25);opacity:0;transform:translateY(-14px);
+         transition:opacity .25s ease, transform .25s ease;border-left:5px solid #16a34a}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .toast .ic{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:0 0 22px;
+             border-radius:50%;background:#16a34a;color:#fff;font-size:14px;font-weight:900}
+  .toast-info{background:#0b2233;border-left-color:#2563eb}
+  .toast-info .ic{background:#2563eb}
+  .toast-load{background:#1a1f2b;border-left-color:#8592a1}
+  .toast-load .ic{background:transparent}
+  .toast-erro{background:#2b0f12;border-left-color:#dc2626}
+  .toast-erro .ic{background:#dc2626}
+  .toast .spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;
+               border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
   /* ---------- Form ---------- */
   .card{background:#fff;border:1px solid var(--linha);border-radius:10px;margin-bottom:16px;overflow:hidden}
   .card > h2{background:#fff;border-bottom:2px solid var(--azul);padding:11px 16px;font-size:15px;color:#222;font-weight:700}
@@ -988,16 +1016,18 @@ async function initData(){
           atualizarHist(); atualizarProxNum();
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
-        }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); });
+          if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · ☁ compartilhado');
+        }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); if(window.__sessaoPronta) window.__sessaoPronta('⚠ Erro na nuvem — modo local','erro'); });
         // cadastro de clientes
         fsMod.onSnapshot(fsMod.collection(fs,'clientes'), snap=>{
           CLIENTES={}; snap.forEach(d=>CLIENTES[d.id]=d.data());
           const vcl=$('#viewClientes'); if(vcl && vcl.style.display!=='none') renderClientes();
         }, ()=>{});
       }
-    }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('⚠ Sem nuvem — modo local'); }
+    }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('⚠ Sem nuvem — modo local'); if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · modo local'); }
   } else {
     MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('Modo local (este computador)');
+    if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · modo local');
   }
 }
 function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
@@ -1099,7 +1129,35 @@ function importarJSON(inp){
   const r=new FileReader(); r.onload=e=>{ try{ idAtual=null; aplicar(JSON.parse(e.target.result)); flash('Importado ✔ (clique em Salvar para guardar no histórico)'); }catch(_){ alert('Arquivo inválido'); } };
   r.readAsText(f); inp.value='';
 }
-let t; function flash(m){ const s=$('#status'); s.textContent=m; clearTimeout(t); t=setTimeout(()=>s.textContent='',3000); }
+let t;
+function flash(m, type){
+  // type: 'ok' (padrão p/ mensagens de conclusão), 'info', 'load', 'erro'
+  if(!type) type = /(✔|✅|concl|salvo|emitid|adicionad|puxad|liberad|copiad|export|import|atualiza|preenchid|carregad|enviad|excluíd|pront|baixad|gerad|guardad|registrad)/i.test(m) ? 'ok' : 'info';
+  // texto discreto na toolbar (compatibilidade)
+  const s=$('#status'); if(s){ s.textContent=m; clearTimeout(t); t=setTimeout(()=>s.textContent='',3000); }
+  // toast flutuante
+  let box=document.getElementById('toastBox');
+  if(!box){ box=document.createElement('div'); box.id='toastBox'; document.body.appendChild(box); }
+  const icons={ok:'✓', info:'i', erro:'✕'};
+  const el=document.createElement('div');
+  el.className='toast toast-'+type;
+  el.innerHTML='<span class="ic">'+(type==='load'?'<span class="spin"></span>':icons[type])+'</span><span class="tx"></span>';
+  el.querySelector('.tx').textContent=m;
+  box.appendChild(el);
+  requestAnimationFrame(()=>el.classList.add('show'));
+  // pulso verde no botão que concluiu a ação
+  if(type==='ok'){ const ab=document.activeElement; if(ab && ab.tagName==='BUTTON'){ ab.classList.remove('btn-done'); void ab.offsetWidth; ab.classList.add('btn-done'); setTimeout(()=>ab.classList.remove('btn-done'),600); } }
+  const fechar=()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(),300); };
+  if(type!=='load'){ setTimeout(fechar, type==='erro'?4200:2600); }
+  el.fechar=fechar;
+  return el; // p/ toasts 'load': chame .fechar() quando terminar
+}
+// Feedback tátil em TODOS os botões: animação de pressionar + pulso verde ao concluir
+document.addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  b.classList.remove('btn-press'); void b.offsetWidth; b.classList.add('btn-press');
+  setTimeout(()=>b.classList.remove('btn-press'), 320);
+}, true);
 
 // ---- logo da empresa (aparece em todos os documentos) ----
 const LOGO='obs_logo';
@@ -1991,6 +2049,16 @@ function renderClientes(){
 
 // inicialização
 (function init(){
+  // indicador de carregamento da sessão (só no app da equipe, não na página do cliente)
+  const isCliente = location.hash.startsWith('#f=') || location.hash.startsWith('#t=');
+  const loadT = isCliente ? null : flash('Carregando sessão…','load');
+  window.__sessaoPronta = function(msg, tipo){
+    if(window.__sp) return; window.__sp=true;
+    if(loadT) loadT.fechar();
+    if(!isCliente) flash(msg||'Sessão carregada ✔', tipo||'ok');
+  };
+  // fallback: se em 8s nada sinalizar, encerra o "carregando"
+  setTimeout(()=>{ if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada ✔'); }, 8000);
   initData();                 // local: preenche MEM já; nuvem: conecta e sincroniza
   const raw=localStorage.getItem(DRAFT);
   if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
