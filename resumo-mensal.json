@@ -1,0 +1,231 @@
+[
+ {
+  "mes": "JANEIRO 2026",
+  "total": 214,
+  "concluido": 211,
+  "andamento": 1,
+  "cancelado": 2,
+  "fechados": 212,
+  "nivel": "Meta",
+  "bonus": 500,
+  "ops": {
+   "NATALY": {
+    "total": 103,
+    "concluido": 101,
+    "andamento": 1,
+    "cancelado": 1,
+    "fechados": 102
+   },
+   "YASMIN": {
+    "total": 111,
+    "concluido": 110,
+    "andamento": 0,
+    "cancelado": 1,
+    "fechados": 110
+   }
+  }
+ },
+ {
+  "mes": "FEVEREIRO 2026",
+  "total": 187,
+  "concluido": 187,
+  "andamento": 0,
+  "cancelado": 0,
+  "fechados": 187,
+  "nivel": "Meta",
+  "bonus": 500,
+  "ops": {
+   "NATALY": {
+    "total": 97,
+    "concluido": 97,
+    "andamento": 0,
+    "cancelado": 0,
+    "fechados": 97
+   },
+   "YASMIN": {
+    "total": 90,
+    "concluido": 90,
+    "andamento": 0,
+    "cancelado": 0,
+    "fechados": 90
+   }
+  }
+ },
+ {
+  "mes": "MARÇO 2026",
+  "total": 217,
+  "concluido": 214,
+  "andamento": 1,
+  "cancelado": 2,
+  "fechados": 215,
+  "nivel": "Meta",
+  "bonus": 500,
+  "ops": {
+   "NATALY": {
+    "total": 108,
+    "concluido": 106,
+    "andamento": 0,
+    "cancelado": 2,
+    "fechados": 106
+   },
+   "YASMIN": {
+    "total": 109,
+    "concluido": 108,
+    "andamento": 1,
+    "cancelado": 0,
+    "fechados": 109
+   }
+  }
+ },
+ {
+  "mes": "ABRIL 2026",
+  "total": 177,
+  "concluido": 173,
+  "andamento": 4,
+  "cancelado": 0,
+  "fechados": 177,
+  "nivel": "Abaixo",
+  "bonus": 0,
+  "ops": {
+   "YASMIN": {
+    "total": 90,
+    "concluido": 88,
+    "andamento": 2,
+    "cancelado": 0,
+    "fechados": 90
+   },
+   "NATALY": {
+    "total": 86,
+    "concluido": 84,
+    "andamento": 2,
+    "cancelado": 0,
+    "fechados": 86
+   },
+   "OUTRO": {
+    "total": 1,
+    "concluido": 1,
+    "andamento": 0,
+    "cancelado": 0,
+    "fechados": 1
+   }
+  }
+ },
+ {
+  "mes": "MAIO 2026",
+  "total": 206,
+  "concluido": 200,
+  "andamento": 2,
+  "cancelado": 4,
+  "fechados": 202,
+  "nivel": "Meta",
+  "bonus": 500,
+  "ops": {
+   "YASMIN": {
+    "total": 98,
+    "concluido": 98,
+    "andamento": 0,
+    "cancelado": 0,
+    "fechados": 98
+   },
+   "NATALY": {
+    "total": 107,
+    "concluido": 102,
+    "andamento": 2,
+    "cancelado": 3,
+    "fechados": 104
+   },
+   "OUTRO": {
+    "total": 1,
+    "concluido": 0,
+    "andamento": 0,
+    "cancelado": 1,
+    "fechados": 0
+   }
+  }
+ },
+ {
+  "mes": "JUNHO 2026",
+  "total": 178,
+  "concluido": 138,
+  "andamento": 24,
+  "cancelado": 16,
+  "fechados": 162,
+  "nivel": "Abaixo",
+  "bonus": 0,
+  "ops": {
+   "NATALY": {
+    "total": 91,
+    "concluido": 70,
+    "andamento": 10,
+    "cancelado": 11,
+    "fechados": 80
+   },
+   "YASMIN": {
+    "total": 86,
+    "concluido": 68,
+    "andamento": 14,
+    "cancelado": 4,
+    "fechados": 82
+   },
+   "OUTRO": {
+    "total": 1,
+    "concluido": 0,
+    "andamento": 0,
+    "cancelado": 1,
+    "fechados": 0
+   }
+  }
+ },
+ {
+  "mes": "JULHO 2026",
+  "total": 166,
+  "concluido": 53,
+  "andamento": 99,
+  "cancelado": 14,
+  "fechados": 152,
+  "nivel": "Abaixo",
+  "bonus": 0,
+  "ops": {
+   "NATALY": {
+    "total": 81,
+    "concluido": 35,
+    "andamento": 41,
+    "cancelado": 5,
+    "fechados": 76
+   },
+   "YASMIN": {
+    "total": 71,
+    "concluido": 17,
+    "andamento": 45,
+    "cancelado": 9,
+    "fechados": 62
+   },
+   "OUTRO": {
+    "total": 14,
+    "concluido": 1,
+    "andamento": 13,
+    "cancelado": 0,
+    "fechados": 14
+   }
+  }
+ },
+ {
+  "mes": "AGOSTO 2026",
+  "total": 1,
+  "concluido": 0,
+  "andamento": 1,
+  "cancelado": 0,
+  "fechados": 1,
+  "nivel": "Abaixo",
+  "bonus": 0,
+  "ops": {
+   "NATALY": {
+    "total": 1,
+    "concluido": 0,
+    "andamento": 1,
+    "cancelado": 0,
+    "fechados": 1
+   }
+  }
+ }
+]

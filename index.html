@@ -217,6 +217,7 @@
     <button id="tabRel" class="tab" onclick="switchView('rel')">🚚 Operacional</button>
     <button id="tabFin" class="tab" onclick="switchView('fin')">💰 Financeiro</button>
     <button id="tabCli" class="tab" onclick="switchView('clientes')">👥 Clientes</button>
+    <button id="tabMensal" class="tab" onclick="switchView('mensal')">📊 Mensal / Metas</button>
   </div>
 
   <div id="viewFicha">
@@ -568,9 +569,40 @@
       <h2>👥 Cadastro de clientes <span id="cliCount" style="float:right;font-size:12px;font-weight:normal;color:#8592a1"></span></h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Cadastro montado automaticamente a partir dos fretes salvos (por CPF/CNPJ). Clique em um cliente para ver o histórico de transportes.</p>
+        <div id="importCliBanner" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px">
+          <b>📥 Importar clientes das planilhas</b> — cadastra todos os clientes dos CADASTRO DE FRETES (por CPF/CNPJ), com contato, endereço e histórico. Não apaga os existentes.
+          <div style="margin-top:8px"><button class="btn-primary" onclick="importarClientes()">⬆ Importar cadastro de clientes</button></div>
+        </div>
         <input id="cliBusca" oninput="renderClientes()" placeholder="🔎 buscar por nome, CPF/CNPJ, cidade…"
                style="width:100%;font-size:14px;padding:9px;border:1px solid var(--linha);border-radius:8px;margin-bottom:12px">
         <div id="cliLista"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MENSAL / METAS ===================== -->
+  <div id="viewMensal" style="display:none">
+    <div class="card">
+      <h2>📊 Levantamento mensal · Metas</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Quantidade de <b>contratos fechados</b>, concluídos, em andamento e cancelamentos por mês (a partir do RELATORIO_FRETES_NATALY), com o <b>nível de meta</b> atingido pela empresa.</p>
+        <div id="mensalTabela" style="overflow-x:auto"></div>
+        <h3 style="font-size:14px;margin:22px 0 8px;color:#333">Por operadora</h3>
+        <div id="mensalOps" style="overflow-x:auto"></div>
+        <h3 style="font-size:14px;margin:22px 0 8px;color:#333">Plano de comissionamento (metas do escritório)</h3>
+        <div style="overflow-x:auto">
+          <table class="fin" style="min-width:640px">
+            <thead><tr><th>Nível</th><th>Meta empresa</th><th>Requisito (operadora)</th><th>Diário</th><th>Bônus</th></tr></thead>
+            <tbody>
+              <tr><td><b>Abaixo</b></td><td>0 – 180 contratos fechados</td><td>—</td><td>—</td><td>sem bônus</td></tr>
+              <tr><td><b>Meta</b></td><td>181 – 220 contratos fechados</td><td>60 contratos</td><td>2 por dia</td><td>R$ 500,00</td></tr>
+              <tr><td><b>Acelerado</b></td><td>221 – 240 contratos fechados</td><td>70 contratos</td><td>3 por dia</td><td>R$ 700,00</td></tr>
+              <tr><td><b>Turbo</b></td><td>241 – 300 contratos fechados</td><td>80 contratos</td><td>4 por dia</td><td>R$ 1.000,00</td></tr>
+              <tr><td><b>Máquina</b></td><td>301+ contratos fechados</td><td>100 contratos</td><td>5 por dia</td><td>R$ 1.500,00</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint" style="margin-top:14px">“Contratos fechados” = fretes fechados no mês (total − cancelados). O levantamento vem da planilha; envie um relatório novo para a OBS que os números são atualizados.</p>
       </div>
     </div>
   </div>
@@ -2056,9 +2088,84 @@ function switchView(v){
   $('#tabRel').classList.toggle('tab-on', v==='rel');
   $('#tabFin').classList.toggle('tab-on', v==='fin');
   $('#tabCli').classList.toggle('tab-on', v==='clientes');
+  $('#viewMensal').style.display   = v==='mensal'?'':'none';
+  $('#tabMensal').classList.toggle('tab-on', v==='mensal');
   if(v==='rel') renderRelatorio();
   if(v==='fin') renderFinanceiro();
-  if(v==='clientes') renderClientes();
+  if(v==='clientes'){ const ib=$('#importCliBanner'); if(ib) ib.style.display='block'; renderClientes(); }
+  if(v==='mensal') renderMensal();
+}
+
+// ---- importar cadastro de clientes das planilhas ----
+async function importarClientes(){
+  let obj;
+  try{
+    const r=await fetch('clientes.json?v='+Date.now());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    obj=await r.json();
+  }catch(e){ alert('Não consegui carregar clientes.json. '+e.message); return; }
+  const entradas=Object.entries(obj);
+  if(!entradas.length){ alert('Nenhum cliente na lista.'); return; }
+  const novos=entradas.filter(([cpf])=>!CLIENTES[cpf]).length;
+  if(!confirm(`Importar ${entradas.length} clientes (${novos} novos)?\n\nNão apaga os já cadastrados — só completa dados que faltam e mescla o histórico.`)) return;
+  const t=flash('Importando clientes…','load');
+  let add=0, upd=0;
+  for(const [cpf,c] of entradas){
+    const prev=CLIENTES[cpf];
+    if(!prev){
+      CLIENTES[cpf]=c; add++;
+    }else{
+      // completa campos vazios e mescla histórico (por número)
+      for(const k of ['clienteEmpresa','telefone','email','cep','endereco','bairro','cidade','uf']){
+        if(!prev[k] && c[k]) prev[k]=c[k];
+      }
+      const hist=Array.isArray(prev.historico)?prev.historico:[];
+      const porNum={}; hist.forEach(h=>porNum[h.numero]=h);
+      (c.historico||[]).forEach(h=>{ if(!porNum[h.numero]) porNum[h.numero]=h; });
+      prev.historico=Object.values(porNum).sort((a,b)=>(+a.numero||0)-(+b.numero||0));
+      CLIENTES[cpf]=prev; upd++;
+    }
+    if(CLOUD_ON && _fb && _fb.setDoc) _fb.setDoc(_fb.doc(_fb.fs,'clientes',cpf), CLIENTES[cpf]);
+  }
+  if(!CLOUD_ON) localStorage.setItem('obs_clientes', JSON.stringify(CLIENTES));
+  renderClientes();
+  t.fechar();
+  flash(`✔ ${add} clientes novos, ${upd} atualizados`,'ok');
+}
+
+// ---- levantamento mensal / metas ----
+const NIVEL_COR={'Abaixo':'#9aa7b4','Meta':'#16a34a','Acelerado':'#2563eb','Turbo':'#7c3aed','Máquina':'#d80f1f'};
+async function renderMensal(){
+  const tab=$('#mensalTabela'); if(!tab) return;
+  let dados;
+  try{
+    const r=await fetch('resumo-mensal.json?v='+Date.now());
+    dados=await r.json();
+  }catch(e){ tab.innerHTML='<p class="hint">Não foi possível carregar o levantamento (resumo-mensal.json).</p>'; return; }
+  const linha=m=>{
+    const cor=NIVEL_COR[m.nivel]||'#333';
+    return `<tr>
+      <td><b>${esc(m.mes)}</b></td>
+      <td style="text-align:center"><b>${m.fechados}</b></td>
+      <td style="text-align:center;color:#16a34a">${m.concluido}</td>
+      <td style="text-align:center;color:#e6a100">${m.andamento}</td>
+      <td style="text-align:center;color:#c0392b">${m.cancelado}</td>
+      <td style="text-align:center"><span style="background:${cor};color:#fff;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:700">${esc(m.nivel)}</span></td>
+      <td style="text-align:right;font-weight:700">${m.bonus?('R$ '+m.bonus.toLocaleString('pt-BR')+',00'):'—'}</td>
+    </tr>`;
+  };
+  tab.innerHTML=`<table class="fin" style="min-width:720px">
+    <thead><tr><th>Mês</th><th style="text-align:center">Contratos fechados</th><th style="text-align:center">Concluídos</th><th style="text-align:center">Em andamento</th><th style="text-align:center">Cancelados</th><th style="text-align:center">Nível (empresa)</th><th style="text-align:right">Bônus</th></tr></thead>
+    <tbody>${dados.map(linha).join('')}</tbody></table>`;
+  // por operadora
+  const ops=$('#mensalOps');
+  const nomes=[...new Set(dados.flatMap(m=>Object.keys(m.ops||{})))];
+  const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center">${esc(n)}<br><span style="font-weight:normal;font-size:11px;color:#8592a1">fechados · andam.</span></th>`).join('')}</tr>`;
+  const rows=dados.map(m=>`<tr><td><b>${esc(m.mes)}</b></td>${nomes.map(n=>{
+    const o=(m.ops||{})[n]; if(!o) return '<td style="text-align:center">—</td>';
+    return `<td style="text-align:center"><b>${o.fechados}</b> <span style="color:#e6a100">· ${o.andamento}</span></td>`;
+  }).join('')}</tr>`).join('');
+  ops.innerHTML=`<table class="fin" style="min-width:520px"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
 }
 function renderClientes(){
   const el=$('#cliLista'); if(!el) return;

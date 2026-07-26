@@ -122,6 +122,25 @@ Nº averbação e a última anotação de andamento no histórico).
 > A lista vem do arquivo `andamento.json` (gerado a partir das planilhas). Para atualizar
 > com um relatório novo, envie a planilha para a OBS que o arquivo é regerado.
 
+## Banco de clientes (importar das planilhas)
+
+Na aba **Clientes**, o botão **⬆ Importar cadastro de clientes** cadastra todos os clientes
+dos arquivos CADASTRO DE FRETES (por CPF/CNPJ), com **contato, endereço e histórico** de
+transportes. Não apaga os já cadastrados — só completa dados que faltam e mescla o histórico.
+Depois, ao emitir novos fretes, o cadastro é usado no **preenchimento automático por CPF**.
+
+## Aba 📊 Mensal / Metas
+
+Levantamento por mês a partir do RELATORIO_FRETES_NATALY:
+
+- **Contratos fechados** (total do mês − cancelados), **concluídos**, **em andamento** e **cancelados**.
+- **Nível de meta** atingido pela empresa (Abaixo / Meta / Acelerado / Turbo / Máquina) e o **bônus**.
+- Quebra **por operadora** (NATALY / YASMIN): fechados e em andamento no mês.
+- Tabela do **plano de comissionamento** para referência.
+
+> Os números vêm da planilha (arquivo `resumo-mensal.json`). Envie um relatório novo para a
+> OBS que o levantamento é regerado.
+
 ## Alerta de falta de atualização (24h)
 
 No Relatório, todo frete **em andamento** que fica **24h sem atualização** ganha o
