@@ -434,6 +434,7 @@
   <button class="sb-btn" id="sbFin" onclick="switchView('fin')" title="Financeiro"><span>💰</span></button>
   <button class="sb-btn" id="sbCli" onclick="switchView('clientes')" title="Clientes"><span>👥</span></button>
   <button class="sb-btn" id="sbMensal" onclick="switchView('mensal')" title="Metas"><span>📊</span></button>
+  <button class="sb-btn" id="sbRelatorios" onclick="switchView('relatorios')" title="Relatórios"><span>📈</span></button>
   <div style="flex:1"></div>
   <button class="sb-btn" onclick="abrirUsuarios()" title="Configurações"><span>⚙️</span></button>
 </nav>
@@ -856,6 +857,29 @@
           </table>
         </div>
         <p class="hint" style="margin-top:14px">“Contratos fechados” = fretes fechados no mês (total − cancelados). O levantamento vem da planilha; envie um relatório novo para a OBS que os números são atualizados.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== RELATÓRIOS ===================== -->
+  <div id="viewRelatorios" style="display:none">
+    <div class="card">
+      <h2>📈 Relatórios por setor</h2>
+      <div class="body">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+          <div style="display:flex;border:1px solid var(--linha);border-radius:8px;overflow:hidden">
+            <button id="relBtnSemana" class="btn-ghost" onclick="relSetTipo('semana')" style="border:none;border-radius:0;padding:7px 16px">Semanal</button>
+            <button id="relBtnMes" class="btn-ghost" onclick="relSetTipo('mes')" style="border:none;border-radius:0;padding:7px 16px">Mensal</button>
+          </div>
+          <button class="btn-ghost" onclick="relNav(-1)" style="padding:7px 12px">◀</button>
+          <b id="relPeriodoLabel" style="min-width:200px;text-align:center">—</b>
+          <button class="btn-ghost" onclick="relNav(1)" style="padding:7px 12px">▶</button>
+          <div style="flex:1"></div>
+          <button class="btn-ghost" onclick="window.print()" style="padding:7px 14px">🖨️ Imprimir</button>
+        </div>
+        <div id="relComercial" class="rel-bloco"></div>
+        <div id="relOperacao" class="rel-bloco"></div>
+        <div id="relFinanceiro" class="rel-bloco"></div>
       </div>
     </div>
   </div>
@@ -2821,8 +2845,9 @@ function switchView(v){
   $('#tabMensal').classList.toggle('tab-on', v==='mensal');
   $('#viewCrm').style.display      = v==='crm'?'':'none';
   $('#tabCrm').classList.toggle('tab-on', v==='crm');
+  const vRel=$('#viewRelatorios'); if(vRel) vRel.style.display = v==='relatorios'?'':'none';
   // sincronizar sidebar
-  const sbMap={crm:'sbCrm',ficha:'sbFicha',rel:'sbRel',fin:'sbFin',clientes:'sbCli',mensal:'sbMensal'};
+  const sbMap={crm:'sbCrm',ficha:'sbFicha',rel:'sbRel',fin:'sbFin',clientes:'sbCli',mensal:'sbMensal',relatorios:'sbRelatorios'};
   document.querySelectorAll('.sb-btn').forEach(b=>b.classList.remove('sb-on'));
   const sbId=sbMap[v]; if(sbId&&document.getElementById(sbId)) document.getElementById(sbId).classList.add('sb-on');
   if(v==='rel') renderRelatorio();
@@ -2830,6 +2855,131 @@ function switchView(v){
   if(v==='clientes'){ renderClientes(); }
   if(v==='mensal') renderMensal();
   if(v==='crm') renderCRM();
+  if(v==='relatorios') renderRelatorios();
+}
+
+/* ============================================================
+   RELATÓRIOS por setor (Comercial / Operação / Financeiro)
+   Período semanal ou mensal.
+   ============================================================ */
+const MES_PT=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+let relTipo='mes', relRef=new Date();
+function relIso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function relRange(){
+  const d=new Date(relRef);
+  if(relTipo==='semana'){
+    const dow=(d.getDay()+6)%7;
+    const s=new Date(d); s.setDate(d.getDate()-dow); s.setHours(0,0,0,0);
+    const e=new Date(s); e.setDate(s.getDate()+6);
+    return {start:relIso(s),end:relIso(e)};
+  }
+  return {start:relIso(new Date(d.getFullYear(),d.getMonth(),1)), end:relIso(new Date(d.getFullYear(),d.getMonth()+1,0))};
+}
+function relEm(dateStr,R){ if(!dateStr) return false; const s=String(dateStr).slice(0,10); return s>=R.start && s<=R.end; }
+function relDias(a,b){ const da=new Date(a), db=new Date(b); return (db-da)/864e5; }
+function relSetTipo(t){ relTipo=t; renderRelatorios(); }
+function relNav(dir){ const d=new Date(relRef); if(relTipo==='semana') d.setDate(d.getDate()+dir*7); else d.setMonth(d.getMonth()+dir); relRef=d; renderRelatorios(); }
+function relTile(label,val,sub,cor){ return `<div style="flex:1;min-width:120px;background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 14px">
+  <div style="font-size:11px;color:rgba(228,228,240,.6);text-transform:uppercase;letter-spacing:.3px">${label}</div>
+  <div style="font-size:22px;font-weight:800;color:${cor||'#e4e4f0'};margin-top:2px">${val}</div>
+  ${sub?`<div style="font-size:11px;color:rgba(228,228,240,.5);margin-top:2px">${sub}</div>`:''}</div>`; }
+function relTitulo(txt){ return `<h3 style="font-size:15px;margin:20px 0 10px;color:#e4e4f0">${txt}</h3>`; }
+function renderRelatorios(){
+  const R=relRange();
+  const bs=$('#relBtnSemana'), bm=$('#relBtnMes');
+  if(bs) bs.classList.toggle('btn-primary', relTipo==='semana');
+  if(bm) bm.classList.toggle('btn-primary', relTipo==='mes');
+  const lab=$('#relPeriodoLabel');
+  if(lab) lab.textContent = relTipo==='semana' ? `${dataBR(R.start)} – ${dataBR(R.end)}` : `${MES_PT[new Date(relRef).getMonth()]} ${new Date(relRef).getFullYear()}`;
+  relRenderComercial(R); relRenderOperacao(R); relRenderFinanceiro(R);
+}
+function relRenderComercial(R){
+  const box=$('#relComercial'); if(!box) return;
+  const leads=Object.values(CRM_LEADS||{}).filter(l=>l && !l._novo);
+  const criados=leads.filter(l=>relEm(l.dataEntrada,R));
+  const fechados=leads.filter(l=>l.etapa==='fechado' && relEm(l.dataFechamento||l.ultimaInteracao,R));
+  const perdidos=leads.filter(l=>l.etapa==='perdido' && relEm(l.ultimaInteracao,R));
+  const valFech=fechados.reduce((s,l)=>s+numMoeda(l.valorEstimado||l.valorCotacaoSW),0);
+  const conv=(fechados.length+perdidos.length)?Math.round(100*fechados.length/(fechados.length+perdidos.length)):0;
+  const resp=[]; criados.forEach(l=>{ const p=(l.timeline||[]).filter(t=>t.tipo!=='criacao').map(t=>t.data).sort()[0]; if(p&&l.dataEntrada) resp.push(Math.max(0,relDias(l.dataEntrada,p.slice(0,10)))); });
+  const mResp=resp.length?(resp.reduce((a,b)=>a+b,0)/resp.length):null;
+  const fT=fechados.filter(l=>l.dataEntrada&&l.dataFechamento).map(l=>Math.max(0,relDias(l.dataEntrada,l.dataFechamento)));
+  const mFech=fT.length?(fT.reduce((a,b)=>a+b,0)/fT.length):null;
+  let tarefas=0; leads.forEach(l=>(l.tarefas||[]).forEach(t=>{ if(t.feita&&relEm(t.feitoEm,R)) tarefas++; }));
+  const vend={}; const add=v=>{ const k=v||'—'; vend[k]=vend[k]||{criados:0,fechados:0,valor:0}; return vend[k]; };
+  criados.forEach(l=>add(l.vendedor).criados++);
+  fechados.forEach(l=>{ const o=add(l.vendedor); o.fechados++; o.valor+=numMoeda(l.valorEstimado||l.valorCotacaoSW); });
+  const linhas=Object.entries(vend).sort((a,b)=>b[1].fechados-a[1].fechados).map(([v,o])=>`<tr><td>${esc(v)}</td><td style="text-align:center">${o.criados}</td><td style="text-align:center">${o.fechados}</td><td style="text-align:right">${moeda(o.valor)}</td></tr>`).join('')||'<tr><td colspan="4" class="hint" style="text-align:center">Sem dados no período.</td></tr>';
+  box.innerHTML = relTitulo('🎯 Comercial — produtividade, rapidez e fechamentos') +
+    `<div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${relTile('Leads criados',criados.length,'novos no período')}
+      ${relTile('Fechamentos',fechados.length,moeda(valFech),'#16a34a')}
+      ${relTile('Conversão',conv+'%','fechados ÷ (fechados+perdidos)','#2563eb')}
+      ${relTile('Perdidos',perdidos.length,'',perdidos.length?'#dc2626':null)}
+      ${relTile('Tarefas concluídas',tarefas,'no período')}
+      ${relTile('Rapidez 1º contato',mResp==null?'—':mResp.toFixed(1)+'d','média até 1ª interação')}
+      ${relTile('Tempo p/ fechar',mFech==null?'—':mFech.toFixed(1)+'d','média criação→fechamento')}
+    </div>
+    <table class="fin" style="margin-top:12px;min-width:480px"><thead><tr><th>Vendedor</th><th style="text-align:center">Leads</th><th style="text-align:center">Fechados</th><th style="text-align:right">Valor fechado</th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+function relRenderOperacao(R){
+  const box=$('#relOperacao'); if(!box) return;
+  const fretes=Object.values(MEM||{}).filter(f=>f && typeof f==='object');
+  const st=f=>statusDe(f);
+  const concl=fretes.filter(f=>st(f)==='CONCLUÍDO' && relEm((f.chegadaFeito||f.dataFechamento||f._salvoEm||''),R));
+  const andamento=fretes.filter(f=>st(f)==='ANDAMENTO');
+  const coletas=fretes.filter(f=>relEm(f.coletaFeito,R)).length;
+  const entregas=fretes.filter(f=>relEm(f.chegadaFeito,R)).length;
+  const updDia={}; let totalUpd=0;
+  fretes.forEach(f=>(f.histCliente||[]).forEach(h=>{ if(relEm((h.ts||'').slice(0,10),R)){ const d=(h.ts||'').slice(0,10); updDia[d]=(updDia[d]||0)+1; totalUpd++; } }));
+  const semAtual=andamento.filter(f=>{ const last=(f.histCliente||[]).map(h=>h.ts).filter(Boolean).sort().pop(); if(!last) return true; return relDias(last,new Date())>1; });
+  const ops={}; const addo=o=>{ const k=up(o)||'—'; ops[k]=ops[k]||{and:0,concl:0}; return ops[k]; };
+  andamento.forEach(f=>addo(f.operadora).and++); concl.forEach(f=>addo(f.operadora).concl++);
+  const linhasOps=Object.entries(ops).sort((a,b)=>b[1].and-a[1].and).map(([o,v])=>`<tr><td>${esc(o)}</td><td style="text-align:center">${v.and}</td><td style="text-align:center">${v.concl}</td></tr>`).join('')||'<tr><td colspan="3" class="hint" style="text-align:center">Sem dados.</td></tr>';
+  const dias=Object.keys(updDia).sort();
+  const linhasDia=dias.length?dias.map(d=>`<tr><td>${dataBR(d)}</td><td style="text-align:center">${updDia[d]}</td></tr>`).join(''):'<tr><td colspan="2" class="hint" style="text-align:center">Nenhuma atualização enviada no período.</td></tr>';
+  box.innerHTML = relTitulo('🚚 Operação — produtividade e atualização aos clientes') +
+    `<div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${relTile('Concluídos',concl.length,'no período','#16a34a')}
+      ${relTile('Em andamento',andamento.length,'situação atual','#2563eb')}
+      ${relTile('Coletas realizadas',coletas,'no período')}
+      ${relTile('Entregas realizadas',entregas,'no período')}
+      ${relTile('Atualizações ao cliente',totalUpd,'enviadas no período')}
+      ${relTile('Sem atualização 24h',semAtual.length,'em andamento',semAtual.length?'#dc2626':'#16a34a')}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">
+      <div style="flex:1;min-width:260px"><b style="font-size:12px">Por operadora</b>
+        <table class="fin" style="margin-top:6px"><thead><tr><th>Operadora</th><th style="text-align:center">Andamento</th><th style="text-align:center">Concluídos</th></tr></thead><tbody>${linhasOps}</tbody></table></div>
+      <div style="flex:1;min-width:260px"><b style="font-size:12px">Atualizações enviadas por dia</b>
+        <table class="fin" style="margin-top:6px"><thead><tr><th>Dia</th><th style="text-align:center">Atualizações</th></tr></thead><tbody>${linhasDia}</tbody></table></div>
+    </div>`;
+}
+function relRenderFinanceiro(R){
+  const box=$('#relFinanceiro'); if(!box) return;
+  const fretes=Object.values(MEM||{}).filter(f=>f && typeof f==='object' && statusDe(f)!=='CANCELADO');
+  const ref=f=>(f.dataFechamento||f.dataFaturamento||(f._salvoEm||'').slice(0,10));
+  const noPer=fretes.filter(f=>relEm(ref(f),R));
+  const fat=noPer.reduce((s,f)=>s+num(f.valorFrete),0);
+  const receb=noPer.reduce((s,f)=>s+recebidoDe(f),0);
+  const aberto=fat-receb;
+  const lucro=noPer.reduce((s,f)=>s+lucroDe(f),0);
+  const custoPrest=noPer.reduce((s,f)=>s+somaPrest(f),0);
+  const margem=fat?Math.round(100*lucro/fat):0;
+  const hoje=relIso(new Date());
+  const aReceber=fretes.filter(f=>relEm(f.previsaoRecebimento,R)).reduce((s,f)=>s+(num(f.valorFrete)-recebidoDe(f)),0);
+  const vencido=fretes.filter(f=>f.previsaoRecebimento&&f.previsaoRecebimento<hoje&&(num(f.valorFrete)-recebidoDe(f))>0).reduce((s,f)=>s+(num(f.valorFrete)-recebidoDe(f)),0);
+  const linhas=noPer.sort((a,b)=>num(b.valorFrete)-num(a.valorFrete)).slice(0,15).map(f=>`<tr><td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa||''))}</td><td style="text-align:right">${moeda(f.valorFrete)}</td><td style="text-align:right">${moeda(recebidoDe(f))}</td><td style="text-align:right">${moeda(num(f.valorFrete)-recebidoDe(f))}</td><td style="text-align:right;color:${lucroDe(f)>=0?'#16a34a':'#dc2626'}">${moeda(lucroDe(f))}</td></tr>`).join('')||'<tr><td colspan="6" class="hint" style="text-align:center">Sem fretes no período.</td></tr>';
+  box.innerHTML = relTitulo('💰 Financeiro — faturamento, recebimento e lucro') +
+    `<div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${relTile('Faturamento',moeda(fat),'fretes do período')}
+      ${relTile('Recebido',moeda(receb),'',receb?'#16a34a':null)}
+      ${relTile('Em aberto',moeda(aberto),'',aberto>0?'#d97706':null)}
+      ${relTile('Lucro',moeda(lucro),'margem '+margem+'%','#16a34a')}
+      ${relTile('Custo prestadores',moeda(custoPrest),'no período')}
+      ${relTile('A receber (previsto)',moeda(aReceber),'previsão no período','#2563eb')}
+      ${relTile('Vencido',moeda(vencido),'em aberto e vencido',vencido>0?'#dc2626':'#16a34a')}
+    </div>
+    <table class="fin" style="margin-top:12px;min-width:620px"><thead><tr><th>Nº</th><th>Cliente</th><th style="text-align:right">Frete</th><th style="text-align:right">Recebido</th><th style="text-align:right">Em aberto</th><th style="text-align:right">Lucro</th></tr></thead><tbody>${linhas}</tbody></table>`;
 }
 
 // ---- importar cadastro de clientes das planilhas ----
@@ -2967,10 +3117,10 @@ const USUARIOS_PADRAO=[
   {user:'operacional', senha:'op2026', papel:'operacional', nome:'Operacional'},
 ];
 const PERMISSOES={
-  admin:['crm','ficha','rel','fin','clientes','mensal'],
-  comercial:['crm','ficha','clientes','mensal'],
-  operacional:['rel','clientes','mensal'],
-  financeiro:['fin','rel','clientes','mensal'],
+  admin:['crm','ficha','rel','fin','clientes','mensal','relatorios'],
+  comercial:['crm','ficha','clientes','mensal','relatorios'],
+  operacional:['rel','clientes','mensal','relatorios'],
+  financeiro:['fin','rel','clientes','mensal','relatorios'],
 };
 const PAPEL_NOME={admin:'Administrador',comercial:'Comercial',operacional:'Operacional',financeiro:'Financeiro'};
 let USUARIOS=[], sessaoUser=null;
@@ -2996,6 +3146,8 @@ function aplicarPermissoes(){
   const perm=PERMISSOES[sessaoUser.papel]||['ficha'];
   const map={ficha:'#tabFicha',rel:'#tabRel',fin:'#tabFin',clientes:'#tabCli',mensal:'#tabMensal',crm:'#tabCrm'};
   Object.entries(map).forEach(([v,sel])=>{ const el=$(sel); if(el) el.style.display=perm.includes(v)?'':'none'; });
+  const sbPerm={crm:'sbCrm',ficha:'sbFicha',rel:'sbRel',fin:'sbFin',clientes:'sbCli',mensal:'sbMensal',relatorios:'sbRelatorios'};
+  Object.entries(sbPerm).forEach(([v,id])=>{ const el=document.getElementById(id); if(el) el.style.display=perm.includes(v)?'':'none'; });
   $('#userChip').style.display='inline-flex';
   $('#userNome').textContent=sessaoUser.nome;
   $('#userPapel').textContent=PAPEL_NOME[sessaoUser.papel]||sessaoUser.papel;
