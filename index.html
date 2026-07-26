@@ -122,6 +122,13 @@
   .fcard .fld{display:flex;flex-direction:column;gap:3px}
   .fcard .fld.col2{grid-column:span 2}
   .fcard .fld.col4{grid-column:span 4}
+  .marcos-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .marcos-grid .mc{display:flex;flex-direction:column;gap:3px;background:#f6f8fb;border:1px solid var(--linha);border-radius:7px;padding:7px 8px}
+  .marcos-grid .mc-l{font-size:11px;font-weight:600;color:#4a5a6b}
+  .marcos-grid .mc input[type=date]{font-size:12.5px;padding:5px 6px;border:1px solid var(--linha);border-radius:6px}
+  .marcos-grid .mc-ok{color:#0f8a4a;font-weight:700;font-size:13px}
+  .marcos-grid .mc-x{background:none;border:none;color:#c0392b;cursor:pointer;font-size:13px;padding:0 4px}
+  @media(max-width:820px){.marcos-grid{grid-template-columns:1fr 1fr}}
   .fcard .fld label{font-size:11px;font-weight:600;color:#7a8794}
   .fcard .fld .ro{font-size:13px;padding:2px 0}
   .fcard input,.fcard select,.fcard textarea{font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--linha);border-radius:6px}
@@ -1388,9 +1395,11 @@ function renderRelatorio(){
   fretes.forEach(f=>{ const o=opDe(f); if(o&&cont[o]!==undefined) cont[o]++; });
   // pills: FILA | operadoras | TODAS | + operadora
   const nAtras=fretes.filter(atrasado).length;
+  const nLembr=fretes.filter(f=>lembretesDe(f).length).length;
   $('#relOperadoras').innerHTML =
     pill('🕓 FILA', relFiltro==='FILA', naFila, "setRelFiltro('FILA')") +
     operadoras.map(o=>pill(o, relFiltro===o, cont[o]||0, `setRelFiltro('${jsArg(o)}')`)).join('') +
+    pill('🔔 LEMBRETES', relFiltro==='LEMBRETES', nLembr, "setRelFiltro('LEMBRETES')") +
     pill('⚠ ATRASADOS', relFiltro==='ATRASADOS', nAtras, "setRelFiltro('ATRASADOS')") +
     pill('TODAS', relFiltro==='TODAS', fretes.length, "setRelFiltro('TODAS')") +
     `<button class="pill" style="border-style:dashed" onclick="addOperadora()" title="Adicionar operadora">＋ operadora</button>`;
@@ -1403,6 +1412,7 @@ function renderRelatorio(){
     const o=opDe(f);
     if(relFiltro==='FILA'){ if(o) return false; }
     else if(relFiltro==='ATRASADOS'){ if(!atrasado(f)) return false; }
+    else if(relFiltro==='LEMBRETES'){ if(!lembretesDe(f).length) return false; }
     else if(relFiltro!=='TODAS'){ if(o!==relFiltro.toUpperCase()) return false; }
     if(relStatusF!=='TODOS' && statusDe(f)!==relStatusF) return false;
     if(q){ const hay=[f.numero,f.clienteEmpresa,f.origem,f.destino,f.placa,f.atendente,...((f.veiculos||[]).map(v=>v.placa))].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
@@ -1433,9 +1443,11 @@ function linhaFrete(f){
   const pg = (num(f.valorFrete)>0 && st!=='CANCELADO')
     ? (abertoDe(f)<=0.005 ? '<span class="badge" style="background:#0f8a4a">💰 QUITADO</span>'
       : `<span class="badge" style="background:#b7791f" title="em aberto">💰 falta ${moeda(abertoDe(f))}</span>`) : '';
+  const nLemb=lembretesDe(f).length;
   const badges = (op?`<span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>`
                     :`<span class="badge" style="background:#8a6d00">🕓 FILA</span>`)
     +`<span class="badge s-${k}">${esc(st)}</span>`
+    +(nLemb?`<span class="badge" style="background:#7c3aed" title="${esc(lembretesDe(f).join(' · '))}">🔔 ${nLemb}</span>`:'')
     +pg
     +(atrasado(f)?`<span class="badge atraso">⚠ ${horasSemAtualizacao(f)}h</span>`:'')
     +((f.pedido&&!f.cadastrado)?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO</span>':'');
@@ -1481,10 +1493,16 @@ function cardFrete(f){
   const vf=num(f.valorFrete), pago=num(f.pago1)+num(f.pago2), abertoV=vf-pago, saldo=pago-somaPrest(f);
   const optS=STATUSES.map(s=>`<option${s===st?' selected':''}>${s}</option>`).join('');
   const optOp=operadoras.map(o=>`<option${o===op?' selected':''}>${esc(o)}</option>`).join('');
+  const pz=prazoInfo(f);
+  const prazoTxt = pz
+    ? `Prazo até <b>${dataBR(pz.deadline)}</b> (${pz.dias} dias) — ${pz.rest>=0?`<b style="color:${pz.rest<=2?'#c0392b':'#0f8a4a'}">faltam ${pz.rest} dia(s)</b>`:`<b style="color:#c0392b">vencido há ${-pz.rest} dia(s)</b>`}`
+    : '<span class="hint">preencha a data de embarque + o prazo (ex.: 10 a 15 dias)</span>';
+  const lemb=lembretesDe(f);
   return `<div class="fcard s-${k}">
     <div class="top">
       <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${rota}</span></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${lemb.map(l=>`<span class="badge" style="background:#7c3aed">🔔 ${esc(l)}</span>`).join('')}
         <span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>
         ${(f.pedido&&!f.cadastrado)?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO</span>':''}
         <span class="badge s-${k}">${esc(st)}</span>
@@ -1502,7 +1520,18 @@ function cardFrete(f){
 
       <div class="fld"><label>Status</label><select onchange="setFrete('${id}','status',this.value)">${optS}</select></div>
       <div class="fld"><label>Nº averbação</label><input value="${escA(f.averbacao)}" onchange="setFrete('${id}','averbacao',this.value)"></div>
-      <div class="fld col2"><label>Previsão de entrega</label><input value="${escA(f.previsaoEntrega)}" onchange="setFrete('${id}','previsaoEntrega',this.value)" placeholder="Ex.: 10 a 15 dias após embarque"></div>
+      <div class="fld col2"><label>Previsão de entrega (prazo)</label><input value="${escA(f.previsaoEntrega)}" onchange="setFrete('${id}','previsaoEntrega',this.value)" placeholder="Ex.: 10 a 15 dias após embarque"></div>
+      <div class="fld col2"><label>📦 Data de embarque</label><input type="date" value="${escA(f.embarqueFeito)}" onchange="setMarco('${id}','embarqueFeito',this.value,'Embarque confirmada')"></div>
+      <div class="fld col4"><label>⏳ Prazo até a entrega</label><div class="ro">${prazoTxt}</div></div>
+
+      <div class="fld col4"><label>🚚 Marcos do transporte — marque as datas (geram lembrete)</label>
+        <div class="marcos-grid">
+          ${marcoHTML(id,f,{label:'Coleta',prev:'coletaPrev',feito:'coletaFeito'})}
+          ${marcoHTML(id,f,{label:'Embarque',prev:'embarquePrev',feito:'embarqueFeito'})}
+          ${marcoHTML(id,f,{label:'Chegada',feito:'chegadaFeito'})}
+          ${marcoHTML(id,f,{label:'Liberação',prev:'liberacaoPrev'})}
+        </div>
+      </div>
 
       <div class="fld col4"><div class="hist-wrap">
         <div class="hist-col">
@@ -1540,6 +1569,51 @@ function puxarFrete(id,op){
   db[id].puxadoEm=new Date().toISOString();      // conta como atualização (zera o alerta)
   db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
   renderRelatorio(); atualizarHist(); flash('▶ Transporte iniciado — frete '+(db[id].numero||'')+' com '+db[id].operadora);
+}
+
+// ---- marcos do transporte (coleta/embarque/chegada/liberação) + lembretes ----
+function addDiasISO(iso,d){ const dt=new Date(iso+'T12:00:00'); dt.setDate(dt.getDate()+(+d||0)); return dt.toISOString().slice(0,10); }
+function diasEntre(a,b){ return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000); }
+function maxDiasPrazo(txt){ const ns=(txt||'').match(/\d+/g); if(!ns) return 0; return Math.max(...ns.map(Number)); }
+function setMarco(id,campo,valor,rotulo){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  f[campo]=valor; f._salvoEm=new Date().toISOString();
+  if(valor){
+    if(!Array.isArray(f.histInterno)) f.histInterno=histOf(f,'interno');
+    const acao = /Feito$/.test(campo) ? 'confirmada em' : 'marcada para';
+    f.histInterno.push({ts:new Date().toISOString(), texto:`📅 ${rotulo} ${acao} ${dataBR(valor)}`});
+  }
+  gravarDB(db); renderRelatorio();
+  if(valor) flash(`${rotulo}: ${dataBR(valor)} ✔`);
+}
+function lembretesDe(f){
+  if(statusDe(f)!=='ANDAMENTO') return [];
+  const hoje=hojeISO(), out=[];
+  const chk=(prev,feito,lbl)=>{ if(f[prev] && !f[feito] && f[prev]<=hoje) out.push(`${lbl} pendente (${dataBR(f[prev])})`); };
+  chk('coletaPrev','coletaFeito','Coleta');
+  chk('embarquePrev','embarqueFeito','Embarque');
+  if(f.liberacaoPrev && f.liberacaoPrev<=hoje) out.push(`Liberação (${dataBR(f.liberacaoPrev)})`);
+  // prazo de entrega estourado
+  const p=prazoInfo(f); if(p && p.rest<0) out.push(`Prazo de entrega vencido (${dataBR(p.deadline)})`);
+  return out;
+}
+function prazoInfo(f){
+  const emb=f.embarqueFeito||f.dataEmbarque; if(!emb) return null;
+  const dias=maxDiasPrazo(f.previsaoEntrega); if(!dias) return null;
+  const deadline=addDiasISO(emb,dias), rest=diasEntre(hojeISO(),deadline);
+  return {deadline, rest, dias, emb};
+}
+// bloco de um marco: rótulo + (data prevista) e/ou (confirmar)
+function marcoHTML(id,f,cfg){
+  const cel=[];
+  if(cfg.prev) cel.push(`<div class="mc"><span class="mc-l">${cfg.label} — prevista</span><input type="date" value="${escA(f[cfg.prev])}" onchange="setMarco('${id}','${cfg.prev}',this.value,'${cfg.label} (prevista)')"></div>`);
+  if(cfg.feito){
+    const v=f[cfg.feito];
+    cel.push(`<div class="mc"><span class="mc-l">${cfg.label} — confirmar</span>`+(v
+      ? `<span class="mc-ok">✅ ${dataBR(v)}</span> <button class="mc-x" title="limpar" onclick="setMarco('${id}','${cfg.feito}','','${cfg.label}')">✕</button>`
+      : `<span style="display:flex;gap:6px"><button class="btn-ok" style="padding:4px 9px;font-size:12px" onclick="setMarco('${id}','${cfg.feito}',hojeISO(),'${cfg.label} confirmada')">✅ hoje</button><input type="date" style="width:120px" onchange="setMarco('${id}','${cfg.feito}',this.value,'${cfg.label} confirmada')"></span>`)+`</div>`);
+  }
+  return cel.join('');
 }
 // ---- alerta de falta de atualização (24h) ----
 function ultimaAtividade(f){
