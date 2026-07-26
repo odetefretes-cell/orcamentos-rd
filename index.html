@@ -3527,35 +3527,46 @@ async function crmCalcOpcoes(id){
   const cat = $('#calcCategoria')?.value || '';
   if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino.</p>'; return; }
   const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
+  const isDest = k => match(k, d);
   const preco = r => r.valores[cat];
   const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:t.o,dN:t.d, prazo:r.prazoDias });
-  const diretas=[], saemDaOrigem=[], chegamNoDestino=[];
+  const diretas=[], saemDaOrigem=[];
   for(const r of db.rotas){
     for(const t of (r.trajetos||[])){
       const so=match(t.o,o), sd=match(t.d,d);
       if(so && sd){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
-      else { if(so) saemDaOrigem.push(leg(r,t)); if(sd) chegamNoDestino.push(leg(r,t)); }
+      else if(so){ saemDaOrigem.push(leg(r,t)); }
     }
   }
-  // combinações de 2 trechos: origem -> M -> destino (M = cidade intermediária)
-  const porOrigemMeio = {};
-  for(const g of chegamNoDestino){ (porOrigemMeio[g.oN]=porOrigemMeio[g.oN]||[]).push(g); }
-  const combos=[];
-  const vistos=new Set();
+  // custo mínimo de cada cidade até o destino (qualquer nº de trechos)
+  const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
+  const adj = crmAdjacencia(db);
+  const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
+  const legB = b => ({ transportadora:b.carrier, valor:b.valores[cat], oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, dN:b.to, prazo:b.prazo });
+  const combos=[]; const vc=new Set();
+  const addCombo = (legs)=>{
+    if(legs.some(l=>l.valor==null)) return;
+    const sig = legs.map(l=>l.transportadora+'>'+l.dNome).join('|');
+    if(vc.has(sig)) return; vc.add(sig);
+    combos.push({ tipo:'combinacao', legs, total:legs.reduce((s,l)=>s+numMoeda(l.valor),0), prazo:legs.reduce((s,l)=>s+(l.prazo||0),0) });
+  };
+  // combinações: varia o 1º e o 2º trecho; completa com a rota mais barata até o destino
   for(const a of saemDaOrigem){
-    const conex = porOrigemMeio[a.dN]; if(!conex) continue;
-    for(const b of conex){
-      if(a.valor==null || b.valor==null) continue;
-      const k = a.transportadora+'|'+a.dNome+'|'+b.transportadora;
-      if(vistos.has(k)) continue; vistos.add(k);
-      combos.push({ tipo:'combinacao', legs:[a,b], total:(a.valor+b.valor), prazo:(a.prazo||0)+(b.prazo||0) });
+    if(a.valor==null || isDest(a.dN)) continue;
+    if(custo[a.dN]!=null){ addCombo([a].concat(recon(a.dN))); }     // 1º trecho + melhor continuação
+    for(const b of (adj[a.dN]||[])){                                 // varia o 2º trecho
+      if(combos.length>500) break;
+      if(b.valores[cat]==null || b.to===a.oN || match(b.to,o)) continue;
+      if(isDest(b.to)){ addCombo([a, legB(b)]); }                    // origem->M->destino
+      else if(custo[b.to]!=null){ addCombo([a, legB(b)].concat(recon(b.to))); }
     }
+    if(combos.length>500) break;
   }
   // dedup diretas por transportadora
   const dvist=new Set(); const diretasU=diretas.filter(x=>{ const k=x.legs[0].transportadora+'|'+x.total; if(dvist.has(k))return false; dvist.add(k); return true; });
   diretasU.sort((a,b)=>(a.total==null)-(b.total==null)||(a.total||0)-(b.total||0));
   combos.sort((a,b)=>a.total-b.total);
-  const opts = diretasU.concat(combos.slice(0,25));
+  const opts = diretasU.concat(combos.slice(0,30));
   window.__crmOpcoes = opts;
   if(!opts.length){ box.innerHTML = `<p class="hint">Nenhuma opção encontrada para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b>. Preencha manualmente.</p>`; crmAbrirComposicaoManual(id); return; }
   const cardOpt = (x,i)=>{
@@ -3605,6 +3616,46 @@ function crmAdjacencia(db){
     }
   }
   db._adj = adj; return adj;
+}
+// adjacência REVERSA (cidade destino -> trechos que chegam nela) p/ achar a
+// continuação mais barata até o destino a partir de qualquer cidade.
+function crmRevAdj(db){
+  if(db._radj) return db._radj;
+  const r = {};
+  for(const rt of db.rotas){
+    for(const t of (rt.trajetos||[])){
+      if(!t.o || !t.d || t.o===t.d) continue;
+      (r[t.d] = r[t.d] || []).push({
+        from:t.o, valores:rt.valores, carrier:rt.transportadora,
+        oNome:t.oNome, dNome:t.dNome, oUF:t.oUF, dUF:t.dUF, prazo:rt.prazoDias
+      });
+    }
+  }
+  db._radj = r; return r;
+}
+// custo mínimo de CADA cidade até o destino (Dijkstra reverso) + próximo trecho
+function crmCustoAteDestino(db, cat, isDest){
+  const radj = crmRevAdj(db);
+  const univ = new Set();
+  for(const k in radj){ univ.add(k); for(const e of radj[k]) univ.add(e.from); }
+  const custo={}, prox={}, feito={};
+  univ.forEach(k=>{ if(isDest(k)) custo[k]=0; });
+  let g=0;
+  while(g++ < 200000){
+    let u=null, best=Infinity;
+    for(const k in custo){ if(!feito[k] && custo[k]<best){ best=custo[k]; u=k; } }
+    if(u===null) break;
+    feito[u]=true;
+    for(const e of (radj[u]||[])){        // e: trecho e.from -> u
+      const p = e.valores[cat]; if(p==null) continue;
+      const nd = custo[u] + p;
+      if(custo[e.from]==null || nd < custo[e.from]){
+        custo[e.from]=nd;
+        prox[e.from]={ to:u, leg:{ transportadora:e.carrier, valor:p, oNome:e.oNome,oUF:e.oUF,dNome:e.dNome,dUF:e.dUF, prazo:e.prazo } };
+      }
+    }
+  }
+  return { custo, prox };
 }
 async function crmCalcAuto(id, auto){
   const box = $('#crmCalcRes'); if(!box) return;
