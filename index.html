@@ -1012,6 +1012,21 @@
   </div>
 </div>
 
+<div id="msgWppModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:20px;width:560px;max-width:96vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h2 style="font-size:17px;margin:0">💬 Mensagem para o cliente</h2>
+      <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('msgWppModal').style.display='none'">✕ fechar</button>
+    </div>
+    <p class="hint" style="margin-top:0">Copie e cole na conversa do WhatsApp com o cliente.</p>
+    <textarea id="msgWppTexto" readonly style="width:100%;height:300px;resize:vertical;font-size:13px;line-height:1.5;padding:12px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg,#0e1424);color:inherit;white-space:pre-wrap"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="btn-ghost" style="padding:8px 16px" onclick="document.getElementById('msgWppModal').style.display='none'">Fechar</button>
+      <button class="btn-ok" style="padding:8px 20px;font-weight:700" onclick="copiarMsgWpp()">📋 Copiar mensagem</button>
+    </div>
+  </div>
+</div>
+
 <div id="fipeModal" class="modal no-print" style="display:none;z-index:9600">
   <div class="sheet">
     <h3>🔎 Tabela FIPE — valor do veículo</h3>
@@ -3825,10 +3840,6 @@ function crmWhatsApp(id){
     if(g('#crmNome')) l.nome=g('#crmNome');
     if(g('#crmTelefone')) l.telefone=g('#crmTelefone');
   }
-  let tel = (l.telefone||'').replace(/\D/g,'');
-  if(!tel){ flash('Telefone não informado.','erro'); return; }
-  if(tel.length <= 11) tel = '55' + tel;
-
   // valor médio: total base a base da composição (ou o valor médio já calculado)
   const V = (typeof crmValoresOrc==='function') ? crmValoresOrc(l) : null;
   const media = (V && V.totalBase) || numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado);
@@ -3849,12 +3860,21 @@ function crmWhatsApp(id){
     `🏆 OBS Transportes — 20 anos de história no transporte de veículos.\n` +
     `📞 (11) 4352-4103`;
 
-  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
-  crmAddTimeline(id, 'whatsapp', `Orçamento médio enviado por WhatsApp${media?': '+moeda(media):''} — aguardando interesse do cliente.`);
-  if(l.etapa==='novo') l.etapa='contato';   // enviou média → avança p/ contato
+  // não abre o WhatsApp: mostra a mensagem formatada para copiar e colar na conversa
+  const ta = $('#msgWppTexto'); if(ta) ta.value = msg;
+  const modal = $('#msgWppModal'); if(modal) modal.style.display='flex';
+  crmAddTimeline(id, 'whatsapp', `Mensagem de orçamento médio gerada${media?': '+moeda(media):''} — copiar e colar na conversa com o cliente.`);
+  if(l.etapa==='novo') l.etapa='contato';   // gerou a média → avança p/ contato
   saveCRM();
-  if($('#crmModal')?.style.display !== 'none') crmAbrirLead(id);
-  flash('WhatsApp aberto com o valor médio ✔');
+  flash('Mensagem pronta — copie e cole na conversa ✔');
+}
+function copiarMsgWpp(){
+  const ta = $('#msgWppTexto'); if(!ta) return;
+  const txt = ta.value;
+  const ok = ()=>flash('Mensagem copiada ✔');
+  const fallback = ()=>{ ta.removeAttribute('readonly'); ta.focus(); ta.select(); try{ document.execCommand('copy'); ok(); }catch(_){ flash('Selecione o texto e copie manualmente.','erro'); } ta.setAttribute('readonly','readonly'); };
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(ok, fallback); }
+  else fallback();
 }
 
 // ============================================================
