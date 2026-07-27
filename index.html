@@ -460,6 +460,13 @@
       </div>
       <button class="btn-primary" style="margin-top:6px" onclick="salvarUsuario()">Salvar usuário</button>
     </div>
+    <div style="border-top:1px solid var(--card-border);margin-top:16px;padding-top:12px">
+      <b style="font-size:13px">📊 Tabela de fretes (base de cálculo)</b>
+      <p class="hint" style="margin:4px 0 8px">Escolha a planilha <b>BANCO_DE_DADOS.xlsx</b> para atualizar os preços de <b>todos</b> os operadores (publica na nuvem na hora).</p>
+      <input type="file" id="tabelaFile" accept=".xlsx,.xlsm" style="font-size:13px">
+      <button class="btn-ok" style="margin-left:8px" onclick="atualizarTabelaFretes()">⬆ Publicar tabela</button>
+      <div id="tabelaStatus" class="hint" style="margin-top:8px"></div>
+    </div>
   </div>
 </div>
 
@@ -3683,12 +3690,77 @@ function normTxt(s){
 }
 async function carregarTabelaFretes(){
   if(TABELA_FRETES) return TABELA_FRETES;
+  // 1) nuvem (tabela compartilhada, atualizada pelo admin) — vence o arquivo estático
+  if(CLOUD_ON && _fb && _fb.getDoc){
+    try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_tabela'));
+      if(s.exists() && s.data().data){ TABELA_FRETES = JSON.parse(s.data().data); return TABELA_FRETES; }
+    }catch(_){}
+  }
+  // 2) cópia local (caso admin tenha publicado offline)
+  try{ const ls=localStorage.getItem('obs_tabela_fretes'); if(ls){ TABELA_FRETES=JSON.parse(ls); return TABELA_FRETES; } }catch(_){}
+  // 3) arquivo estático publicado no site
   try{
     const resp = await fetch('tabela-fretes.json', {cache:'no-cache'});
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     TABELA_FRETES = await resp.json();
     return TABELA_FRETES;
   }catch(e){ TABELA_ERRO = e.message||String(e); return null; }
+}
+// ---- Admin: publicar nova tabela de fretes (lê o Excel e envia p/ a nuvem) ----
+function tabNorm(s){ if(s==null) return ''; return String(s).replace(/\u00a0/g,' ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
+function tabNum(v){ if(v==null||v==='') return null; if(typeof v==='number') return v; let s=String(v).replace(/\u00a0/g,'').replace('R$','').trim().replace(/\./g,'').replace(',','.'); const n=parseFloat(s.replace(/[^\d.-]/g,'')); return isNaN(n)?null:n; }
+function tabParseWorkbook(wb, XLSX){
+  const cel=(ws,r,c)=>{ const a=XLSX.utils.encode_cell({r:r,c:c}); const o=ws[a]; return o?o.v:null; };
+  const cfg = wb.Sheets['Configurações'] || wb.Sheets[wb.SheetNames.find(n=>tabNorm(n)==='configuracoes')];
+  const categorias=[]; const cidades={};
+  if(cfg){
+    const ref=XLSX.utils.decode_range(cfg['!ref']||'A1:A1');
+    for(let r=1;r<=ref.e.r;r++){ const cat=cel(cfg,r,0); if(cat&&String(cat).trim()) categorias.push(String(cat).trim()); }
+    for(let r=1;r<=ref.e.r;r++){
+      const cid=cel(cfg,r,2); if(!cid) continue;
+      const uf=cel(cfg,r,3), rec=tabNum(cel(cfg,r,4)), col=tabNum(cel(cfg,r,5));
+      cidades[tabNorm(cid)]={ cidade:String(cid).trim(), uf:uf?String(uf).trim().toUpperCase():'', recebimento:rec, coletaEntrega:col };
+    }
+  }
+  const rotas=[];
+  for(const nome of wb.SheetNames){
+    if(tabNorm(nome)==='configuracoes') continue;
+    const ws=wb.Sheets[nome]; if(!ws||!ws['!ref']) continue;
+    const ref=XLSX.utils.decode_range(ws['!ref']);
+    const transp = cel(ws,1,0) || nome;
+    const precos={}, trajetos={};
+    for(let r=6;r<=ref.e.r;r++){
+      const rota=cel(ws,r,0), cat=cel(ws,r,1), val=tabNum(cel(ws,r,2)), prazo=cel(ws,r,4);
+      if(rota&&cat&&val!=null){ const rn=String(rota).trim(); (precos[rn]=precos[rn]||{prazo:null,valores:{}}).valores[String(cat).trim()]=val; if(precos[rn].prazo==null&&prazo!=null&&prazo!==''){ const pv=parseInt(prazo); if(!isNaN(pv)) precos[rn].prazo=pv; } }
+      const rotaT=cel(ws,r,6), oc=cel(ws,r,7), ou=cel(ws,r,8), dc=cel(ws,r,9), du=cel(ws,r,10);
+      if(rotaT&&oc&&dc){ const rn=String(rotaT).trim(); (trajetos[rn]=trajetos[rn]||[]).push({ o:tabNorm(oc), oUF:ou?String(ou).trim().toUpperCase():'', d:tabNorm(dc), dUF:du?String(du).trim().toUpperCase():'', oNome:String(oc).trim(), dNome:String(dc).trim() }); }
+    }
+    for(const rn in precos){ rotas.push({ transportadora:String(transp).trim(), rota:rn, prazoDias:precos[rn].prazo, valores:precos[rn].valores, trajetos:trajetos[rn]||[] }); }
+  }
+  return { categorias, cidades, rotas };
+}
+async function atualizarTabelaFretes(){
+  if(sessaoUser && sessaoUser.papel!=='admin'){ alert('Apenas o administrador pode atualizar a tabela.'); return; }
+  const inp=$('#tabelaFile'); const st=$('#tabelaStatus');
+  const file=inp&&inp.files&&inp.files[0];
+  if(!file){ if(st) st.textContent='Escolha o arquivo .xlsx primeiro.'; return; }
+  if(st){ st.style.color=''; st.textContent='Lendo a planilha…'; }
+  try{
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const tabela = tabParseWorkbook(wb, XLSX);
+    if(!tabela.rotas.length){ if(st){ st.style.color='#dc2626'; st.textContent='Não encontrei rotas na planilha. Confira o formato (abas por transportadora + Configurações).'; } return; }
+    const str = JSON.stringify(tabela);
+    if(str.length > 950000){ if(st){ st.style.color='#dc2626'; st.textContent=`Tabela grande demais p/ a nuvem (${Math.round(str.length/1024)} KB, limite ~950 KB). Envie o arquivo para a OBS.`; } return; }
+    if(CLOUD_ON && _fb && _fb.setDoc){
+      await _fb.setDoc(_fb.doc(_fb.fs,'fretes','_tabela'), { data:str, em:new Date().toISOString(), rotas:tabela.rotas.length, cidades:Object.keys(tabela.cidades).length });
+    }
+    try{ localStorage.setItem('obs_tabela_fretes', str); }catch(_){}
+    TABELA_FRETES = tabela;   // aplica na hora (sem adjacências em cache)
+    if(st){ st.style.color='#16a34a'; st.textContent=`✔ Publicado: ${tabela.rotas.length} rotas, ${Object.keys(tabela.cidades).length} cidades. ${CLOUD_ON?'Todos recebem ao atualizar a página.':'(sem nuvem — salvo só neste computador)'}`; }
+    flash('Tabela de fretes publicada ✔');
+  }catch(e){ if(st){ st.style.color='#dc2626'; st.textContent='Erro ao ler a planilha: '+(e.message||e); } }
 }
 function crmCategoriaSugerida(l){   // adivinha a categoria pelo modelo do veículo
   const v = normTxt(l && l.veiculoDesc);
