@@ -3675,21 +3675,42 @@ function crmSalvarInteracao(id){
 function crmWhatsApp(id){
   const l = CRM_LEADS[id];
   if(!l) return;
+  // sincroniza o que está no formulário aberto (nome/telefone/rota/valor) antes de montar a mensagem
+  if($('#crmModal') && $('#crmModal').style.display!=='none'){
+    if(typeof crmSyncFormLead==='function') crmSyncFormLead(id);
+    const g=s=>($(s)?.value||'').trim();
+    if(g('#crmNome')) l.nome=g('#crmNome');
+    if(g('#crmTelefone')) l.telefone=g('#crmTelefone');
+  }
   let tel = (l.telefone||'').replace(/\D/g,'');
   if(!tel){ flash('Telefone não informado.','erro'); return; }
   if(tel.length <= 11) tel = '55' + tel;
 
-  const msg = `🚚 *OBS Transportes*\n\nOlá ${l.nome||''}! 😊\n\n` +
+  // valor médio: total base a base da composição (ou o valor médio já calculado)
+  const V = (typeof crmValoresOrc==='function') ? crmValoresOrc(l) : null;
+  const media = (V && V.totalBase) || numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado);
+  if(!media){
+    if(!confirm('Ainda não há valor médio calculado para este lead. Enviar mensagem mesmo assim (sem valor)?')) return;
+  }
+  const prazo = l.prazoSW ? `${l.prazoSW} dias após o embarque` : (typeof crmPrazoTexto==='function' ? crmPrazoTexto(l) : 'a combinar');
+
+  const msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
+    `Segue uma *estimativa média* para o seu transporte:\n\n` +
     (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
-    (l.origem||l.destino ? `📍 Rota: ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
-    (l.valorEstimado ? `💰 Valor: ${moeda(l.valorEstimado)}\n` : '') +
-    `\nPodemos conversar sobre o transporte do seu veículo?`;
+    (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
+    (media ? `💰 *Valor médio: ${moeda(media)}*\n` : '') +
+    `📅 Prazo estimado: ${prazo}\n\n` +
+    `Esse é um *valor médio de referência*. Se tiver interesse, responda *SIM* que preparamos o *orçamento oficial* com todos os detalhes; se não, responda *NÃO*.\n\n` +
+    `🛰️ Transporte monitorado por link de rastreio, com atualização diária.\n` +
+    `🏆 OBS Transportes — 20 anos de história no transporte de veículos.\n` +
+    `📞 (11) 4352-4103`;
 
   window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
-  crmAddTimeline(id, 'whatsapp', `Mensagem WhatsApp enviada para ${l.telefone}`);
+  crmAddTimeline(id, 'whatsapp', `Orçamento médio enviado por WhatsApp${media?': '+moeda(media):''} — aguardando interesse do cliente.`);
+  if(l.etapa==='novo') l.etapa='contato';   // enviou média → avança p/ contato
   saveCRM();
   if($('#crmModal')?.style.display !== 'none') crmAbrirLead(id);
-  flash('WhatsApp aberto ✔');
+  flash('WhatsApp aberto com o valor médio ✔');
 }
 
 // ============================================================
