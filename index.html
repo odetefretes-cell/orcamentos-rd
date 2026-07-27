@@ -4222,11 +4222,27 @@ function crmTrajAdd(id){
 }
 function crmTrajDel(id,i){
   const l=CRM_LEADS[id]; if(!l) return;
-  l.trajetos.splice(i,1); crmRenderComp(id);
+  l.trajetos.splice(i,1);
+  crmRecalcCalc(id);            // recalcula o Frete Base (soma dos trechos)
+  crmRenderComp(id);
 }
 function crmTrajSet(id,i,campo,val){
   const l=CRM_LEADS[id]; if(!l||!l.trajetos[i]) return;
   l.trajetos[i][campo]=val;
+  if(campo==='valor'){          // ao editar o valor do trecho, o base a base soma sozinho
+    crmRecalcCalc(id);
+    crmCompReflectValores(id);
+  }
+}
+// atualiza os valores das taxas na tela (sem re-renderizar, p/ não perder o foco)
+function crmCompReflectValores(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  const rows=document.querySelectorAll('#crmComposicao .crm-comp-row');
+  (l.composicao||[]).forEach((c,i)=>{
+    const inp=rows[i] && rows[i].querySelector('input[inputmode="decimal"]');
+    if(inp && document.activeElement!==inp) inp.value=c.valor||'';
+  });
+  crmCompUpdTotal(id);
 }
 function crmRenderComp(id){
   const l=CRM_LEADS[id]; const box=$('#crmComposicao'); if(!l||!box) return;
