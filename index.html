@@ -3549,8 +3549,9 @@ function renderCRMMetrics(){
 }
 
 // ---- Render Kanban ----
-// lead tem valor calculado automaticamente? (cotação média, valor estimado ou trechos)
-function crmTemCalc(l){ return !!(l && (numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado) || (l.trajetos && l.trajetos.length))); }
+// lead TEM cálculo automático de verdade = tem trechos de rota calculados
+// (valor médio/estimado sozinho pode ser lixo do site; só conta se houver rota)
+function crmTemCalc(l){ return !!(l && l.trajetos && l.trajetos.length); }
 function renderCRM(){
   renderCRMMetrics();
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
@@ -3603,11 +3604,11 @@ function renderCRM(){
       </div>
       ${l.veiculoDesc ? `<div class="kc-veiculo">🚗 ${esc(l.veiculoDesc)}</div>` : ''}
       ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
-      ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${l.valorCotacaoSW?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
+      ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${crmTemCalc(l)?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
       ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
       ${(()=>{ const t=crmProxTarefa(l); if(!t) return ''; const s=crmStatusTarefa(t.data); const c=s==='atrasada'?'#dc2626':s==='hoje'?'#d97706':'#2563eb'; const ic=s==='atrasada'?'⏰':s==='hoje'?'📌':'🗓️'; return `<div style="margin-top:4px;font-size:11px;color:${c};font-weight:600" title="${escA(t.texto)}">${ic} ${esc(t.texto.length>26?t.texto.slice(0,26)+'…':t.texto)} · ${dataBR(t.data)}</div>`; })()}
       <div class="kc-footer">
-        <span class="kc-valor">${l.valorEstimado ? moeda(l.valorEstimado) : (l.valorCotacaoSW?moeda(l.valorCotacaoSW):'—')}</span>
+        <span class="kc-valor">${crmTemCalc(l) ? moeda(l.valorCotacaoSW||l.valorEstimado) : '—'}</span>
         <span class="kc-data">${dataBR((l.ultimaInteracao||l.dataEntrada||'').slice(0,10))}</span>
       </div>
       ${l.vendedor ? `<div class="kc-vendedor">👤 ${esc(l.vendedor)}</div>` : ''}
@@ -3707,13 +3708,18 @@ async function crmRecalcularLead(id){
   const o=nk(oR.norm,oR.uf), d=nk(dR.norm,dR.uf);
   const cat=crmCategoriaSugerida(l);                  // categoria pela descrição do veículo
   const { opts }=crmGerarOpcoes(db, o, d, cat);
-  if(!opts.length) return false;
+  if(!opts.length){
+    // sem rota automática: limpa valores/trechos falsos (ex.: "média R$500" do site) → fica sem cálculo
+    l.trajetos=[]; l.valorCotacaoSW=''; l.valorEstimado=''; l.prazoSW='';
+    return false;
+  }
   const barata=opts.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12)||a.legs.length-b.legs.length)[0];
   l.trajetos=barata.legs.map(g=>({ de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
     transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null }));
   l.composicao=CRM_COMP_MODELO.map(c=>({...c}));       // recompõe com as regras novas (imposto off, reembarque por ligação)
   l._prazoManual=false;
   crmRecalcCalc(id);                                   // frete base, seguro, recebimento, reembarque, imposto, valor médio, prazo
+  l.valorEstimado = l.valorCotacaoSW || '';            // reflete o valor calculado no card
   return true;
 }
 async function crmRecalcularFunil(etapaId){
@@ -4106,7 +4112,8 @@ async function ancoraForteProxima(nc, uf, maxKm){
 // resolve a cidade digitada: se estiver na tabela usa; sen\u00e3o acha a mais pr\u00f3xima
 async function resolverCidade(raw){
   const uf=ufTxt(raw).toUpperCase();
-  const nc=normTxt(String(raw||'').replace(new RegExp('\\s+'+uf+'\\s*$','i'),''));
+  // remove a UF do fim em qualquer formato: "Cidade UF", "Cidade/UF", "Cidade - UF", "Cidade (UF)"
+  const nc=normTxt(String(raw||'').replace(new RegExp('[\\s/,()\\-]+'+uf+'\\)?\\s*$','i'),'').replace(/[\/,\-\s(]+$/,''));
   if(!nc) return { norm:normTxt(raw), uf, aproximada:false };
   if(!uf || cidadeNaTabela(nc, uf)){
     // cidade servida de PASSAGEM (n\u00e3o \u00e9 hub) colada num hub/base \u2192 ancora no hub (entrega/retirada local)
