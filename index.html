@@ -3923,8 +3923,8 @@ function crmWhatsApp(id){
 
   // aviso de cidade mais próxima (quando a cidade informada não está na tabela base)
   const notaProx=[];
-  if(l.origemAprox)  notaProx.push(`na origem, a base mais próxima é *${l.origemAprox.nome}/${l.origemAprox.uf}* (coleta a partir de ${l.origemAprox.orig})`);
-  if(l.destinoAprox) notaProx.push(`no destino, a base mais próxima é *${l.destinoAprox.nome}/${l.destinoAprox.uf}* (entrega até ${l.destinoAprox.orig})`);
+  if(l.origemAprox)  notaProx.push(`na origem, atendemos pela cidade mais próxima *${l.origemAprox.nome}/${l.origemAprox.uf}* (retirada a partir de ${l.origemAprox.orig})`);
+  if(l.destinoAprox) notaProx.push(`no destino, atendemos pela cidade mais próxima *${l.destinoAprox.nome}/${l.destinoAprox.uf}* (entrega até ${l.destinoAprox.orig})`);
   const blocoProx = notaProx.length
     ? `📍 Referência de rota: ${notaProx.join('; ')}. O valor pode ajustar conforme o endereço exato.\n\n` : '';
 
@@ -3990,19 +3990,27 @@ function cidadeNaTabela(normCidade, uf){
   const cid=(typeof crmBuildCidades==='function')?crmBuildCidades():null; if(!cid||!cid[uf]) return false;
   return cid[uf].some(c=>{ const cn=normTxt(c); return cn===normCidade || (normCidade.length>3&&cn.includes(normCidade)) || (cn.length>3&&normCidade.includes(cn)); });
 }
-// bases de apoio (onde há prestador de coleta/entrega) = cidades da aba Configurações/taxas.
+// Pontos de atendimento (âncoras) = bases de coleta/entrega (aba Configurações) +
+// TODAS as cidades que aparecem nos trajetos (o motorista passa e faz retirada/entrega direto).
 // nomes podem vir como "São Paulo/São Paulo" ou "Serra/Vitoria" -> usa a parte antes da "/".
 let BASES_COORDS=null;
 function basesComCoords(){
   if(BASES_COORDS) return BASES_COORDS;
   BASES_COORDS=[];
-  const db=TABELA_FRETES; if(!db || !db.cidades || !CIDADES_COORDS) return BASES_COORDS;
-  for(const k in db.cidades){
-    const b=db.cidades[k]; const uf=(b.uf||'').toUpperCase(); if(!uf) continue;
-    const nome=String(b.cidade||'').split('/')[0].trim(); if(!nome) continue;
-    const co=CIDADES_COORDS[normTxt(nome)+'|'+uf];
-    if(co) BASES_COORDS.push({ nome, uf, co });
-  }
+  const db=TABELA_FRETES; if(!db || !CIDADES_COORDS) return BASES_COORDS;
+  const seen=new Set();
+  const add=(nomeBruto,uf)=>{
+    const U=(uf||'').toUpperCase(); if(!U || !nomeBruto) return;
+    const nome=String(nomeBruto).split('/')[0].trim(); if(!nome) return;
+    const nn=normTxt(nome), key=nn+'|'+U; if(seen.has(key)) return;
+    const co=CIDADES_COORDS[nn+'|'+U]; if(!co) return;
+    seen.add(key); BASES_COORDS.push({ nome, uf:U, co });
+  };
+  // 1) bases de coleta/entrega (aba Configurações/taxas)
+  if(db.cidades) for(const k in db.cidades){ const b=db.cidades[k]; add(b.cidade, b.uf); }
+  // 2) todas as cidades de trajeto (retirada/entrega direto com o motorista)
+  const cid=(typeof crmBuildCidades==='function')?crmBuildCidades():null;
+  if(cid) for(const U in cid){ for(const nome of cid[U]) add(nome, U); }
   return BASES_COORDS;
 }
 async function cidadeMaisProxima(normCidade, uf){
@@ -4417,7 +4425,7 @@ async function crmCalcOpcoes(id){
     </div>`;
   };
   box.innerHTML = `
-    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Base mais próxima: ${avisosProx.join('; ')}. Valor aproximado.</div>`:''}
+    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado.</div>`:''}
     <div style="font-size:12px;font-weight:600;margin:2px 0 4px">${diretasU.length} rota(s) direta(s) e ${combos.length} combinação(ões) — a mais barata já está aplicada</div>
     <div style="max-height:280px;overflow:auto;border:1px solid var(--linha);border-radius:8px;padding:6px">
       ${opts.map((x,i)=>cardOpt(x,i)).join('')}
@@ -4564,7 +4572,7 @@ async function crmCalcAuto(id, auto){
       <div class="hint" style="margin:2px 0 0;font-size:11px;line-height:1.35">${legTxt(x)}</div>
     </div>`;
   box.innerHTML = `
-    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Base mais próxima: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
+    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
     <div style="font-size:12px;font-weight:600;margin:2px 0 6px">Escolha a opção (a mais barata já foi aplicada):</div>
     ${card(barata,'💰','Mais barata','barata', true, '')}
     ${card(rapida,'⚡','Mais rápida','rapida', false, sR===sB?'(igual à mais barata)':'')}
