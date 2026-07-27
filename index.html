@@ -299,15 +299,16 @@
   }
 
   /* ========== CRM — KANBAN BOARD ========== */
-  .crm-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
-  .crm-metric{background:rgba(255,255,255,.04);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:22px 24px;position:relative;overflow:hidden;transition:all .25s ease;box-shadow:0 4px 20px rgba(0,0,0,.2)}
-  .crm-metric:hover{transform:translateY(-3px);box-shadow:0 8px 32px rgba(0,0,0,.35);border-color:rgba(232,32,42,.25)}
-  .crm-metric .cm-icon{position:absolute;top:16px;right:18px;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;background:rgba(255,255,255,.06)}
-  .crm-metric .cm-label{font-size:12px;font-weight:600;color:rgba(228,228,240,.45);letter-spacing:.3px}
-  .crm-metric .cm-value{font-size:32px;font-weight:900;color:#fff;margin:6px 0 2px;letter-spacing:-.03em}
-  .crm-metric .cm-sub{font-size:12px;color:rgba(228,228,240,.4);font-weight:500}
-  @media(max-width:900px){.crm-metrics{grid-template-columns:repeat(2,1fr)}}
-  @media(max-width:560px){.crm-metrics{grid-template-columns:1fr}}
+  .crm-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:12px}
+  .crm-metric{background:rgba(255,255,255,.04);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:11px 14px;position:relative;overflow:hidden;transition:all .25s ease;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+  .crm-metric:hover{transform:translateY(-2px);box-shadow:0 6px 22px rgba(0,0,0,.3);border-color:rgba(232,32,42,.25)}
+  .crm-metric .cm-icon{position:absolute;top:9px;right:10px;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(255,255,255,.06)}
+  .crm-metric .cm-label{font-size:10.5px;font-weight:600;color:rgba(228,228,240,.45);letter-spacing:.2px}
+  .crm-metric .cm-value{font-size:22px;font-weight:900;color:#fff;margin:2px 0 1px;letter-spacing:-.03em}
+  .crm-metric .cm-sub{font-size:10.5px;color:rgba(228,228,240,.4);font-weight:500}
+  @media(max-width:1150px){.crm-metrics{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:760px){.crm-metrics{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.crm-metrics{grid-template-columns:1fr}}
 
   .crm-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;background:var(--card);padding:12px 16px;border-radius:14px;border:1px solid var(--card-border);box-shadow:var(--shadow)}
   .crm-toolbar input{flex:1;min-width:200px;font-size:13.5px;padding:10px 14px;border:1px solid rgba(255,255,255,.1);border-radius:10px;font-family:inherit;transition:all .2s;background:rgba(255,255,255,.05);color:var(--texto)}
@@ -315,7 +316,7 @@
   .crm-toolbar select{font-size:13.5px;padding:10px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(255,255,255,.05);color:var(--texto)}
   .crm-toolbar select option{background:var(--card);color:var(--texto)}
 
-  .kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:14px;min-height:420px;-webkit-overflow-scrolling:touch}
+  .kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:14px;min-height:560px;-webkit-overflow-scrolling:touch}
   .kanban::-webkit-scrollbar{height:8px}
   .kanban::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:4px}
   .kanban::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:4px}
@@ -338,7 +339,7 @@
   .kanban-col[data-etapa=perdido] .kanban-col-header{border-bottom-color:#ef4444}
   .kanban-col[data-etapa=perdido] .kch-dot{background:#c0392b}
 
-  .kanban-cards{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:calc(100vh - 340px);min-height:80px}
+  .kanban-cards{flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:calc(100vh - 235px);min-height:120px}
   .kanban-cards::-webkit-scrollbar{width:5px}
   .kanban-cards::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
 
@@ -4159,8 +4160,10 @@ async function crmInitCidadeSel(id){
     if(uf && cid && cid[uf]){
       selUF.value=uf; crmFillCidades(q);
       const selC=$('#crm'+q+'Cidade');
-      const cidade=atual.replace(new RegExp('\\s+'+uf+'\\s*$','i'),'').trim();
-      const match=cid[uf].find(c=>normTxt(c)===normTxt(cidade));
+      // remove a UF do fim em qualquer formato: "Cidade UF", "Cidade/UF", "Cidade - UF", "Cidade (UF)"
+      const cidade=atual.replace(new RegExp('[\\s/,()\\-]+'+uf+'\\)?\\s*$','i'),'').replace(/[\/,\-\s(]+$/,'').trim();
+      const ncid=normTxt(cidade);
+      const match=cid[uf].find(c=>normTxt(c)===ncid) || cid[uf].find(c=>normTxt(c).split('/')[0]===ncid);
       if(match) selC.value=match;
       else if(cidade){ const o=document.createElement('option'); o.value=atual; o.textContent=cidade+' (fora da tabela)'; selC.insertBefore(o, selC.lastChild); selC.value=atual; }
     }
