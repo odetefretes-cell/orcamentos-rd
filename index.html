@@ -1183,9 +1183,10 @@ function removeVeiculo(i){
 
 // ---- consulta Tabela FIPE (API pública) ----
 const FIPE_BASE='https://parallelum.com.br/fipe/api/v1';
-let fipeIdx=null, fipeResult=null;
+let fipeIdx=null, fipeResult=null, fipeCrmLeadId=null;
 function abrirFipe(idx){
   fipeIdx=idx; fipeResult=null;
+  if(idx!==null) fipeCrmLeadId=null;   // veículo da ficha (idx>=0) → sai do modo CRM
   $('#fipeUsar').disabled=true; $('#fipeResultado').textContent='';
   $('#fipeMarca').innerHTML='<option>—</option>'; $('#fipeModelo').innerHTML='<option>—</option>'; $('#fipeAno').innerHTML='<option>—</option>';
   $('#fipeModal').style.display='flex';
@@ -1234,12 +1235,23 @@ async function fipeConsultar(){
   }catch(e){ fipeErro(); }
 }
 function fipeUsar(){
-  if(fipeResult==null || fipeIdx==null) return;
+  if(fipeResult==null) return;
   const d=fipeResult;
+  const valorNum = String(num(d.Valor));
+  const veicTxt = `${d.Marca}/${d.Modelo}`.toUpperCase();
+  // modo CRM: preenche o valor do veículo do lead
+  if(fipeCrmLeadId!=null){
+    const vi=$('#crmValorVeic'); if(vi) vi.value=valorNum;
+    const ve=$('#crmVeiculo'); if(ve && !ve.value.trim()) ve.value=veicTxt;
+    const l=CRM_LEADS[fipeCrmLeadId]; if(l){ l.valorVeiculo=valorNum; if(!l.veiculoDesc) l.veiculoDesc=veicTxt; }
+    fipeCrmLeadId=null; fecharFipe(); flash('Valor FIPE aplicado ✔'); return;
+  }
+  // modo ficha: preenche o veículo indicado
+  if(fipeIdx==null) return;
   const anoTxt = (d.AnoModelo && Number(d.AnoModelo)<32000) ? String(d.AnoModelo) : '0KM';
-  veiculos[fipeIdx].modelo = `${d.Marca}/${d.Modelo}`.toUpperCase();
+  veiculos[fipeIdx].modelo = veicTxt;
   veiculos[fipeIdx].ano = anoTxt;
-  veiculos[fipeIdx].valor = String(num(d.Valor));
+  veiculos[fipeIdx].valor = valorNum;
   renderVeic(); salvarRascunho(); render();
   fecharFipe(); flash('Valor FIPE preenchido ✔');
 }
@@ -3546,7 +3558,11 @@ function crmAbrirLead(id){
       <div class="field"><label>Placa</label><input id="crmPlaca" value="${escA(l.placa||'')}"></div>
       <div class="field"><label>Origem</label><input id="crmOrigem" value="${escA(l.origem||'')}" placeholder="Ex.: BAURU SP"></div>
       <div class="field"><label>Destino</label><input id="crmDestino" value="${escA(l.destino||'')}" placeholder="Ex.: NATAL RN"></div>
-      <div class="field"><label>Valor do veículo (R$)</label><input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="Ex.: 20.000"></div>
+      <div class="field"><label>Valor do veículo (R$)</label>
+        <div style="display:flex;gap:6px">
+          <input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="Ex.: 20.000" style="flex:1">
+          <button type="button" class="btn-ghost" onclick="crmConsultarFipe('${id}')" style="white-space:nowrap;font-size:12px;padding:0 10px" title="Consultar tabela FIPE">🔎 FIPE</button>
+        </div></div>
       <div class="field"><label>Prioridade</label>
         <select id="crmPrioridade">
           <option value="quente" ${l.prioridade==='quente'?'selected':''}>🔥 Quente</option>
@@ -4468,6 +4484,13 @@ function crmLinkFormulario(id){
   saveCRM();
   fecharCrmModal();
   gerarLinkCliente(fid);   // abre a tela com o link + botões Copiar / WhatsApp
+}
+// ---- Consulta FIPE a partir do lead (reaproveita o modal FIPE da ficha) ----
+function crmConsultarFipe(id){
+  fipeCrmLeadId = id;   // sinaliza modo CRM para o fipeUsar()
+  const v=normTxt(($('#crmVeiculo')?.value)||'');
+  if($('#fipeTipo')) $('#fipeTipo').value = /\bmoto|cg |cb |cbr|xre|bros|titan|fan|factor|biz|pop|nmax|pcx|hornet/.test(v)?'motos':'carros';
+  abrirFipe(null);      // abre o modal; fipeIdx=null (não é veículo da ficha)
 }
 function crmConverterEmFrete(id){
   const l = CRM_LEADS[id];
