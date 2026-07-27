@@ -4266,6 +4266,71 @@ function crmCalcAddTrecho(id, i){
   flash('Trecho adicionado ✔');
 }
 // ---- Todas as opções: rotas diretas + combinações (reembarque) ----
+// ---- Gerador de opções: rotas diretas + combinações (reembarque), sem loops ----
+// Retorna { diretasU, combos, opts } para uma origem (o) e destino (d) normalizados.
+function crmGerarOpcoes(db, o, d, cat){
+  const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
+  const isDest = k => match(k, d);
+  const isO = k=>match(k,o);
+  const preco = r => precoCat(r.valores,cat);
+  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:t.o,dN:t.d, prazo:r.prazoDias });
+  const diretas=[];
+  for(const r of db.rotas){
+    for(const t of (r.trajetos||[])){
+      if(match(t.o,o) && match(t.d,d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
+    }
+  }
+  for(const r of db.rotas){
+    const s=crmSubTrecho(r,isO,isDest); if(!s) continue;
+    const p=precoCat(s.valores,cat); if(p==null) continue;
+    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo }], total:p, prazo:s.prazo||0 });
+  }
+  const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
+  const adj = crmAdjacencia(db);
+  const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
+  const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, oN:b.oN, dN:b.to, prazo:b.prazo });
+  const saemDaOrigem=[];
+  for(const k in adj){ if(!match(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
+  if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
+  const combos=[]; const vc=new Set();
+  const addCombo = (legs)=>{
+    if(!legs.length || legs.some(l=>l.valor==null)) return;
+    const seqC=[normTxt(legs[0].oNome)]; for(const l of legs) seqC.push(normTxt(l.dNome));
+    if(new Set(seqC).size !== seqC.length) return;   // sem loops (cidade repetida)
+    const sig = legs.map(l=>l.transportadora+'>'+l.dNome).join('|');
+    if(vc.has(sig)) return; vc.add(sig);
+    combos.push({ tipo:'combinacao', legs, total:legs.reduce((s,l)=>s+numMoeda(l.valor),0), prazo:legs.reduce((s,l)=>s+(l.prazo||0),0) });
+  };
+  for(const a of saemDaOrigem){
+    if(a.valor==null || isDest(a.dN)) continue;
+    if(custo[a.dN]!=null){ addCombo([a].concat(recon(a.dN))); }
+    for(const b of (adj[a.dN]||[])){
+      if(combos.length>500) break;
+      if(precoCat(b.valores,cat)==null || b.to===a.oN || match(b.to,o)) continue;
+      if(isDest(b.to)){ addCombo([a, legB(b)]); }
+      else if(custo[b.to]!=null){ addCombo([a, legB(b)].concat(recon(b.to))); }
+    }
+    if(combos.length>500) break;
+  }
+  const dvist=new Set(); const diretasU=diretas.filter(x=>{ const k=x.legs[0].transportadora+'|'+x.total; if(dvist.has(k))return false; dvist.add(k); return true; });
+  diretasU.sort((a,b)=>(a.total==null)-(b.total==null)||(a.total||0)-(b.total||0));
+  combos.sort((a,b)=>a.total-b.total);
+  const opts = diretasU.concat(combos.slice(0,40));
+  return { diretasU, combos, opts };
+}
+// aplica uma opção (lista de trechos) ao lead
+function crmAplicarOpcao(id, x){
+  const l = CRM_LEADS[id]; if(!l||!x) return;
+  l.trajetos = x.legs.map(g=>({
+    de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
+    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'',
+    oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null
+  }));
+  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  l._prazoManual=false;
+  crmRecalcCalc(id); crmRenderComp(id);
+}
+function crmUsarRecom(id, k){ const x=(window.__crmRecom||{})[k]; if(!x) return; crmAplicarOpcao(id,x); flash('Opção aplicada ✔'); }
 async function crmCalcOpcoes(id){
   const box = $('#crmCalcRes'); if(!box) return;
   box.innerHTML = '<p class="hint">Buscando opções e combinações…</p>';
@@ -4281,62 +4346,7 @@ async function crmCalcOpcoes(id){
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> → mais próxima <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   crmGuardarAprox(id, oR, oRaw, dR, dRaw);
   const cat = $('#calcCategoria')?.value || '';
-  const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
-  const isDest = k => match(k, d);
-  const preco = r => precoCat(r.valores,cat);
-  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:t.o,dN:t.d, prazo:r.prazoDias });
-  const diretas=[];
-  for(const r of db.rotas){
-    for(const t of (r.trajetos||[])){
-      if(match(t.o,o) && match(t.d,d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
-    }
-  }
-  // sub-trechos: a rota passa por O e depois por D na mesma viagem (ex.: RJ → Santo Antônio
-  // dentro de "São Paulo → Salvador"). Conta como rota direta pelo preço da rota. Duplicatas
-  // com a origem = origem da rota são removidas depois no dedup por transportadora+total.
-  const isO = k=>match(k,o);
-  for(const r of db.rotas){
-    const s=crmSubTrecho(r,isO,isDest); if(!s) continue;
-    const p=precoCat(s.valores,cat); if(p==null) continue;
-    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo }], total:p, prazo:s.prazo||0 });
-  }
-  // custo mínimo de cada cidade até o destino (qualquer nº de trechos)
-  const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
-  const adj = crmAdjacencia(db);
-  const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
-  const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, oN:b.oN, dN:b.to, prazo:b.prazo });
-  // arestas que saem da origem (origem de rota). Se a origem for cidade de PASSAGEM
-  // (ex.: Guaratinguetá), usa os sub-trechos que embarcam nela.
-  const saemDaOrigem=[];
-  for(const k in adj){ if(!match(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
-  if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
-  const combos=[]; const vc=new Set();
-  const addCombo = (legs)=>{
-    if(!legs.length || legs.some(l=>l.valor==null)) return;
-    // rejeita caminhos que repetem cidade (loops sem sentido, ex.: SP → Pedro de Toledo → SP)
-    const seqC=[normTxt(legs[0].oNome)]; for(const l of legs) seqC.push(normTxt(l.dNome));
-    if(new Set(seqC).size !== seqC.length) return;
-    const sig = legs.map(l=>l.transportadora+'>'+l.dNome).join('|');
-    if(vc.has(sig)) return; vc.add(sig);
-    combos.push({ tipo:'combinacao', legs, total:legs.reduce((s,l)=>s+numMoeda(l.valor),0), prazo:legs.reduce((s,l)=>s+(l.prazo||0),0) });
-  };
-  // combinações: varia o 1º e o 2º trecho; completa com a rota mais barata até o destino
-  for(const a of saemDaOrigem){
-    if(a.valor==null || isDest(a.dN)) continue;
-    if(custo[a.dN]!=null){ addCombo([a].concat(recon(a.dN))); }     // 1º trecho + melhor continuação
-    for(const b of (adj[a.dN]||[])){                                 // varia o 2º trecho
-      if(combos.length>500) break;
-      if(precoCat(b.valores,cat)==null || b.to===a.oN || match(b.to,o)) continue;
-      if(isDest(b.to)){ addCombo([a, legB(b)]); }                    // origem->M->destino
-      else if(custo[b.to]!=null){ addCombo([a, legB(b)].concat(recon(b.to))); }
-    }
-    if(combos.length>500) break;
-  }
-  // dedup diretas por transportadora
-  const dvist=new Set(); const diretasU=diretas.filter(x=>{ const k=x.legs[0].transportadora+'|'+x.total; if(dvist.has(k))return false; dvist.add(k); return true; });
-  diretasU.sort((a,b)=>(a.total==null)-(b.total==null)||(a.total||0)-(b.total||0));
-  combos.sort((a,b)=>a.total-b.total);
-  const opts = diretasU.concat(combos.slice(0,30));
+  const { diretasU, combos, opts } = crmGerarOpcoes(db, o, d, cat);
   window.__crmOpcoes = opts;
   if(!opts.length){ box.innerHTML = `<p class="hint">Nenhuma opção encontrada para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b>. Preencha manualmente.</p>`; crmAbrirComposicaoManual(id); return; }
   const cardOpt = (x,i)=>{
@@ -4362,16 +4372,8 @@ async function crmCalcOpcoes(id){
     </div>`;
 }
 function crmUsarOpcao(id, i){
-  const l = CRM_LEADS[id]; const x = (window.__crmOpcoes||[])[i]; if(!l||!x) return;
-  l.trajetos = x.legs.map(g=>({
-    de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
-    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'',
-    oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null
-  }));
-  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
-  l._prazoManual=false;   // opção nova → prazo volta a ser o calculado
-  crmRecalcCalc(id);
-  crmRenderComp(id);
+  const x = (window.__crmOpcoes||[])[i]; if(!x) return;
+  crmAplicarOpcao(id, x);
   flash('Opção aplicada ✔');
 }
 // ---- Reembarque automático: menor custo origem -> destino (Dijkstra) ----
@@ -4474,73 +4476,38 @@ async function crmCalcAuto(id, auto){
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> não está na tabela — usando <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   crmGuardarAprox(id, oR, oRaw, dR, dRaw);
   const cat = $('#calcCategoria')?.value || '';
-  const adj = crmAdjacencia(db);
-  const nodes = Object.keys(adj);
-  const isOrig = k => k===o || (o.length>3 && k.includes(o)) || (k.length>3 && o.includes(k));
-  const isDest = k => k===d || (d.length>3 && k.includes(d)) || (k.length>3 && d.includes(k));
-  // rotas que passam por O e depois por D na MESMA viagem (sub-trecho) → 1 trecho pelo preço da rota
-  const subDiretas=[];
-  for(const r of db.rotas){
-    const s=crmSubTrecho(r,isOrig,isDest); if(!s) continue;
-    const p=precoCat(s.valores,cat); if(p==null) continue;
-    subDiretas.push({ oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, carrier:s.transportadora, valores:s.valores, prazo:s.prazo, __preco:p });
-  }
-  subDiretas.sort((a,b)=>a.__preco-b.__preco);
-  const HOP_PEN = 100;   // penaliza cada transbordo (evita cadeias longas desnecessárias)
-  const dist={}, prev={}, hops={}, done={};
-  const starts = nodes.filter(isOrig);
-  const extra = {};   // arestas adicionais só da origem (quando é cidade de passagem)
-  if(!starts.length){
-    const vO = crmArestasDaOrigem(db, o);   // Guaratinguetá etc.: embarca aqui, segue pela rota
-    if(vO.length){ extra[o]=vO; starts.push(o); }
-  }
-  if(!starts.length && !subDiretas.length){ if(!auto){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
-  starts.forEach(s=>{ dist[s]=0; hops[s]=0; });
-  // Dijkstra simples — o dist contém também cidades-folha (só destino),
-  // então o limite é bem maior que o nº de nós com saída. done garante o fim.
-  let guard=0;
-  while(guard++ < 200000){
-    let u=null, best=Infinity;
-    for(const k in dist){ if(!done[k] && dist[k]<best){ best=dist[k]; u=k; } }
-    if(u===null) break;
-    done[u]=true;
-    if(isDest(u)) break;
-    if((hops[u]||0) >= 6) continue;   // limite de transbordos
-    for(const e of (adj[u]||[]).concat(extra[u]||[])){
-      const custo = precoCat(e.valores,cat);
-      if(custo==null) continue;        // sem preço p/ categoria neste trecho
-      const nd = dist[u] + custo + HOP_PEN;
-      if(dist[e.to]==null || nd < dist[e.to]){
-        dist[e.to]=nd; prev[e.to]={from:u,e}; hops[e.to]=(hops[u]||0)+1;
-      }
-    }
-  }
-  // acha o destino de menor custo
-  let end=null, bestD=Infinity;
-  for(const k in dist){ if(isDest(k) && done[k] && dist[k]<bestD){ bestD=dist[k]; end=k; } }
-  // reconstrói o caminho multi-trecho (se houver)
-  let pilha=[]; if(end){ let cur=end; while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; } }
-  const totalMulti = pilha.length ? pilha.reduce((s,e)=>s+(precoCat(e.valores,cat)||0),0) : Infinity;
-  // sub-trecho direto (1 trecho) vence quando existe e não é mais caro que o multi-trecho
-  if(subDiretas.length && subDiretas[0].__preco <= totalMulti){ pilha=[subDiretas[0]]; }
-  if(!pilha.length){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
-  // mostra o caminho e monta
-  const l = CRM_LEADS[id];
-  l.trajetos = pilha.map(e=>({
-    de:`${e.oNome}/${e.oUF}`, para:`${e.dNome}/${e.dUF}`,
-    transportadora:e.carrier, valor:String(precoCat(e.valores,cat)), oUF:e.oUF, dUF:e.dUF, prazo:e.prazo||null
-  }));
-  if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
-  l._prazoManual=false;   // cálculo novo → prazo volta a ser o calculado
-  crmRecalcCalc(id);
-  crmRenderComp(id);
-  const totalBase = pilha.reduce((s,e)=>s+ (precoCat(e.valores,cat)||0),0);
-  box.innerHTML = `<div style="border:1px solid #16a34a;border-radius:8px;padding:8px;background:rgba(22,163,74,.06)">
+  const { opts } = crmGerarOpcoes(db, o, d, cat);
+  if(!opts.length){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
+  // 3 recomendações: mais barata, mais rápida, menos reembarque
+  const B=opts.slice();
+  const barata = B.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12) || a.legs.length-b.legs.length)[0];
+  const rapida = B.slice().sort((a,b)=>((a.prazo||1e9)-(b.prazo||1e9)) || (a.total??1e12)-(b.total??1e12))[0];
+  const menos  = B.slice().sort((a,b)=>(a.legs.length-b.legs.length) || (a.total??1e12)-(b.total??1e12))[0];
+  window.__crmRecom = { barata, rapida, menos };
+  crmAplicarOpcao(id, barata);   // aplica a mais barata por padrão
+  const sig = x => x.legs.map(l=>l.transportadora+'>'+normTxt(l.dNome)).join('|');
+  const sB=sig(barata), sR=sig(rapida), sM=sig(menos);
+  const legTxt = x => x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
+  const card = (x, icon, titulo, key, aplicada, nota) => `
+    <div style="border:1px solid ${aplicada?'#16a34a':'var(--linha)'};border-radius:8px;padding:8px;margin-bottom:6px;background:${aplicada?'rgba(22,163,74,.06)':'transparent'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="font-weight:700;font-size:12.5px">${icon} ${titulo}${aplicada?' <span style="color:#16a34a">✓ aplicada</span>':''}${nota?` <span class="hint" style="font-weight:400">${nota}</span>`:''}</div>
+        <div style="text-align:right;white-space:nowrap">
+          <span style="font-weight:800;color:#16a34a">${x.total!=null?moeda(x.total):'—'}</span>
+          <button class="btn-ok" style="font-size:11px;padding:3px 8px;margin-left:6px" onclick="crmUsarRecom('${id}','${key}')">✓ Usar</button>
+        </div>
+      </div>
+      <div class="hint" style="margin:3px 0 0;font-size:11px">${x.legs.length} trecho(s)${x.prazo?(' · '+x.prazo+' dias'):''}</div>
+      <div class="hint" style="margin:2px 0 0;font-size:11px;line-height:1.35">${legTxt(x)}</div>
+    </div>`;
+  box.innerHTML = `
     ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
-    <div style="font-weight:600;margin-bottom:4px">🔗 Melhor opção: ${pilha.length} trecho(s) — frete base ${moeda(totalBase)}</div>
-    ${pilha.map(e=>`<div class="hint" style="margin:0">${esc(e.oNome)}/${esc(e.oUF)} → ${esc(e.dNome)}/${esc(e.dUF)} · ${esc(e.carrier)} · ${moeda(precoCat(e.valores,cat))}</div>`).join('')}
-    <div class="hint" style="margin-top:4px">Taxas preenchidas na composição abaixo — confira e edite se precisar. Use "🔍 Ver prestadores" para trocar de transportadora.</div>
-  </div>`;
+    <div style="font-size:12px;font-weight:600;margin:2px 0 6px">Escolha a opção (a mais barata já foi aplicada):</div>
+    ${card(barata,'💰','Mais barata','barata', true, '')}
+    ${card(rapida,'⚡','Mais rápida','rapida', false, sR===sB?'(igual à mais barata)':'')}
+    ${card(menos,'🔁','Menos reembarque','menos', false, sM===sB?'(igual à mais barata)':(sM===sR?'(igual à mais rápida)':''))}
+    <button class="btn-ghost" style="font-size:11.5px;padding:4px 10px;margin-top:2px" onclick="crmCalcOpcoes('${id}')">🔍 Ver todas as opções</button>
+    <div class="hint" style="margin-top:4px;font-size:11px">💡 Você pode trocar a transportadora de cada trecho na composição abaixo.</div>`;
   if(!auto) flash('Frete calculado ✔');
 }
 // calcula sozinho ao abrir o lead (melhor prestador + taxas), sem exigir clique
@@ -4703,6 +4670,34 @@ function crmTrajSet(id,i,campo,val){
     crmCompReflectValores(id);
   }
 }
+// transportadoras que atendem um trecho (cidade origem → cidade destino) e seus preços
+function crmPrestadoresTrecho(deNorm, paraNorm, cat){
+  const db=TABELA_FRETES; if(!db || !deNorm || !paraNorm) return [];
+  const isO=k=> k===deNorm || (deNorm.length>3&&k.includes(deNorm)) || (k.length>3&&deNorm.includes(k));
+  const isD=k=> k===paraNorm || (paraNorm.length>3&&k.includes(paraNorm)) || (k.length>3&&paraNorm.includes(k));
+  const out=[]; const seen=new Set();
+  for(const r of db.rotas){
+    const s=crmSubTrecho(r,isO,isD); if(!s) continue;
+    const p=precoCat(s.valores,cat);
+    const key=normTxt(r.transportadora)+'|'+(p==null?'':p);
+    if(seen.has(key)) continue; seen.add(key);
+    out.push({ carrier:r.transportadora, valor:p, prazo:s.prazo });
+  }
+  out.sort((a,b)=>(a.valor??1e12)-(b.valor??1e12));
+  return out;
+}
+// troca a transportadora de um trecho (valor selecionado = "carrier§valor§prazo")
+function crmTrajTrocaPrest(id,i,val){
+  const l=CRM_LEADS[id]; if(!l||!l.trajetos[i]) return;
+  const parts=String(val).split('§');
+  l.trajetos[i].transportadora = parts[0]||'';
+  if(parts[1]!==undefined && parts[1]!=='') l.trajetos[i].valor = parts[1];
+  if(parts[2]!==undefined && parts[2]!=='') l.trajetos[i].prazo = parts[2];
+  l._prazoManual=false;
+  crmRecalcCalc(id);
+  crmRenderComp(id);
+  flash('Transportadora do trecho trocada ✔');
+}
 // atualiza os valores das taxas na tela (sem re-renderizar, p/ não perder o foco)
 function crmCompReflectValores(id){
   const l=CRM_LEADS[id]; if(!l) return;
@@ -4716,14 +4711,32 @@ function crmCompReflectValores(id){
 function crmRenderComp(id){
   const l=CRM_LEADS[id]; const box=$('#crmComposicao'); if(!l||!box) return;
   const trajetos=l.trajetos||[], comp=l.composicao||[];
-  const trajHTML = trajetos.map((t,i)=>`
-    <div class="crm-traj-row" style="display:grid;grid-template-columns:1fr 1fr 1fr 110px 30px;gap:6px;align-items:center;margin-bottom:5px">
+  const catAtual = ($('#calcCategoria')?.value) || crmCategoriaSugerida(l) || 'Carro passeio';
+  const trajHTML = trajetos.map((t,i)=>{
+    const deN=normTxt((t.de||'').split('/')[0]), paraN=normTxt((t.para||'').split('/')[0]);
+    const alts = crmPrestadoresTrecho(deN, paraN, catAtual);
+    let prestField;
+    if(alts.length){
+      const atualNorm=normTxt(t.transportadora||'');
+      const naLista = alts.some(a=>normTxt(a.carrier)===atualNorm);
+      const opcoes = alts.map(a=>{
+        const v=`${a.carrier}§${a.valor!=null?a.valor:''}§${a.prazo!=null?a.prazo:''}`;
+        const sel = normTxt(a.carrier)===atualNorm ? ' selected':'';
+        return `<option value="${escA(v)}"${sel}>${esc(a.carrier)}${a.valor!=null?(' · '+moeda(a.valor)):''}${a.prazo?(' · '+a.prazo+'d'):''}</option>`;
+      }).join('');
+      const extra = (!naLista && t.transportadora)? `<option value="${escA((t.transportadora)+'§'+(t.valor||'')+'§'+(t.prazo||''))}" selected>${esc(t.transportadora)} (atual)</option>`:'';
+      prestField = `<select title="Trocar transportadora do trecho" onchange="crmTrajTrocaPrest('${id}',${i},this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">${extra}${opcoes}</select>`;
+    } else {
+      prestField = `<input value="${escA(t.transportadora||'')}" placeholder="Transportadora" oninput="crmTrajSet('${id}',${i},'transportadora',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">`;
+    }
+    return `<div class="crm-traj-row" style="display:grid;grid-template-columns:1fr 1fr 1.2fr 90px 26px;gap:6px;align-items:center;margin-bottom:5px">
       <input value="${escA(t.de||'')}" placeholder="Origem" oninput="crmTrajSet('${id}',${i},'de',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">
       <input value="${escA(t.para||'')}" placeholder="Destino" oninput="crmTrajSet('${id}',${i},'para',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">
-      <input value="${escA(t.transportadora||'')}" placeholder="Transportadora" oninput="crmTrajSet('${id}',${i},'transportadora',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">
+      ${prestField}
       <input value="${escA(t.valor||'')}" placeholder="R$" inputmode="decimal" oninput="crmTrajSet('${id}',${i},'valor',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px;text-align:right">
       <button onclick="crmTrajDel('${id}',${i})" title="Remover" style="border:none;background:none;cursor:pointer">🗑️</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   const compHTML = comp.map((c,i)=>`
     <div class="crm-comp-row" style="display:grid;grid-template-columns:44px 1fr 130px 30px;gap:6px;align-items:center;margin-bottom:5px;${c.ativo?'':'opacity:.5'}">
       <label class="sw-switch" title="Incluir/excluir">
