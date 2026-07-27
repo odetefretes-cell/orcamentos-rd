@@ -16,6 +16,10 @@
     messagingSenderId: "307588629600",
     appId: "1:307588629600:web:0914b25247953b56b06f05"
   };
+  // RD Station — token PÚBLICO (envia a conversão em paralelo, sem parar de alimentar o RD)
+  var RD_TOKEN = '32f7523c5d71799219ad1b192ce1cdd1';
+  var RD_IDENTIFICADOR = 'Cotacao Site OBS';
+
   var UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
   var CSS = ''
@@ -51,7 +55,7 @@
     + '<div class="obs-linha"><label>Nome completo <span>*</span><input type="text" name="nome" required autocomplete="name" placeholder="Seu nome"></label></div>'
     + '<div class="obs-grid2">'
     + '<label>WhatsApp <span>*</span><input type="tel" name="telefone" required autocomplete="tel" placeholder="(11) 90000-0000"></label>'
-    + '<label>E-mail<input type="email" name="email" autocomplete="email" placeholder="voce@email.com"></label></div>'
+    + '<label>E-mail <span>*</span><input type="email" name="email" required autocomplete="email" placeholder="voce@email.com"></label></div>'
     + '<div class="obs-grid2">'
     + '<label>Veículo (marca / modelo) <span>*</span><input type="text" name="veiculo" required placeholder="Ex.: Honda Civic 2020"></label>'
     + '<label>Tipo de veículo <span>*</span><select name="categoria" required><option value="">Selecione…</option><option>Carro passeio</option><option>Carro grande</option><option>Moto até 300cc</option><option>Moto até 700cc</option><option>Moto acima de 700cc</option></select></label></div>'
@@ -120,11 +124,31 @@
       });
     }
 
+    // envia a conversão para o RD Station (Token público) — em paralelo ao CRM
+    function enviarRD(lead) {
+      var body = {
+        event_type: 'CONVERSION', event_family: 'CDP',
+        payload: {
+          conversion_identifier: RD_IDENTIFICADOR,
+          email: lead.email, name: lead.nome, personal_phone: lead.telefone,
+          cf_tipo_cliente: lead.tipoCliente, cf_veiculo: lead.veiculoDesc,
+          cf_tipo_veiculo: lead.categoria, cf_veiculo_funciona: lead.funciona,
+          cf_veiculo_blindado: lead.blindado, cf_valor_veiculo: lead.valorVeiculo,
+          cf_cidade_origem: lead.origem, cf_cidade_destino: lead.destino,
+          cf_observacao: lead.mensagem
+        }
+      };
+      return fetch('https://api.rd.services/platform/conversions?api_key=' + RD_TOKEN, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      }).then(function (r) { if (!r.ok) console.warn('RD status', r.status); })
+        .catch(function (e) { console.warn('RD falhou (lead segue no CRM):', e); });
+    }
+
     form.addEventListener('submit', function (ev) {
       ev.preventDefault();
       var erro = host.querySelector('#obsErro'); erro.hidden = true;
       var btn = form.querySelector('.obs-btn');
-      if (!g('tipoCliente') || !g('nome') || !g('telefone') || !g('veiculo') || !g('categoria') || !g('funciona') || !g('blindado') || !g('origemUF') || !g('origemCidade') || !g('destinoUF') || !g('destinoCidade')) {
+      if (!g('tipoCliente') || !g('nome') || !g('telefone') || !g('email') || !g('veiculo') || !g('categoria') || !g('funciona') || !g('blindado') || !g('origemUF') || !g('origemCidade') || !g('destinoUF') || !g('destinoCidade')) {
         erro.textContent = 'Por favor, preencha todos os campos com *.'; erro.hidden = false; return;
       }
       if (!form.querySelector('[name="consent"]').checked) {
@@ -151,6 +175,7 @@
       db().then(function (base) {
         return _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
       }).then(function () {
+        try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD em paralelo (não bloqueia)
         form.hidden = true; host.querySelector('#obsOk').hidden = false;
         host.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }).catch(function (e) {
