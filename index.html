@@ -1405,7 +1405,15 @@ async function initData(){
         // APP DA EQUIPE: sincroniza a coleção inteira
         setModo('☁ Compartilhado (tempo real)');
         fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
-          MEM={}; snap.forEach(d=>{ if(!d.id.startsWith('_')) MEM[d.id]=d.data(); }); LAST=JSON.parse(JSON.stringify(MEM));
+          MEM={}; snap.forEach(d=>{
+            if(d.id.startsWith('_')){
+              // docs reservados: usuários (_acesso) e funis (_etapas) — carregam ao vivo
+              if(d.id==='_acesso'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ USUARIOS=li; try{localStorage.setItem(USUARIOS_KEY,JSON.stringify(USUARIOS));}catch(_){} } }
+              else if(d.id==='_etapas'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ CRM_ETAPAS=li; try{localStorage.setItem(CRM_ETAPAS_KEY,JSON.stringify(CRM_ETAPAS));}catch(_){} } }
+              return;
+            }
+            MEM[d.id]=d.data();
+          }); LAST=JSON.parse(JSON.stringify(MEM));
           atualizarHist(); atualizarProxNum();
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
@@ -3147,9 +3155,16 @@ async function carregarUsuariosNuvem(){
     try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_acesso')); if(s.exists()&&Array.isArray(s.data().lista)&&s.data().lista.length){ USUARIOS=s.data().lista; localStorage.setItem(USUARIOS_KEY, JSON.stringify(USUARIOS)); } }catch(_){}
   }
 }
-function fazerLogin(){
+async function fazerLogin(){
   const u=($('#loginUser').value||'').trim().toLowerCase(), s=$('#loginPass').value||'';
-  const found=USUARIOS.find(x=>(x.user||'').toLowerCase()===u && String(x.senha)===String(s));
+  const achar=()=>USUARIOS.find(x=>(x.user||'').toLowerCase()===u && String(x.senha)===String(s));
+  let found=achar();
+  // se não achou, tenta atualizar a lista da nuvem antes de recusar (usuário recém-criado)
+  if(!found && CLOUD_ON && _fb && _fb.getDoc){
+    const err=$('#loginErro'); if(err) err.textContent='Verificando acesso…';
+    await carregarUsuariosNuvem();
+    found=achar();
+  }
   if(!found){ $('#loginErro').textContent='Usuário ou senha inválidos.'; return; }
   sessaoUser={user:found.user, papel:found.papel, nome:found.nome||found.user, ts:Date.now()};
   localStorage.setItem(SESSAO_KEY, JSON.stringify(sessaoUser));
