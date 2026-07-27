@@ -3753,6 +3753,40 @@ function normTxt(s){
   if(!s) return '';
   return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 }
+// ---- Coordenadas das cidades (p/ achar a cidade mais pr\u00f3xima na tabela) ----
+let CIDADES_COORDS=null;
+async function carregarCoords(){
+  if(CIDADES_COORDS) return CIDADES_COORDS;
+  try{ const r=await fetch('cidades-coords.json',{cache:'force-cache'}); if(r.ok) CIDADES_COORDS=await r.json(); }catch(_){}
+  return CIDADES_COORDS;
+}
+function haversine(a,b){ const R=6371, rad=x=>x*Math.PI/180;
+  const dLat=rad(b[0]-a[0]), dLon=rad(b[1]-a[1]);
+  const s=Math.sin(dLat/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s)); }
+function cidadeNaTabela(normCidade, uf){
+  const cid=(typeof crmBuildCidades==='function')?crmBuildCidades():null; if(!cid||!cid[uf]) return false;
+  return cid[uf].some(c=>{ const cn=normTxt(c); return cn===normCidade || (normCidade.length>3&&cn.includes(normCidade)) || (cn.length>3&&normCidade.includes(cn)); });
+}
+async function cidadeMaisProxima(normCidade, uf){
+  await carregarCoords(); if(!CIDADES_COORDS) return null;
+  const req=CIDADES_COORDS[normCidade+'|'+uf]; if(!req) return null;
+  const cid=(typeof crmBuildCidades==='function')?crmBuildCidades():null; if(!cid) return null;
+  let best=null, bestD=Infinity;
+  for(const U in cid){ for(const nome of cid[U]){ const co=CIDADES_COORDS[normTxt(nome)+'|'+U]; if(!co) continue;
+    const dkm=haversine(req,co); if(dkm<bestD){ bestD=dkm; best={nome, uf:U, dist:Math.round(dkm)}; } } }
+  return best;
+}
+// resolve a cidade digitada: se estiver na tabela usa; sen\u00e3o acha a mais pr\u00f3xima
+async function resolverCidade(raw){
+  const uf=ufTxt(raw).toUpperCase();
+  const nc=normTxt(String(raw||'').replace(new RegExp('\\s+'+uf+'\\s*$','i'),''));
+  if(!nc) return { norm:normTxt(raw), aproximada:false };
+  if(!uf || cidadeNaTabela(nc, uf)) return { norm:normTxt(raw), aproximada:false };
+  const prox=await cidadeMaisProxima(nc, uf);
+  if(!prox) return { norm:normTxt(raw), aproximada:false };   // sem coords, mant\u00e9m
+  return { norm:normTxt(prox.nome), aproximada:true, nome:prox.nome, uf:prox.uf, dist:prox.dist, original:raw };
+}
 async function carregarTabelaFretes(){
   if(TABELA_FRETES) return TABELA_FRETES;
   // 1) nuvem (tabela compartilhada, atualizada pelo admin) — vence o arquivo estático
@@ -3975,9 +4009,14 @@ async function crmCalcOpcoes(id){
   const db = await carregarTabelaFretes();
   if(!db){ box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
   crmCalcInit(id); crmSyncFormLead(id);
-  const o = normTxt($('#crmOrigem')?.value), d = normTxt($('#crmDestino')?.value);
+  const oRaw=$('#crmOrigem')?.value, dRaw=$('#crmDestino')?.value;
+  if(!normTxt(oRaw) || !normTxt(dRaw)){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino.</p>'; return; }
+  const oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
+  const o=oR.norm, d=dR.norm;
+  const avisosProx=[];
+  if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> → mais próxima <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
+  if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> → mais próxima <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   const cat = $('#calcCategoria')?.value || '';
-  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino.</p>'; return; }
   const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
   const isDest = k => match(k, d);
   const preco = r => r.valores[cat];
@@ -4037,6 +4076,7 @@ async function crmCalcOpcoes(id){
     </div>`;
   };
   box.innerHTML = `
+    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima: ${avisosProx.join('; ')}. Valor aproximado.</div>`:''}
     <div style="font-size:12px;font-weight:600;margin:2px 0 4px">${diretasU.length} rota(s) direta(s) e ${combos.length} combinação(ões) — a mais barata já está aplicada</div>
     <div style="max-height:280px;overflow:auto;border:1px solid var(--linha);border-radius:8px;padding:6px">
       ${opts.map((x,i)=>cardOpt(x,i)).join('')}
@@ -4116,9 +4156,15 @@ async function crmCalcAuto(id, auto){
   if(!db){ if(!auto) box.innerHTML = `<p class="hint" style="color:#dc2626">Não foi possível carregar a tabela (${esc(TABELA_ERRO||'')}).</p>`; return; }
   crmCalcInit(id);
   crmSyncFormLead(id);
-  const o = normTxt($('#crmOrigem')?.value), d = normTxt($('#crmDestino')?.value);
+  const oRaw=$('#crmOrigem')?.value, dRaw=$('#crmDestino')?.value;
+  if(!normTxt(oRaw) || !normTxt(dRaw)){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino (na seção Veículo e Rota).</p>'; return; }
+  // se a cidade não está na tabela, usa a mais próxima por distância
+  const oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
+  const o=oR.norm, d=dR.norm;
+  const avisosProx=[];
+  if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> não está na tabela — usando <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
+  if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> não está na tabela — usando <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   const cat = $('#calcCategoria')?.value || '';
-  if(!o || !d){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino (na seção Veículo e Rota).</p>'; return; }
   const adj = crmAdjacencia(db);
   const nodes = Object.keys(adj);
   const isOrig = k => k===o || (o.length>3 && k.includes(o)) || (k.length>3 && o.includes(k));
@@ -4166,6 +4212,7 @@ async function crmCalcAuto(id, auto){
   crmRenderComp(id);
   const totalBase = pilha.reduce((s,e)=>s+ (e.valores[cat]||0),0);
   box.innerHTML = `<div style="border:1px solid #16a34a;border-radius:8px;padding:8px;background:rgba(22,163,74,.06)">
+    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
     <div style="font-weight:600;margin-bottom:4px">🔗 Melhor opção: ${pilha.length} trecho(s) — frete base ${moeda(totalBase)}</div>
     ${pilha.map(e=>`<div class="hint" style="margin:0">${esc(e.oNome)}/${esc(e.oUF)} → ${esc(e.dNome)}/${esc(e.dUF)} · ${esc(e.carrier)} · ${moeda(e.valores[cat])}</div>`).join('')}
     <div class="hint" style="margin-top:4px">Taxas preenchidas na composição abaixo — confira e edite se precisar. Use "🔍 Ver prestadores" para trocar de transportadora.</div>
