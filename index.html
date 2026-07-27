@@ -3970,8 +3970,9 @@ function crmWhatsApp(id){
   const V = (typeof crmValoresOrc==='function') ? crmValoresOrc(l) : null;
   const media = (V && V.totalBase) || numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado);
   let msg, tlTxt;
-  if(!media){
-    // sem rota / valor automático → aciona assistente humano
+  // só é "orçamento médio" quando há CÁLCULO REAL (trechos); valor solto (ex.: R$500 do site) não conta
+  if(!crmTemCalc(l)){
+    // sem rota / cálculo automático → aciona assistente humano
     msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
       (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
       (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
