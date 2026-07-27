@@ -4022,11 +4022,11 @@ async function cidadeMaisProxima(normCidade, uf){
 async function resolverCidade(raw){
   const uf=ufTxt(raw).toUpperCase();
   const nc=normTxt(String(raw||'').replace(new RegExp('\\s+'+uf+'\\s*$','i'),''));
-  if(!nc) return { norm:normTxt(raw), aproximada:false };
-  if(!uf || cidadeNaTabela(nc, uf)) return { norm:normTxt(raw), aproximada:false };
+  if(!nc) return { norm:normTxt(raw), uf, aproximada:false };
+  if(!uf || cidadeNaTabela(nc, uf)) return { norm:nc, uf, aproximada:false };
   const prox=await cidadeMaisProxima(nc, uf);
-  if(!prox) return { norm:normTxt(raw), aproximada:false };   // sem coords, mant\u00e9m
-  return { norm:normTxt(prox.nome), aproximada:true, nome:prox.nome, uf:prox.uf, dist:prox.dist, original:raw };
+  if(!prox) return { norm:nc, uf, aproximada:false };   // sem coords, mant\u00e9m
+  return { norm:normTxt(prox.nome), uf:prox.uf, aproximada:true, nome:prox.nome, dist:prox.dist, original:raw };
 }
 async function carregarTabelaFretes(){
   if(TABELA_FRETES) return TABELA_FRETES;
@@ -4226,13 +4226,13 @@ function crmSubTrecho(r, isO, isD){
   const tj=r.trajetos||[]; if(!tj.length) return null;
   const seq=[{norm:tj[0].o, nome:tj[0].oNome, uf:tj[0].oUF}];
   for(const t of tj) seq.push({norm:t.d, nome:t.dNome, uf:t.dUF});
-  let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(seq[i].norm)){ iO=i; break; } }
+  let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(nk(seq[i].norm,seq[i].uf))){ iO=i; break; } }
   if(iO<0) return null;
-  let iD=-1; for(let j=iO+1;j<seq.length;j++){ if(isD(seq[j].norm)){ iD=j; break; } }
+  let iD=-1; for(let j=iO+1;j<seq.length;j++){ if(isD(nk(seq[j].norm,seq[j].uf))){ iD=j; break; } }
   if(iD<0) return null;
   const O=seq[iO], D=seq[iD];
   return { transportadora:r.transportadora, valores:r.valores, prazo:r.prazoDias,
-           oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:O.norm, dN:D.norm };
+           oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:nk(O.norm,O.uf), dN:nk(D.norm,D.uf) };
 }
 function crmCalcInit(id){
   const sel = $('#calcCategoria'); if(!sel) return;
@@ -4318,15 +4318,15 @@ function crmCalcAddTrecho(id, i){
 // ---- Gerador de opções: rotas diretas + combinações (reembarque), sem loops ----
 // Retorna { diretasU, combos, opts } para uma origem (o) e destino (d) normalizados.
 function crmGerarOpcoes(db, o, d, cat){
-  const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
-  const isDest = k => match(k, d);
-  const isO = k=>match(k,o);
+  // o e d são chaves compostas "cidade|UF"
+  const isDest = k => matchKey(k, d);
+  const isO = k=> matchKey(k, o);
   const preco = r => precoCat(r.valores,cat);
-  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:t.o,dN:t.d, prazo:r.prazoDias });
+  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:nk(t.o,t.oUF),dN:nk(t.d,t.dUF), prazo:r.prazoDias });
   const diretas=[];
   for(const r of db.rotas){
     for(const t of (r.trajetos||[])){
-      if(match(t.o,o) && match(t.d,d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
+      if(matchKey(nk(t.o,t.oUF),o) && matchKey(nk(t.d,t.dUF),d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
     }
   }
   for(const r of db.rotas){
@@ -4339,14 +4339,14 @@ function crmGerarOpcoes(db, o, d, cat){
   const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
   const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, oN:b.oN, dN:b.to, prazo:b.prazo });
   const saemDaOrigem=[];
-  for(const k in adj){ if(!match(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
+  for(const k in adj){ if(!matchKey(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
   if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
   const combos=[]; const vc=new Set();
   const addCombo = (legs)=>{
     if(!legs.length || legs.some(l=>l.valor==null)) return;
-    const seqC=[normTxt(legs[0].oNome)]; for(const l of legs) seqC.push(normTxt(l.dNome));
+    const seqC=[nk(normTxt(legs[0].oNome),legs[0].oUF)]; for(const l of legs) seqC.push(nk(normTxt(l.dNome),l.dUF));
     if(new Set(seqC).size !== seqC.length) return;   // sem loops (cidade repetida)
-    const sig = legs.map(l=>l.transportadora+'>'+l.dNome).join('|');
+    const sig = legs.map(l=>l.transportadora+'>'+l.dNome+'/'+l.dUF).join('|');
     if(vc.has(sig)) return; vc.add(sig);
     combos.push({ tipo:'combinacao', legs, total:legs.reduce((s,l)=>s+numMoeda(l.valor),0), prazo:legs.reduce((s,l)=>s+(l.prazo||0),0) });
   };
@@ -4355,7 +4355,7 @@ function crmGerarOpcoes(db, o, d, cat){
     if(custo[a.dN]!=null){ addCombo([a].concat(recon(a.dN))); }
     for(const b of (adj[a.dN]||[])){
       if(combos.length>500) break;
-      if(precoCat(b.valores,cat)==null || b.to===a.oN || match(b.to,o)) continue;
+      if(precoCat(b.valores,cat)==null || b.to===a.oN || matchKey(b.to,o)) continue;
       if(isDest(b.to)){ addCombo([a, legB(b)]); }
       else if(custo[b.to]!=null){ addCombo([a, legB(b)].concat(recon(b.to))); }
     }
@@ -4389,7 +4389,7 @@ async function crmCalcOpcoes(id){
   const oRaw=$('#crmOrigem')?.value, dRaw=$('#crmDestino')?.value;
   if(!normTxt(oRaw) || !normTxt(dRaw)){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino.</p>'; return; }
   const oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
-  const o=oR.norm, d=dR.norm;
+  const o=nk(oR.norm,oR.uf), d=nk(dR.norm,dR.uf);
   const avisosProx=[];
   if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> → mais próxima <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> → mais próxima <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
@@ -4435,14 +4435,24 @@ function crmSeqRota(r){
   for(const t of tj) seq.push({norm:t.d, nome:t.dNome, uf:t.dUF});
   return seq;
 }
+// identidade de cidade = nome normalizado + UF (evita juntar Santa Maria/RN com Santa Maria/RS)
+function nk(norm, uf){ return (norm||'')+'|'+((uf||'').toUpperCase()); }
+function matchKey(nodeKey, queryKey){
+  const i=nodeKey.lastIndexOf('|'), j=queryKey.lastIndexOf('|');
+  const nn=nodeKey.slice(0,i), nu=nodeKey.slice(i+1);
+  const qn=queryKey.slice(0,j), qu=queryKey.slice(j+1);
+  if(nu && qu && nu!==qu) return false;   // estados diferentes = cidades diferentes
+  return nn===qn || (qn.length>3 && nn.includes(qn)) || (nn.length>3 && qn.includes(nn));
+}
 function crmAdjacencia(db){
   if(db._adj) return db._adj;
-  const adj = {};   // cidadeNorm -> [ {to, oN, valores, carrier, oNome,dNome,oUF,dUF, prazo} ]
+  const adj = {};   // "cidade|UF" -> [ {to, oN, valores, carrier, oNome,dNome,oUF,dUF, prazo} ]
   for(const r of db.rotas){
     for(const t of (r.trajetos||[])){
-      if(!t.o || !t.d || t.o===t.d) continue;
-      (adj[t.o] = adj[t.o] || []).push({
-        to:t.d, oN:t.o, valores:r.valores, carrier:r.transportadora,
+      const A=nk(t.o,t.oUF), B=nk(t.d,t.dUF);
+      if(!t.o || !t.d || A===B) continue;
+      (adj[A] = adj[A] || []).push({
+        to:B, oN:A, valores:r.valores, carrier:r.transportadora,
         oNome:t.oNome, dNome:t.dNome, oUF:t.oUF, dUF:t.dUF, prazo:r.prazoDias
       });
     }
@@ -4456,9 +4466,10 @@ function crmRevAdj(db){
   const r = {};
   for(const rt of db.rotas){
     for(const t of (rt.trajetos||[])){
-      if(!t.o || !t.d || t.o===t.d) continue;
-      (r[t.d] = r[t.d] || []).push({
-        from:t.o, valores:rt.valores, carrier:rt.transportadora,
+      const A=nk(t.o,t.oUF), B=nk(t.d,t.dUF);
+      if(!t.o || !t.d || A===B) continue;
+      (r[B] = r[B] || []).push({
+        from:A, valores:rt.valores, carrier:rt.transportadora,
         oNome:t.oNome, dNome:t.dNome, oUF:t.oUF, dUF:t.dUF, prazo:rt.prazoDias
       });
     }
@@ -4468,17 +4479,17 @@ function crmRevAdj(db){
 // Arestas de sub-trecho que SAEM de uma cidade de passagem (ex.: Guaratinguetá).
 // Usadas só quando a origem não é origem de nenhuma rota — para conectá-la à rede
 // sem alterar o comportamento das cidades que já são origem de rota.
-function crmArestasDaOrigem(db, oNorm){
-  const isO = k=> k===oNorm || (oNorm.length>3 && k.includes(oNorm)) || (k.length>3 && oNorm.includes(k));
+function crmArestasDaOrigem(db, oKey){
+  const isO = k=> matchKey(k, oKey);
   const out=[];
   for(const r of db.rotas){
     const seq=crmSeqRota(r);
-    let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(seq[i].norm)){ iO=i; break; } }
+    let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(nk(seq[i].norm,seq[i].uf))){ iO=i; break; } }
     if(iO<0) continue;
-    const A=seq[iO];
-    for(let j=iO+1;j<seq.length;j++){ const B=seq[j];
-      if(!B.norm || B.norm===A.norm) continue;
-      out.push({ to:B.norm, oN:A.norm, valores:r.valores, carrier:r.transportadora,
+    const A=seq[iO], Ak=nk(A.norm,A.uf);
+    for(let j=iO+1;j<seq.length;j++){ const B=seq[j], Bk=nk(B.norm,B.uf);
+      if(!B.norm || Bk===Ak) continue;
+      out.push({ to:Bk, oN:Ak, valores:r.valores, carrier:r.transportadora,
         oNome:A.nome, oUF:A.uf, dNome:B.nome, dUF:B.uf, prazo:r.prazoDias });
     }
   }
@@ -4519,7 +4530,7 @@ async function crmCalcAuto(id, auto){
   if(!normTxt(oRaw) || !normTxt(dRaw)){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino (na seção Veículo e Rota).</p>'; return; }
   // se a cidade não está na tabela, usa a mais próxima por distância
   const oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
-  const o=oR.norm, d=dR.norm;
+  const o=nk(oR.norm,oR.uf), d=nk(dR.norm,dR.uf);
   const avisosProx=[];
   if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> não está na tabela — usando <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> não está na tabela — usando <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
@@ -4736,10 +4747,11 @@ function crmTrajSet(id,i,campo,val){
   }
 }
 // transportadoras que atendem um trecho (cidade origem → cidade destino) e seus preços
-function crmPrestadoresTrecho(deNorm, paraNorm, cat){
+function crmPrestadoresTrecho(deNorm, deUF, paraNorm, paraUF, cat){
   const db=TABELA_FRETES; if(!db || !deNorm || !paraNorm) return [];
-  const isO=k=> k===deNorm || (deNorm.length>3&&k.includes(deNorm)) || (k.length>3&&deNorm.includes(k));
-  const isD=k=> k===paraNorm || (paraNorm.length>3&&k.includes(paraNorm)) || (k.length>3&&paraNorm.includes(k));
+  const okD=nk(deNorm,deUF), okP=nk(paraNorm,paraUF);
+  const isO=k=> matchKey(k, okD);
+  const isD=k=> matchKey(k, okP);
   const out=[]; const seen=new Set();
   for(const r of db.rotas){
     const s=crmSubTrecho(r,isO,isD); if(!s) continue;
@@ -4779,7 +4791,9 @@ function crmRenderComp(id){
   const catAtual = ($('#calcCategoria')?.value) || crmCategoriaSugerida(l) || 'Carro passeio';
   const trajHTML = trajetos.map((t,i)=>{
     const deN=normTxt((t.de||'').split('/')[0]), paraN=normTxt((t.para||'').split('/')[0]);
-    const alts = crmPrestadoresTrecho(deN, paraN, catAtual);
+    const deUF=(t.oUF||((t.de||'').split('/')[1]||'')).toUpperCase().trim();
+    const paraUF=(t.dUF||((t.para||'').split('/')[1]||'')).toUpperCase().trim();
+    const alts = crmPrestadoresTrecho(deN, deUF, paraN, paraUF, catAtual);
     let prestField;
     if(alts.length){
       const atualNorm=normTxt(t.transportadora||'');
