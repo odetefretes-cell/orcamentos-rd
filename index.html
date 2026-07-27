@@ -4577,6 +4577,11 @@ async function crmAutoCalc(id){
   }
 }
 
+// trecho entre Belém e Manaus (qualquer sentido) — reembarque especial (R$200)
+function segBelemManaus(t){
+  const a=normTxt((t.de||'').split('/')[0]), b=normTxt((t.para||'').split('/')[0]);
+  return (a==='belem'&&b==='manaus')||(a==='manaus'&&b==='belem');
+}
 // recalcula Frete Base (soma dos trechos), Seguro (RCTR-C somado) e Recebimento a partir dos trechos
 function crmRecalcCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
@@ -4612,9 +4617,20 @@ function crmRecalcCalc(id){
     const cidDest = TABELA_FRETES.cidades[normTxt((ult.para||'').split('/')[0])];
     if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento, true);
   }
-  // Reembarque: só quando há mais de um trecho (reembarque de fato)
+  // Reembarque: R$100 por ligação de uma transportadora à outra; Belém↔Manaus = R$200.
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
-    if(rb){ if(trs.length>1){ rb.ativo=true; if(!numMoeda(rb.valor)) rb.valor='100'; } else { rb.ativo=false; } } }
+    if(rb){
+      if(trs.length>1){
+        rb.ativo=true;
+        let reemb=0;
+        for(let i=1;i<trs.length;i++){
+          const t0=normTxt(trs[i-1].transportadora), t1=normTxt(trs[i].transportadora);
+          if(t0 && t1 && t0===t1) continue;   // mesma transportadora nos 2 trechos: não é reembarque
+          reemb += (segBelemManaus(trs[i]) || segBelemManaus(trs[i-1])) ? 200 : 100;
+        }
+        rb.valor = String(reemb);
+      } else { rb.ativo=false; rb.valor='0'; }
+    } }
   crmCompRecalcImposto(id);   // Imposto 12% sobre as demais taxas
   // "Valor médio do frete" = total base a base (reflete no campo)
   const V = crmValoresOrc(l);
@@ -4643,7 +4659,7 @@ const CRM_COMP_MODELO = [
   { desc:'Taxa Fixa (Lucro)', valor:'500', ativo:true,  opcional:false },
   { desc:'Reembarque',        valor:'100', ativo:true,  opcional:false },
   { desc:'Seguro',            valor:'',    ativo:true,  opcional:false },
-  { desc:'Imposto',           valor:'',    ativo:true,  opcional:false, auto:true },
+  { desc:'Imposto',           valor:'',    ativo:false, opcional:true,  auto:true },   // só quando o cliente pede NF
   { desc:'Coleta',            valor:'',    ativo:false, opcional:true },
   { desc:'Entrega',           valor:'',    ativo:false, opcional:true }
 ];
@@ -4807,7 +4823,7 @@ function crmRenderComp(id){
     <div style="font-size:12px;font-weight:600;opacity:.75;margin:2px 0 6px">🛣️ Trajetos / trechos</div>
     ${trajHTML || '<p class="hint" style="margin:0 0 6px">Nenhum trecho. Clique em 🧮 Calcular frete ou adicione manualmente.</p>'}
     <button class="btn-ghost" onclick="crmTrajAdd('${id}')" style="font-size:12px;padding:4px 10px;margin-bottom:10px">➕ Trecho</button>
-    <div style="font-size:12px;font-weight:600;opacity:.75;margin:6px 0">💵 Taxas (ligue/desligue, edite ou exclua)</div>
+    <div style="font-size:12px;font-weight:600;opacity:.75;margin:6px 0">💵 Taxas (ligue/desligue, edite ou exclua) <span style="font-weight:400">— 🧾 Imposto entra só quando o cliente pede NF (ligue no botão)</span></div>
     ${compHTML || '<p class="hint" style="margin:0 0 6px">Nenhuma taxa lançada ainda.</p>'}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
       <button class="btn-ghost" onclick="crmCompAdd('${id}')" style="font-size:12px;padding:4px 10px">➕ Taxa</button>
