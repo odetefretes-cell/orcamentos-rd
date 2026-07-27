@@ -199,6 +199,8 @@
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#ef4444;font-weight:bold}
   .badge.atraso{background:#ef4444}
   input.num-lock{background:rgba(255,255,255,.05);color:var(--muted,#9aa4b2);font-weight:700;cursor:not-allowed}
+  .btn-danger{background:#dc2626;color:#fff;border:none;border-radius:9px;cursor:pointer}
+  .btn-danger:hover{background:#b91c1c}
   .pend-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
     margin-top:6px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.04)}
@@ -1028,6 +1030,17 @@
   </div>
 </div>
 
+<div id="confirmModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)confirmResolve(false)">
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:22px;width:420px;max-width:96vw">
+    <h2 id="confirmTitulo" style="font-size:17px;margin:0 0 8px">Tem certeza?</h2>
+    <p id="confirmMsg" style="margin:0 0 18px;line-height:1.5;white-space:pre-wrap;color:var(--muted,#c7cdd8)"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-ghost" style="padding:9px 18px" onclick="confirmResolve(false)">Cancelar</button>
+      <button id="confirmOk" class="btn-danger" style="padding:9px 20px;font-weight:700" onclick="confirmResolve(true)">Excluir</button>
+    </div>
+  </div>
+</div>
+
 <div id="fipeModal" class="modal no-print" style="display:none;z-index:9600">
   <div class="sheet">
     <h3>🔎 Tabela FIPE — valor do veículo</h3>
@@ -1654,6 +1667,22 @@ function aplicar(d){
   renderVeic(); renderPrest();
   render();
 }
+// ---- Confirmação in-app (funciona no app instalado/PWA, onde confirm() nativo falha) ----
+let _confirmCb=null;
+function uiConfirm(msg, opts){
+  opts=opts||{};
+  return new Promise(res=>{
+    const m=document.getElementById('confirmModal');
+    if(!m){ res(window.confirm(msg)); return; }   // fallback
+    const t=document.getElementById('confirmTitulo'); if(t) t.textContent=opts.titulo||'Tem certeza?';
+    const p=document.getElementById('confirmMsg'); if(p) p.textContent=msg||'';
+    const okb=document.getElementById('confirmOk');
+    if(okb){ okb.textContent=opts.ok||'Excluir'; okb.className=(opts.perigo===false?'btn-ok':'btn-danger'); }
+    m.style.display='flex';
+    _confirmCb=(v)=>{ m.style.display='none'; _confirmCb=null; res(!!v); };
+  });
+}
+function confirmResolve(v){ if(_confirmCb) _confirmCb(v); }
 function exportarJSON(){
   const d=dados(); const nome=(d.numero?('frete-'+d.numero):'frete')+'.json';
   const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
@@ -3404,14 +3433,14 @@ function crmRenomearEtapa(id){
   e.titulo = t; e.icon = icon;
   gravarEtapas(); renderCRM(); flash('Etapa renomeada ✔');
 }
-function crmExcluirEtapa(id){
+async function crmExcluirEtapa(id){
   if(CRM_ETAPAS.length<=1){ flash('Deixe pelo menos uma etapa.','erro'); return; }
   const idx = CRM_ETAPAS.findIndex(x=>x.id===id); if(idx<0) return;
   const destino = CRM_ETAPAS.find(x=>x.id!==id);   // 1ª etapa restante
   const naEtapa = Object.values(CRM_LEADS).filter(l=>!l._novo && l.etapa===id);
   let msg = `Excluir a etapa "${crmEtapaTitulo(id)}"?`;
   if(naEtapa.length) msg += `\n\n${naEtapa.length} lead(s) serão movidos para "${destino.titulo}".`;
-  if(!confirm(msg)) return;
+  if(!await uiConfirm(msg,{titulo:'Excluir etapa',ok:'Excluir etapa'})) return;
   naEtapa.forEach(l=>{ l.etapa=destino.id; l.ultimaInteracao=new Date().toISOString(); });
   CRM_ETAPAS.splice(idx,1);
   gravarEtapas(); if(naEtapa.length) saveCRM(); renderCRM();
@@ -3662,8 +3691,10 @@ function crmDescartarRascunho(){
   crmDraftId = null;
 }
 
-function crmExcluirLead(id){
-  if(!confirm('Excluir este lead permanentemente?')) return;
+async function crmExcluirLead(id){
+  const l=CRM_LEADS[id]; const nome=(l&&l.nome)||'sem nome';
+  const ok=await uiConfirm(`Excluir o lead "${nome}"?\n\nEsta ação não pode ser desfeita.`,{titulo:'Excluir lead',ok:'Excluir lead'});
+  if(!ok) return;
   delete CRM_LEADS[id];
   saveCRM();
   renderCRM();
