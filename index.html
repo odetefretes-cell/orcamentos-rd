@@ -3556,8 +3556,18 @@ function crmAbrirLead(id){
     <div class="grid g2">
       <div class="field"><label>Veículo (marca/modelo)</label><input id="crmVeiculo" value="${escA(l.veiculoDesc||'')}" placeholder="Ex.: FIAT/ARGO"></div>
       <div class="field"><label>Placa</label><input id="crmPlaca" value="${escA(l.placa||'')}"></div>
-      <div class="field"><label>Origem</label><input id="crmOrigem" value="${escA(l.origem||'')}" placeholder="Ex.: BAURU SP"></div>
-      <div class="field"><label>Destino</label><input id="crmDestino" value="${escA(l.destino||'')}" placeholder="Ex.: NATAL RN"></div>
+      <div class="field"><label>Origem (estado / cidade)</label>
+        <input type="hidden" id="crmOrigem" value="${escA(l.origem||'')}">
+        <div style="display:flex;gap:6px">
+          <select id="crmOrigemUF" onchange="crmUFChange('Origem')" style="width:80px"><option value="">UF</option></select>
+          <select id="crmOrigemCidade" onchange="crmCidadeChange('Origem')" style="flex:1"><option value="">— cidade —</option></select>
+        </div></div>
+      <div class="field"><label>Destino (estado / cidade)</label>
+        <input type="hidden" id="crmDestino" value="${escA(l.destino||'')}">
+        <div style="display:flex;gap:6px">
+          <select id="crmDestinoUF" onchange="crmUFChange('Destino')" style="width:80px"><option value="">UF</option></select>
+          <select id="crmDestinoCidade" onchange="crmCidadeChange('Destino')" style="flex:1"><option value="">— cidade —</option></select>
+        </div></div>
       <div class="field"><label>Valor do veículo (R$)</label>
         <div style="display:flex;gap:6px">
           <input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="Ex.: 20.000" style="flex:1">
@@ -3635,6 +3645,7 @@ function crmAbrirLead(id){
   crmRenderComp(id);   // taxas SW editáveis
   crmCalcInit(id);     // popular categorias da calculadora
   crmRenderTarefas(id);// tarefas agendadas do lead
+  crmInitCidadeSel(id);// caixas de estado/cidade (origem/destino) da tabela
   crmAutoCalc(id);     // já calcula o frete (melhor prestador) ao abrir
   modal.style.display = 'flex';
   requestAnimationFrame(()=> modal.classList.add('open'));
@@ -3815,6 +3826,62 @@ async function atualizarTabelaFretes(){
     if(st){ st.style.color='#16a34a'; st.textContent=`✔ Publicado: ${tabela.rotas.length} rotas, ${Object.keys(tabela.cidades).length} cidades. ${CLOUD_ON?'Todos recebem ao atualizar a página.':'(sem nuvem — salvo só neste computador)'}`; }
     flash('Tabela de fretes publicada ✔');
   }catch(e){ if(st){ st.style.color='#dc2626'; st.textContent='Erro ao ler a planilha: '+(e.message||e); } }
+}
+// ---- Caixas de seleção Estado / Cidade (origem e destino) da tabela ----
+let TAB_CIDADES=null, crmAbertoId=null;
+function crmBuildCidades(){
+  if(TAB_CIDADES) return TAB_CIDADES;
+  const db=TABELA_FRETES; if(!db) return null;
+  const map={};
+  for(const r of (db.rotas||[])) for(const t of (r.trajetos||[])){
+    [[t.oNome,t.oUF],[t.dNome,t.dUF]].forEach(([nome,uf])=>{
+      if(!nome||!uf) return; const U=String(uf).toUpperCase().trim(), nn=normTxt(nome);
+      (map[U]=map[U]||{})[nn]=String(nome).trim();
+    });
+  }
+  TAB_CIDADES={}; Object.keys(map).sort().forEach(U=>{ TAB_CIDADES[U]=Object.values(map[U]).sort((a,b)=>a.localeCompare(b,'pt')); });
+  return TAB_CIDADES;
+}
+async function crmInitCidadeSel(id){
+  crmAbertoId=id;
+  await carregarTabelaFretes();
+  const cid=crmBuildCidades(); const ufs=cid?Object.keys(cid):[];
+  ['Origem','Destino'].forEach(q=>{
+    const selUF=$('#crm'+q+'UF'); if(!selUF) return;
+    selUF.innerHTML='<option value="">UF</option>'+ufs.map(u=>`<option value="${u}">${u}</option>`).join('');
+    const l=CRM_LEADS[id]; if(!l) return;
+    const atual=(q==='Origem'?l.origem:l.destino)||'';
+    const uf=ufTxt(atual).toUpperCase();
+    if(uf && cid && cid[uf]){
+      selUF.value=uf; crmFillCidades(q);
+      const selC=$('#crm'+q+'Cidade');
+      const cidade=atual.replace(new RegExp('\\s+'+uf+'\\s*$','i'),'').trim();
+      const match=cid[uf].find(c=>normTxt(c)===normTxt(cidade));
+      if(match) selC.value=match;
+      else if(cidade){ const o=document.createElement('option'); o.value=atual; o.textContent=cidade+' (fora da tabela)'; selC.insertBefore(o, selC.lastChild); selC.value=atual; }
+    }
+  });
+}
+function crmFillCidades(q){
+  const cid=crmBuildCidades(); const uf=($('#crm'+q+'UF')||{}).value||''; const selC=$('#crm'+q+'Cidade'); if(!selC) return;
+  const lista=(cid&&cid[uf])||[];
+  selC.innerHTML='<option value="">— cidade —</option>'+lista.map(c=>`<option value="${escA(c)}">${esc(c)}</option>`).join('')
+    +'<option value="__manual__">⌨️ Digitar outra cidade…</option>';
+}
+function crmUFChange(q){ crmFillCidades(q); crmCidadeChange(q); }
+function crmCidadeChange(q){
+  const uf=($('#crm'+q+'UF')||{}).value||''; const selC=$('#crm'+q+'Cidade'); if(!selC) return;
+  let cidade=selC.value;
+  if(cidade==='__manual__'){
+    const dig=(prompt('Cidade (fora da tabela — o cálculo pode não achar rota):')||'').trim();
+    if(!dig){ selC.value=''; cidade=''; }
+    else { const o=document.createElement('option'); o.value=dig; o.textContent=dig+' (fora da tabela)'; selC.insertBefore(o, selC.lastChild); selC.value=dig; cidade=dig; }
+  }
+  const val = cidade ? (cidade + (uf && !new RegExp('\\b'+uf+'\\s*$','i').test(cidade) ? ' '+uf : '')) : '';
+  const hid=$('#crm'+q); if(hid) hid.value=val;
+  const id=crmAbertoId, l=id&&CRM_LEADS[id];
+  if(l){ if(q==='Origem') l.origem=val; else l.destino=val;
+    if(l.composicao && l.composicao.length){ crmRecalcCalc(id); crmCompReflectValores(id); } }
 }
 function crmCategoriaSugerida(l){   // adivinha a categoria pelo modelo do veículo
   const v = normTxt(l && l.veiculoDesc);
