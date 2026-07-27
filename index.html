@@ -3948,36 +3948,45 @@ function crmWhatsApp(id){
   // valor médio: total base a base da composição (ou o valor médio já calculado)
   const V = (typeof crmValoresOrc==='function') ? crmValoresOrc(l) : null;
   const media = (V && V.totalBase) || numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado);
+  let msg, tlTxt;
   if(!media){
-    if(!confirm('Ainda não há valor médio calculado para este lead. Enviar mensagem mesmo assim (sem valor)?')) return;
+    // sem rota / valor automático → aciona assistente humano
+    msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
+      (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
+      (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
+      `\nO seu transporte é um pouco mais complicado que o convencional para gerarmos o seu orçamento automaticamente.\n\n` +
+      `Vou acionar um *assistente humano* para o cálculo correto e já te retorno com o valor certinho. 🙌\n\n` +
+      `🛰️ Transporte monitorado por link de rastreio, com atualização diária.\n` +
+      `🏆 OBS Transportes — 20 anos de história no transporte de veículos.\n` +
+      `📞 (11) 4352-4103`;
+    tlTxt = 'Transporte complexo (sem rota automática) — mensagem de assistente humano gerada.';
+  } else {
+    const prazo = l.prazoSW ? `${l.prazoSW} dias após o embarque` : (typeof crmPrazoTexto==='function' ? crmPrazoTexto(l) : 'a combinar');
+    // aviso de cidade mais próxima (quando a cidade informada não está na tabela base)
+    const notaProx=[];
+    if(l.origemAprox)  notaProx.push(`na origem, atendemos pela cidade mais próxima *${l.origemAprox.nome}/${l.origemAprox.uf}* (retirada a partir de ${l.origemAprox.orig})`);
+    if(l.destinoAprox) notaProx.push(`no destino, atendemos pela cidade mais próxima *${l.destinoAprox.nome}/${l.destinoAprox.uf}* (entrega até ${l.destinoAprox.orig})`);
+    const blocoProx = notaProx.length
+      ? `📍 Referência de rota: ${notaProx.join('; ')}. O valor pode ajustar conforme o endereço exato.\n\n` : '';
+    msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
+      `Segue uma *estimativa média* para o seu transporte:\n\n` +
+      (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
+      (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
+      `💰 *Valor médio: ${moeda(media)}*\n` +
+      `📅 Prazo estimado: ${prazo}\n\n` +
+      blocoProx +
+      `*Valor pode sofrer alterações (descontos ou acréscimos).*\n\n` +
+      `Esse é um *valor médio de referência*. Se tiver interesse, responda *SIM* que preparamos o *orçamento oficial* com todos os detalhes; se não, responda *NÃO*.\n\n` +
+      `🛰️ Transporte monitorado por link de rastreio, com atualização diária.\n` +
+      `🏆 OBS Transportes — 20 anos de história no transporte de veículos.\n` +
+      `📞 (11) 4352-4103`;
+    tlTxt = `Mensagem de orçamento médio gerada: ${moeda(media)} — copiar e colar na conversa com o cliente.`;
   }
-  const prazo = l.prazoSW ? `${l.prazoSW} dias após o embarque` : (typeof crmPrazoTexto==='function' ? crmPrazoTexto(l) : 'a combinar');
-
-  // aviso de cidade mais próxima (quando a cidade informada não está na tabela base)
-  const notaProx=[];
-  if(l.origemAprox)  notaProx.push(`na origem, atendemos pela cidade mais próxima *${l.origemAprox.nome}/${l.origemAprox.uf}* (retirada a partir de ${l.origemAprox.orig})`);
-  if(l.destinoAprox) notaProx.push(`no destino, atendemos pela cidade mais próxima *${l.destinoAprox.nome}/${l.destinoAprox.uf}* (entrega até ${l.destinoAprox.orig})`);
-  const blocoProx = notaProx.length
-    ? `📍 Referência de rota: ${notaProx.join('; ')}. O valor pode ajustar conforme o endereço exato.\n\n` : '';
-
-  const msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
-    `Segue uma *estimativa média* para o seu transporte:\n\n` +
-    (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
-    (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
-    (media ? `💰 *Valor médio: ${moeda(media)}*\n` : '') +
-    `📅 Prazo estimado: ${prazo}\n\n` +
-    blocoProx +
-    `*Valor pode sofrer alterações (descontos ou acréscimos).*\n\n` +
-    `Esse é um *valor médio de referência*. Se tiver interesse, responda *SIM* que preparamos o *orçamento oficial* com todos os detalhes; se não, responda *NÃO*.\n\n` +
-    `🛰️ Transporte monitorado por link de rastreio, com atualização diária.\n` +
-    `🏆 OBS Transportes — 20 anos de história no transporte de veículos.\n` +
-    `📞 (11) 4352-4103`;
-
   // não abre o WhatsApp: mostra a mensagem formatada para copiar e colar na conversa
   const ta = $('#msgWppTexto'); if(ta) ta.value = msg;
   const modal = $('#msgWppModal'); if(modal) modal.style.display='flex';
-  crmAddTimeline(id, 'whatsapp', `Mensagem de orçamento médio gerada${media?': '+moeda(media):''} — copiar e colar na conversa com o cliente.`);
-  if(l.etapa==='novo') l.etapa='contato';   // gerou a média → avança p/ contato
+  crmAddTimeline(id, 'whatsapp', tlTxt);
+  if(l.etapa==='novo') l.etapa='contato';   // contatou o cliente → avança p/ contato
   saveCRM();
   flash('Mensagem pronta — copie e cole na conversa ✔');
 }
