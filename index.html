@@ -198,6 +198,7 @@
   .badge.s-andamento{background:#3b82f6}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#ef4444}.badge.s-aguardando{background:#e6a100}
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#ef4444;font-weight:bold}
   .badge.atraso{background:#ef4444}
+  input.num-lock{background:rgba(255,255,255,.05);color:var(--muted,#9aa4b2);font-weight:700;cursor:not-allowed}
   .pend-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
     margin-top:6px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.04)}
@@ -536,7 +537,7 @@
     <div class="card">
       <h2>1 · Dados do frete</h2>
       <div class="body grid g4">
-        <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="vazio = automático"><span class="hint" id="proxNumHint"></span></div>
+        <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="automático" readonly class="num-lock"><span class="hint" id="proxNumHint"></span></div>
         <div class="field"><label>Atendente / Vendedor(a)</label><input name="atendente" placeholder="Responsável pela venda"></div>
         <div class="field"><label>Data do fechamento</label><input type="date" name="dataFechamento"></div>
         <div class="field"><label>Resp. pelo frete</label><input name="respFrete" placeholder="Ex.: BRUNO CESAR"></div>
@@ -1558,35 +1559,49 @@ function proximoNumero(){
   const base=nums.length?Math.max(...nums):0;
   return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1532
 }
+function proximoNumeroLivre(){ let n=proximoNumero(); while(lerDB()['n'+n]) n++; return n; }
 function atualizarProxNum(){
-  const el=$('#proxNumHint'); if(!el) return;
-  const numEl=form.elements['numero'];
-  el.textContent = (!idAtual && numEl && !numEl.value.trim()) ? ('Próximo automático: '+proximoNumero()) : '';
+  const numEl=form.elements['numero']; if(!numEl) return;
+  if(!idAtual) numEl.value = proximoNumeroLivre();   // frete novo: nº sequencial automático já preenchido
+  numEl.readOnly = true;                             // bloqueado p/ não haver erro de digitação
+  numEl.classList.add('num-lock');
+  numEl.title = 'Número automático e sequencial — não editável.';
+  const el=$('#proxNumHint'); if(el) el.textContent = idAtual ? '🔒 número do frete' : '🔒 nº automático sequencial';
 }
 function salvar(){
   const d=dados();
-  // frete novo sem número -> numeração automática sequencial (evita colisão)
-  if(!idAtual && !String(d.numero||'').trim()){
-    let n=proximoNumero(); while(lerDB()['n'+n]) n++;
-    d.numero=String(n);
-    if(form.elements['numero']) form.elements['numero'].value=d.numero;
+  // frete novo -> numeração automática sequencial; se estiver vazio OU já usado, pega o próximo livre
+  if(!idAtual){
+    const num=String(d.numero||'').trim();
+    if(!num || lerDB()['n'+num]){
+      d.numero=String(proximoNumeroLivre());
+      if(form.elements['numero']) form.elements['numero'].value=d.numero;
+    }
   }
   const id = idAtual || (d.numero ? 'n'+d.numero : 'id'+Date.now());
   const db=lerDB(); const prev=db[id]||{};
-  const primeiraEmissao = !prev.cadastrado;   // primeira vez que o comercial emite este frete
   // preserva TODOS os campos que só existem no banco (acompanhamento/financeiro/histórico)
   // — tudo que não vem do formulário fica intacto ao regravar a ficha
   Object.keys(prev).forEach(k=>{ if(d[k]===undefined) d[k]=prev[k]; });
   if(!d.status) d.status='ANDAMENTO';
   d.cadastrado=true;   // comercial emitiu o cadastro
-  if(!d.etapa) d.etapa = primeiraEmissao ? 'financeiro' : 'operacional';  // 1ª emissão -> vai ao Financeiro
+  // FLUXO: comercial → FINANCEIRO → operacional. Toda emissão do comercial vai ao Financeiro.
+  //  - só permanece no operacional se o FINANCEIRO já o liberou (marca liberadoEm)
+  //  - fretes históricos importados continuam no operacional (já estão em andamento)
+  if(d._importado || (prev.etapa==='operacional' && prev.liberadoEm)){
+    d.etapa = prev.etapa || 'operacional';
+  }else{
+    d.etapa = 'financeiro';
+  }
+  const foiAoFinanceiro = d.etapa==='financeiro' && prev.etapa!=='financeiro';
   d._id=id; d._salvoEm=new Date().toISOString();
   db[id]=d; gravarDB(db);
   upsertCliente(d);                 // atualiza o cadastro do cliente + histórico
   idAtual=id;
   localStorage.removeItem(DRAFT);
   atualizarHist(); atualizarProxNum();
-  flash(primeiraEmissao ? ('Frete Nº '+(d.numero||'')+' emitido → enviado ao Financeiro') : ('Frete Nº '+(d.numero||'')+' salvo ✔'));
+  const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
+  flash(foiAoFinanceiro ? ('Frete Nº '+(d.numero||'')+' emitido → enviado ao Financeiro') : ('Frete Nº '+(d.numero||'')+' salvo ✔'));
 }
 function atualizarHist(){
   const db=lerDB(); const sel=$('#hist');
@@ -2270,7 +2285,7 @@ function camposPagamentoHTML(id,f,defer){
 function liberarOperacional(id){
   const db=lerDB(); if(!db[id]) return;
   if(!confirm('Liberar o frete '+(db[id].numero||'')+' para a fila do operacional?')) return;
-  db[id].etapa='operacional'; db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
+  db[id].etapa='operacional'; db[id].liberadoEm=new Date().toISOString(); db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
   renderFinanceiro(); atualizarHist();
   const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
   flash('Frete '+(db[id].numero||'')+' liberado para o operacional ✔');
