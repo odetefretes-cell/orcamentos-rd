@@ -4077,12 +4077,45 @@ async function cidadeMaisProxima(normCidade, uf){
     const dkm=haversine(req,co); if(dkm<bestD){ bestD=dkm; best={nome, uf:U, dist:Math.round(dkm)}; } } }
   return best;
 }
+// \u00e2ncoras fortes = bases (config) + HUBS (cidades que s\u00e3o ORIGEM de rota, onde a transportadora
+// opera). Uma cidade de PASSAGEM colada num hub (ex.: Curitiba a 15km de Colombo, base da M1)
+// ancora nesse hub: o frete vai at\u00e9 o hub e a entrega/retirada \u00e9 local.
+let ANCORAS_FORTES=null, HUBS_SET=null;
+function ancorasFortes(){
+  if(ANCORAS_FORTES) return ANCORAS_FORTES;
+  ANCORAS_FORTES=[]; HUBS_SET=new Set();
+  const db=TABELA_FRETES; if(!db || !CIDADES_COORDS) return ANCORAS_FORTES;
+  const seen=new Set();
+  const add=(nomeBruto,uf)=>{ const U=(uf||'').toUpperCase(); if(!U||!nomeBruto) return;
+    const nome=String(nomeBruto).split('/')[0].trim(); const nn=normTxt(nome), key=nn+'|'+U;
+    if(seen.has(key)) return; const co=CIDADES_COORDS[nn+'|'+U]; if(!co) return;
+    seen.add(key); ANCORAS_FORTES.push({nome, uf:U, norm:nn, co}); };
+  if(db.cidades) for(const k in db.cidades){ add(db.cidades[k].cidade, db.cidades[k].uf); }
+  for(const r of (db.rotas||[])){ const t0=(r.trajetos||[])[0]; if(t0){ add(t0.oNome,t0.oUF); HUBS_SET.add(normTxt(t0.oNome)+'|'+(t0.oUF||'').toUpperCase()); } }
+  return ANCORAS_FORTES;
+}
+function ehHub(nc,uf){ ancorasFortes(); return HUBS_SET && HUBS_SET.has(nc+'|'+(uf||'').toUpperCase()); }
+async function ancoraForteProxima(nc, uf, maxKm){
+  await carregarCoords(); if(!CIDADES_COORDS) return null;
+  const req=CIDADES_COORDS[nc+'|'+uf]; if(!req) return null;
+  let best=null, bestD=Infinity;
+  for(const a of ancorasFortes()){ if(a.norm===nc && a.uf===uf) continue;
+    const dk=haversine(req,a.co); if(dk<bestD){ bestD=dk; best={nome:a.nome, uf:a.uf, dist:Math.round(dk)}; } }
+  return (best && best.dist<=maxKm) ? best : null;
+}
 // resolve a cidade digitada: se estiver na tabela usa; sen\u00e3o acha a mais pr\u00f3xima
 async function resolverCidade(raw){
   const uf=ufTxt(raw).toUpperCase();
   const nc=normTxt(String(raw||'').replace(new RegExp('\\s+'+uf+'\\s*$','i'),''));
   if(!nc) return { norm:normTxt(raw), uf, aproximada:false };
-  if(!uf || cidadeNaTabela(nc, uf)) return { norm:nc, uf, aproximada:false };
+  if(!uf || cidadeNaTabela(nc, uf)){
+    // cidade servida de PASSAGEM (n\u00e3o \u00e9 hub) colada num hub/base \u2192 ancora no hub (entrega/retirada local)
+    if(uf && cidadeNaTabela(nc,uf) && !ehHub(nc,uf)){
+      const a=await ancoraForteProxima(nc, uf, 25);
+      if(a) return { norm:normTxt(a.nome), uf:a.uf, aproximada:true, nome:a.nome, dist:a.dist, original:raw };
+    }
+    return { norm:nc, uf, aproximada:false };
+  }
   const prox=await cidadeMaisProxima(nc, uf);
   if(!prox) return { norm:nc, uf, aproximada:false };   // sem coords, mant\u00e9m
   return { norm:normTxt(prox.nome), uf:prox.uf, aproximada:true, nome:prox.nome, dist:prox.dist, original:raw };
@@ -4157,7 +4190,7 @@ async function atualizarTabelaFretes(){
     }
     try{ localStorage.setItem('obs_tabela_fretes', str); }catch(_){}
     TABELA_FRETES = tabela;   // aplica na hora (sem adjacências em cache)
-    TAB_CIDADES=null; TAB_CIDADES_TODAS={}; BASES_COORDS=null;   // recria listas/bases da nova tabela
+    TAB_CIDADES=null; TAB_CIDADES_TODAS={}; BASES_COORDS=null; ANCORAS_FORTES=null; HUBS_SET=null;   // recria listas/bases/hubs da nova tabela
     if(st){ st.style.color='#16a34a'; st.textContent=`✔ Publicado: ${tabela.rotas.length} rotas, ${Object.keys(tabela.cidades).length} cidades. ${CLOUD_ON?'Todos recebem ao atualizar a página.':'(sem nuvem — salvo só neste computador)'}`; }
     flash('Tabela de fretes publicada ✔');
   }catch(e){ if(st){ st.style.color='#dc2626'; st.textContent='Erro ao ler a planilha: '+(e.message||e); } }
