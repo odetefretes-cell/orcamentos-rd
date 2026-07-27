@@ -4097,9 +4097,37 @@ function crmBuildCidades(){
   TAB_CIDADES={}; Object.keys(map).sort().forEach(U=>{ TAB_CIDADES[U]=Object.values(map[U]).sort((a,b)=>a.localeCompare(b,'pt')); });
   return TAB_CIDADES;
 }
+// título amigável a partir do nome normalizado ("santo andre" -> "Santo André" fica sem acento,
+// mas legível). Mantém conectores em minúscula.
+function tituloCidade(nn){
+  const low=new Set(['de','da','do','das','dos','e','di','du','d']);
+  return String(nn||'').split(' ').filter(Boolean).map((w,i)=> (i>0&&low.has(w))?w : (w.charAt(0).toUpperCase()+w.slice(1))).join(' ');
+}
+// TODAS as cidades do estado (municípios do Brasil) — para o cliente poder pedir qualquer cidade.
+// As que atendemos (rota/trajeto) aparecem com o nome bonito; as demais entram e o cálculo
+// joga automaticamente para a cidade/base mais próxima que atendemos.
+let TAB_CIDADES_TODAS={};
+function crmCidadesUF(uf){
+  if(!uf) return [];
+  if(TAB_CIDADES_TODAS[uf]) return TAB_CIDADES_TODAS[uf];
+  const served=crmBuildCidades(); const servList=(served&&served[uf])||[];
+  const servSet=new Set(servList.map(c=>normTxt(c)));
+  const arr=servList.map(c=>({value:c, label:c, served:true}));
+  if(CIDADES_COORDS){
+    for(const k in CIDADES_COORDS){
+      const sep=k.lastIndexOf('|'); if(sep<0) continue;
+      const nn=k.slice(0,sep), U=k.slice(sep+1);
+      if(U!==uf || servSet.has(nn)) continue;
+      arr.push({value:tituloCidade(nn), label:tituloCidade(nn), served:false});
+    }
+  }
+  arr.sort((a,b)=>a.label.localeCompare(b.label,'pt'));
+  TAB_CIDADES_TODAS[uf]=arr; return arr;
+}
 async function crmInitCidadeSel(id){
   crmAbertoId=id;
   await carregarTabelaFretes();
+  await carregarCoords();   // p/ listar todos os municípios do estado
   const cid=crmBuildCidades(); const ufs=cid?Object.keys(cid):[];
   ['Origem','Destino'].forEach(q=>{
     const selUF=$('#crm'+q+'UF'); if(!selUF) return;
@@ -4118,9 +4146,9 @@ async function crmInitCidadeSel(id){
   });
 }
 function crmFillCidades(q){
-  const cid=crmBuildCidades(); const uf=($('#crm'+q+'UF')||{}).value||''; const selC=$('#crm'+q+'Cidade'); if(!selC) return;
-  const lista=(cid&&cid[uf])||[];
-  selC.innerHTML='<option value="">— cidade —</option>'+lista.map(c=>`<option value="${escA(c)}">${esc(c)}</option>`).join('')
+  const uf=($('#crm'+q+'UF')||{}).value||''; const selC=$('#crm'+q+'Cidade'); if(!selC) return;
+  const lista=crmCidadesUF(uf);
+  selC.innerHTML='<option value="">— cidade —</option>'+lista.map(c=>`<option value="${escA(c.value)}">${esc(c.label)}${c.served?'':' · (usa base + próxima)'}</option>`).join('')
     +'<option value="__manual__">⌨️ Digitar outra cidade…</option>';
 }
 function crmUFChange(q){ crmFillCidades(q); crmCidadeChange(q); }
