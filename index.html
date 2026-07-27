@@ -508,6 +508,7 @@
     </select>
     <button class="btn-ghost" onclick="novoFrete()">＋ Novo frete</button>
     <button class="btn-ghost" onclick="excluirFrete()">🗑️ Excluir</button>
+    <button class="btn-ghost" onclick="abrirLixeira()" title="Fretes excluídos (restaurar)">🗑️ Lixeira</button>
     <span class="spacer"></span>
     <span class="status" id="hstatus"></span>
   </div>
@@ -992,6 +993,17 @@
 
 </div>
 
+<div id="lixeiraModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px">
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:20px;width:680px;max-width:96vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="font-size:17px;margin:0">🗑️ Lixeira de fretes</h2>
+      <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('lixeiraModal').style.display='none'">✕ fechar</button>
+    </div>
+    <p class="hint" style="margin-top:0">Fretes excluídos ficam aqui por <b>30 dias</b>. Você pode <b>restaurar</b> ou excluir de vez.</p>
+    <div id="lixeiraLista"></div>
+  </div>
+</div>
+
 <div id="fipeModal" class="modal no-print" style="display:none;z-index:9600">
   <div class="sheet">
     <h3>🔎 Tabela FIPE — valor do veículo</h3>
@@ -1355,6 +1367,60 @@ const CLOUD_ON = !!(FIREBASE_CONFIG && FIREBASE_CONFIG.projectId);
 const WPP_NUMERO = '5511932225311';   // WhatsApp oficial da OBS (ChatGuru)
 let MEM={}, LAST={}, _fb=null, clienteLiveId=null;
 let CLIENTES={};   // cadastro de clientes por CPF/CNPJ (faturamento + histórico de fretes)
+let LIXEIRA={};    // fretes excluídos (lixeira) — guardados como fretes/_lix_<id>
+const LIXEIRA_DIAS=30;   // itens são apagados de vez após 30 dias
+// move um frete para a lixeira em vez de apagar de vez
+function moverParaLixeira(id){
+  const f = (lerDB())[id]; if(!f) return false;
+  const item = {...f, _origId:id, _excluidoEm:new Date().toISOString(), _excluidoPor:(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.nome)||''};
+  LIXEIRA[id]=item;
+  if(CLOUD_ON && _fb && _fb.setDoc){ try{ _fb.setDoc(_fb.doc(_fb.fs,'fretes','_lix_'+id), item); }catch(_){} }
+  else { try{ localStorage.setItem('obs_lixeira', JSON.stringify(LIXEIRA)); }catch(_){} }
+  const db=lerDB(); delete db[id]; gravarDB(db);   // remove o frete ativo
+  return true;
+}
+function restaurarLixeira(id){
+  const item=LIXEIRA[id]; if(!item) return;
+  const f={...item}; delete f._origId; delete f._excluidoEm; delete f._excluidoPor;
+  const db=lerDB(); db[id]=f; gravarDB(db);         // recria o frete ativo
+  if(CLOUD_ON && _fb && _fb.deleteDoc){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'fretes','_lix_'+id)); }catch(_){} }
+  delete LIXEIRA[id]; if(!CLOUD_ON){ try{ localStorage.setItem('obs_lixeira', JSON.stringify(LIXEIRA)); }catch(_){} }
+  if(typeof renderLixeira==='function') renderLixeira();
+  atualizarHist(); if(typeof renderRelatorio==='function') renderRelatorio();
+  flash('Frete restaurado ✔');
+}
+function excluirLixeira(id){
+  if(!confirm('Excluir DEFINITIVAMENTE este frete? Não dá para recuperar depois.')) return;
+  if(CLOUD_ON && _fb && _fb.deleteDoc){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'fretes','_lix_'+id)); }catch(_){} }
+  delete LIXEIRA[id]; if(!CLOUD_ON){ try{ localStorage.setItem('obs_lixeira', JSON.stringify(LIXEIRA)); }catch(_){} }
+  if(typeof renderLixeira==='function') renderLixeira();
+}
+function purgarLixeiraAntiga(){
+  const lim=Date.now()-LIXEIRA_DIAS*864e5;
+  Object.keys(LIXEIRA).forEach(id=>{ const t=new Date(LIXEIRA[id]._excluidoEm||0).getTime();
+    if(t && t<lim){ if(CLOUD_ON && _fb && _fb.deleteDoc){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'fretes','_lix_'+id)); }catch(_){} } delete LIXEIRA[id]; } });
+}
+function abrirLixeira(){ if(!CLOUD_ON){ try{ LIXEIRA=JSON.parse(localStorage.getItem('obs_lixeira'))||{}; }catch(_){ } } renderLixeira(); $('#lixeiraModal').style.display='flex'; }
+function renderLixeira(){
+  const el=$('#lixeiraLista'); if(!el) return;
+  const itens=Object.values(LIXEIRA).sort((a,b)=>(b._excluidoEm||'').localeCompare(a._excluidoEm||''));
+  if(!itens.length){ el.innerHTML='<p class="hint">Lixeira vazia.</p>'; return; }
+  el.innerHTML=itens.map(f=>{
+    const id=f._origId; const cli=up(f.clienteEmpresa||'')||'(sem nome)';
+    const veic=(f.veiculos&&f.veiculos[0]&&(f.veiculos[0].modelo||f.veiculos[0].marca))||f.veiculo||'';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--linha)">
+      <div style="min-width:0">
+        <div style="font-weight:600">${f.numero?('Nº '+esc(f.numero)+' · '):''}${esc(cli)}</div>
+        <div class="hint" style="margin:0">${esc(veic)}${(f.origem||f.destino)?(' · '+esc(f.origem||'')+' → '+esc(f.destino||'')):''}</div>
+        <div class="hint" style="margin:0">excluído ${esc(dataHora(f._excluidoEm))}${f._excluidoPor?(' por '+esc(f._excluidoPor)):''}</div>
+      </div>
+      <div style="white-space:nowrap;display:flex;gap:6px">
+        <button class="btn-ok" style="font-size:12px;padding:5px 10px" onclick="restaurarLixeira('${id}')">↩ Restaurar</button>
+        <button class="btn-ghost" style="font-size:12px;padding:5px 10px;color:#dc2626;border-color:#dc2626" onclick="excluirLixeira('${id}')">Excluir de vez</button>
+      </div>
+    </div>`;
+  }).join('');
+}
 
 function loadLocal(){ try{ return JSON.parse(localStorage.getItem(DB))||{}; }catch(_){ return {}; } }
 function loadClientesLocal(){ try{ return JSON.parse(localStorage.getItem('obs_clientes'))||{}; }catch(_){ return {}; } }
@@ -1417,7 +1483,8 @@ async function initData(){
         // APP DA EQUIPE: sincroniza a coleção inteira
         setModo('☁ Compartilhado (tempo real)');
         fsMod.onSnapshot(fsMod.collection(fs,'fretes'), snap=>{
-          MEM={}; snap.forEach(d=>{
+          MEM={}; LIXEIRA={}; snap.forEach(d=>{
+            if(d.id.startsWith('_lix_')){ LIXEIRA[d.id.slice(5)]=d.data(); return; }   // lixeira
             if(d.id.startsWith('_')){
               // docs reservados: usuários (_acesso) e funis (_etapas) — carregam ao vivo
               if(d.id==='_acesso'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ USUARIOS=li; try{localStorage.setItem(USUARIOS_KEY,JSON.stringify(USUARIOS));}catch(_){} } }
@@ -1426,6 +1493,8 @@ async function initData(){
             }
             MEM[d.id]=d.data();
           }); LAST=JSON.parse(JSON.stringify(MEM));
+          purgarLixeiraAntiga();
+          const vlx=$('#lixeiraModal'); if(vlx && vlx.style.display!=='none' && typeof renderLixeira==='function') renderLixeira();
           atualizarHist(); atualizarProxNum();
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
@@ -1525,9 +1594,9 @@ function novoFrete(){
 }
 function excluirFrete(){
   if(!idAtual){ alert('Selecione um frete salvo para excluir.'); return; }
-  if(!confirm('Excluir este frete do histórico?')) return;
-  const db=lerDB(); delete db[idAtual]; gravarDB(db);
-  novoFrete(); atualizarHist(); flash('Frete excluído');
+  if(!confirm('Enviar este frete para a Lixeira? Você pode restaurá-lo depois (por 30 dias).')) return;
+  moverParaLixeira(idAtual);
+  novoFrete(); atualizarHist(); flash('Frete movido para a Lixeira 🗑️');
 }
 
 function aplicar(d){
@@ -2845,8 +2914,8 @@ function renderComercial(){
 }
 function abrirPedidoComercial(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); flash('Pedido carregado — revise e clique em Salvar frete'); }
 function recusarPedido(id){
-  if(!confirm('Excluir este pedido do cliente?')) return;
-  const db=lerDB(); delete db[id]; gravarDB(db); atualizarHist(); renderComercial();
+  if(!confirm('Enviar este pedido para a Lixeira? Você pode restaurá-lo depois (por 30 dias).')) return;
+  moverParaLixeira(id); atualizarHist(); renderComercial();
 }
 // cria um pedido em branco e mostra o link para o cliente preencher (mesmo link do acompanhamento)
 function novoPedidoLink(){
