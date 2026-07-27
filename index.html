@@ -4037,6 +4037,48 @@ function crmCategoriaSugerida(l){   // adivinha a categoria pelo modelo do veíc
   if(/\bmoto|cg |cb |cbr|xre|bros|titan|fan|factor|biz|pop|nmax|pcx|hornet|xj6|mt-|cc\b/.test(v)) return 'Moto até 300cc';
   return 'Carro passeio';
 }
+// ---- Preço por categoria tolerante a nomes diferentes na planilha ----
+// (o banco está em evolução; ex.: uma rota traz "Carro Pequeno" e outra "Carro passeio")
+const CAT_ALIAS = [
+  ['carro passeio','carro pequeno','passeio','carro','carro de passeio','automovel','sedan','hatch','popular'],
+  ['carro grande','suv','caminhonete','pickup','picape','utilitario','van','carro g'],
+  ['moto ate 300cc','moto 300','moto ate 300','moto pequena'],
+  ['moto ate 700cc','moto 700','moto ate 700','moto media'],
+  ['moto acima de 700cc','moto acima 700','moto acima de 700','moto grande']
+];
+function catGrupo(nome){
+  const n=normTxt(nome);
+  for(const g of CAT_ALIAS){ if(g.indexOf(n)>=0) return g; }
+  if(/moto/.test(n)){ if(/700/.test(n)&&/acima|maior/.test(n)) return CAT_ALIAS[4]; if(/700/.test(n)) return CAT_ALIAS[3]; return CAT_ALIAS[2]; }
+  if(/grande|suv|caminhon|pickup|picape|utilit/.test(n)) return CAT_ALIAS[1];
+  if(/carro|passeio|sedan|hatch|automov|pequen/.test(n)) return CAT_ALIAS[0];
+  return null;
+}
+function precoCat(valores, cat){
+  if(!valores) return null;
+  if(valores[cat]!=null) return valores[cat];                       // nome exato
+  const nc=normTxt(cat);
+  for(const k in valores){ if(normTxt(k)===nc && valores[k]!=null) return valores[k]; }   // sem acento/caixa
+  const g=catGrupo(cat); if(!g) return null;
+  for(const k in valores){ if(g.indexOf(normTxt(k))>=0 && valores[k]!=null) return valores[k]; }  // apelido conhecido
+  for(const k in valores){ if(catGrupo(k)===g && valores[k]!=null) return valores[k]; }          // mesmo grupo
+  return null;
+}
+// ---- Sub-trecho: a rota passa por O e depois por D (mesma viagem) ----
+// Ex.: rota "São Paulo → Salvador" passa por Rio de Janeiro e depois Santo Antônio de Jesus,
+// então serve RJ → Santo Antônio de Jesus pelo preço da rota (1 trecho).
+function crmSubTrecho(r, isO, isD){
+  const tj=r.trajetos||[]; if(!tj.length) return null;
+  const seq=[{norm:tj[0].o, nome:tj[0].oNome, uf:tj[0].oUF}];
+  for(const t of tj) seq.push({norm:t.d, nome:t.dNome, uf:t.dUF});
+  let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(seq[i].norm)){ iO=i; break; } }
+  if(iO<0) return null;
+  let iD=-1; for(let j=iO+1;j<seq.length;j++){ if(isD(seq[j].norm)){ iD=j; break; } }
+  if(iD<0) return null;
+  const O=seq[iO], D=seq[iD];
+  return { transportadora:r.transportadora, valores:r.valores, prazo:r.prazoDias,
+           oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:O.norm, dN:D.norm };
+}
 function crmCalcInit(id){
   const sel = $('#calcCategoria'); if(!sel) return;
   const cats = (TABELA_FRETES && TABELA_FRETES.categorias) ? TABELA_FRETES.categorias
@@ -4072,7 +4114,7 @@ async function crmCalcBuscar(id){
   for(const r of db.rotas){
     for(const t of (r.trajetos||[])){
       if(match(t.o,o) && match(t.d,d)){
-        const val = r.valores[cat];
+        const val = precoCat(r.valores,cat);
         res.push({ transp:r.transportadora, rota:r.rota, prazo:r.prazoDias,
           valor: (val!=null?val:null), valores:r.valores,
           oNome:t.oNome, dNome:t.dNome, oUF:t.oUF, dUF:t.dUF });
@@ -4134,7 +4176,7 @@ async function crmCalcOpcoes(id){
   const cat = $('#calcCategoria')?.value || '';
   const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
   const isDest = k => match(k, d);
-  const preco = r => r.valores[cat];
+  const preco = r => precoCat(r.valores,cat);
   const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:t.o,dN:t.d, prazo:r.prazoDias });
   const diretas=[], saemDaOrigem=[];
   for(const r of db.rotas){
@@ -4144,11 +4186,20 @@ async function crmCalcOpcoes(id){
       else if(so){ saemDaOrigem.push(leg(r,t)); }
     }
   }
+  // sub-trechos: a rota passa por O e depois por D na mesma viagem (ex.: RJ → Santo Antônio
+  // dentro de "São Paulo → Salvador"). Conta como rota direta pelo preço da rota. Duplicatas
+  // com a origem = origem da rota são removidas depois no dedup por transportadora+total.
+  const isO = k=>match(k,o);
+  for(const r of db.rotas){
+    const s=crmSubTrecho(r,isO,isDest); if(!s) continue;
+    const p=precoCat(s.valores,cat); if(p==null) continue;
+    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo }], total:p, prazo:s.prazo||0 });
+  }
   // custo mínimo de cada cidade até o destino (qualquer nº de trechos)
   const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
   const adj = crmAdjacencia(db);
   const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
-  const legB = b => ({ transportadora:b.carrier, valor:b.valores[cat], oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, dN:b.to, prazo:b.prazo });
+  const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, dN:b.to, prazo:b.prazo });
   const combos=[]; const vc=new Set();
   const addCombo = (legs)=>{
     if(legs.some(l=>l.valor==null)) return;
@@ -4162,7 +4213,7 @@ async function crmCalcOpcoes(id){
     if(custo[a.dN]!=null){ addCombo([a].concat(recon(a.dN))); }     // 1º trecho + melhor continuação
     for(const b of (adj[a.dN]||[])){                                 // varia o 2º trecho
       if(combos.length>500) break;
-      if(b.valores[cat]==null || b.to===a.oN || match(b.to,o)) continue;
+      if(precoCat(b.valores,cat)==null || b.to===a.oN || match(b.to,o)) continue;
       if(isDest(b.to)){ addCombo([a, legB(b)]); }                    // origem->M->destino
       else if(custo[b.to]!=null){ addCombo([a, legB(b)].concat(recon(b.to))); }
     }
@@ -4254,7 +4305,7 @@ function crmCustoAteDestino(db, cat, isDest){
     if(u===null) break;
     feito[u]=true;
     for(const e of (radj[u]||[])){        // e: trecho e.from -> u
-      const p = e.valores[cat]; if(p==null) continue;
+      const p = precoCat(e.valores,cat); if(p==null) continue;
       const nd = custo[u] + p;
       if(custo[e.from]==null || nd < custo[e.from]){
         custo[e.from]=nd;
@@ -4284,10 +4335,18 @@ async function crmCalcAuto(id, auto){
   const nodes = Object.keys(adj);
   const isOrig = k => k===o || (o.length>3 && k.includes(o)) || (k.length>3 && o.includes(k));
   const isDest = k => k===d || (d.length>3 && k.includes(d)) || (k.length>3 && d.includes(k));
+  // rotas que passam por O e depois por D na MESMA viagem (sub-trecho) → 1 trecho pelo preço da rota
+  const subDiretas=[];
+  for(const r of db.rotas){
+    const s=crmSubTrecho(r,isOrig,isDest); if(!s) continue;
+    const p=precoCat(s.valores,cat); if(p==null) continue;
+    subDiretas.push({ oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, carrier:s.transportadora, valores:s.valores, prazo:s.prazo, __preco:p });
+  }
+  subDiretas.sort((a,b)=>a.__preco-b.__preco);
   const HOP_PEN = 100;   // penaliza cada transbordo (evita cadeias longas desnecessárias)
   const dist={}, prev={}, hops={}, done={};
   const starts = nodes.filter(isOrig);
-  if(!starts.length){ if(!auto){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
+  if(!starts.length && !subDiretas.length){ if(!auto){ box.innerHTML = `<p class="hint">Origem "${esc($('#crmOrigem').value)}" não encontrada na tabela — preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   starts.forEach(s=>{ dist[s]=0; hops[s]=0; });
   // Dijkstra simples — o dist contém também cidades-folha (só destino),
   // então o limite é bem maior que o nº de nós com saída. done garante o fim.
@@ -4300,7 +4359,7 @@ async function crmCalcAuto(id, auto){
     if(isDest(u)) break;
     if((hops[u]||0) >= 6) continue;   // limite de transbordos
     for(const e of (adj[u]||[])){
-      const custo = e.valores[cat];
+      const custo = precoCat(e.valores,cat);
       if(custo==null) continue;        // sem preço p/ categoria neste trecho
       const nd = dist[u] + custo + HOP_PEN;
       if(dist[e.to]==null || nd < dist[e.to]){
@@ -4311,25 +4370,26 @@ async function crmCalcAuto(id, auto){
   // acha o destino de menor custo
   let end=null, bestD=Infinity;
   for(const k in dist){ if(isDest(k) && done[k] && dist[k]<bestD){ bestD=dist[k]; end=k; } }
-  if(!end){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
-  // reconstrói o caminho
-  const pilha=[]; let cur=end;
-  while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; }
-  if(!pilha.length){ if(!auto) box.innerHTML = '<p class="hint">Nenhum trecho encontrado.</p>'; return; }
+  // reconstrói o caminho multi-trecho (se houver)
+  let pilha=[]; if(end){ let cur=end; while(prev[cur]){ pilha.unshift(prev[cur].e); cur=prev[cur].from; } }
+  const totalMulti = pilha.length ? pilha.reduce((s,e)=>s+(precoCat(e.valores,cat)||0),0) : Infinity;
+  // sub-trecho direto (1 trecho) vence quando existe e não é mais caro que o multi-trecho
+  if(subDiretas.length && subDiretas[0].__preco <= totalMulti){ pilha=[subDiretas[0]]; }
+  if(!pilha.length){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   // mostra o caminho e monta
   const l = CRM_LEADS[id];
   l.trajetos = pilha.map(e=>({
     de:`${e.oNome}/${e.oUF}`, para:`${e.dNome}/${e.dUF}`,
-    transportadora:e.carrier, valor:String(e.valores[cat]), oUF:e.oUF, dUF:e.dUF, prazo:e.prazo||null
+    transportadora:e.carrier, valor:String(precoCat(e.valores,cat)), oUF:e.oUF, dUF:e.dUF, prazo:e.prazo||null
   }));
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
   crmRecalcCalc(id);
   crmRenderComp(id);
-  const totalBase = pilha.reduce((s,e)=>s+ (e.valores[cat]||0),0);
+  const totalBase = pilha.reduce((s,e)=>s+ (precoCat(e.valores,cat)||0),0);
   box.innerHTML = `<div style="border:1px solid #16a34a;border-radius:8px;padding:8px;background:rgba(22,163,74,.06)">
     ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
     <div style="font-weight:600;margin-bottom:4px">🔗 Melhor opção: ${pilha.length} trecho(s) — frete base ${moeda(totalBase)}</div>
-    ${pilha.map(e=>`<div class="hint" style="margin:0">${esc(e.oNome)}/${esc(e.oUF)} → ${esc(e.dNome)}/${esc(e.dUF)} · ${esc(e.carrier)} · ${moeda(e.valores[cat])}</div>`).join('')}
+    ${pilha.map(e=>`<div class="hint" style="margin:0">${esc(e.oNome)}/${esc(e.oUF)} → ${esc(e.dNome)}/${esc(e.dUF)} · ${esc(e.carrier)} · ${moeda(precoCat(e.valores,cat))}</div>`).join('')}
     <div class="hint" style="margin-top:4px">Taxas preenchidas na composição abaixo — confira e edite se precisar. Use "🔍 Ver prestadores" para trocar de transportadora.</div>
   </div>`;
   if(!auto) flash('Frete calculado ✔');
