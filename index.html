@@ -3809,7 +3809,7 @@ function crmAbrirLead(id){
           <option value="nao" ${l.interesse==='nao'?'selected':''}>❌ NÃO</option>
         </select></div>
       <div class="field"><label>Valor médio do frete (R$)</label><input id="crmCotSW" value="${escA(l.valorCotacaoSW||'')}" inputmode="decimal" placeholder="calculado automaticamente"></div>
-      <div class="field"><label>Prazo estimado (dias)</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric"></div>
+      <div class="field"><label>⏳ Prazo estimado (dias) — calculado, editável</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric" oninput="crmPrazoEdit('${id}')" placeholder="calculado pela rota"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
     </div>
     <div class="cm-section">🗓️ Agendamento & Tarefas</div>
@@ -4366,6 +4366,7 @@ function crmUsarOpcao(id, i){
     oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null
   }));
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  l._prazoManual=false;   // opção nova → prazo volta a ser o calculado
   crmRecalcCalc(id);
   crmRenderComp(id);
   flash('Opção aplicada ✔');
@@ -4527,6 +4528,7 @@ async function crmCalcAuto(id, auto){
     transportadora:e.carrier, valor:String(precoCat(e.valores,cat)), oUF:e.oUF, dUF:e.dUF, prazo:e.prazo||null
   }));
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  l._prazoManual=false;   // cálculo novo → prazo volta a ser o calculado
   crmRecalcCalc(id);
   crmRenderComp(id);
   const totalBase = pilha.reduce((s,e)=>s+ (precoCat(e.valores,cat)||0),0);
@@ -4599,6 +4601,20 @@ function crmRecalcCalc(id){
   const V = crmValoresOrc(l);
   l.valorCotacaoSW = V.totalBase ? String(Math.round(V.totalBase*100)/100) : l.valorCotacaoSW;
   const fCot=$('#crmCotSW'); if(fCot && V.totalBase) fCot.value = l.valorCotacaoSW;
+  // Prazo calculado (soma dos prazos dos trechos) → preenche o campo editável,
+  // a não ser que o operador já tenha digitado um prazo à mão.
+  if(!l._prazoManual){
+    const prazoCalc = (l.trajetos||[]).reduce((s,t)=>s+(parseInt(t.prazo)||0),0);
+    if(prazoCalc>0){
+      l.prazoSW = String(prazoCalc);
+      const fp=$('#crmPrazoSW'); if(fp) fp.value = l.prazoSW;
+    }
+  }
+}
+function crmPrazoEdit(id){   // marca que o prazo foi editado à mão (não sobrescrever no recálculo)
+  const l = CRM_LEADS[id]; if(!l) return;
+  l.prazoSW = ($('#crmPrazoSW')?.value||'').trim();
+  l._prazoManual = true;
 }
 
 // ---- Composição do frete (taxas SW): incluir / excluir / editar ----
