@@ -3549,6 +3549,8 @@ function renderCRMMetrics(){
 }
 
 // ---- Render Kanban ----
+// lead tem valor calculado automaticamente? (cotação média, valor estimado ou trechos)
+function crmTemCalc(l){ return !!(l && (numMoeda(l.valorCotacaoSW) || numMoeda(l.valorEstimado) || (l.trajetos && l.trajetos.length))); }
 function renderCRM(){
   renderCRMMetrics();
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
@@ -3611,6 +3613,7 @@ function renderCRM(){
       ${l.vendedor ? `<div class="kc-vendedor">👤 ${esc(l.vendedor)}</div>` : ''}
       <div style="margin-top:4px">
         <span class="kc-tag ${l.prioridade||'morno'}">${l.prioridade==='quente'?'Quente':l.prioridade==='frio'?'Frio':'Morno'}</span>
+        ${(l.origem&&l.destino&&!crmTemCalc(l))?`<span class="kc-tag frio" title="Sem cálculo automático — use o botão WhatsApp para a mensagem de assistente humano">🤝 orçamento manual</span>`:''}
       </div>
     </div>`;
   const tbtn = 'border:none;background:none;cursor:pointer;font-size:11px;color:rgba(228,228,240,.55);padding:0 2px';
@@ -3620,7 +3623,8 @@ function renderCRM(){
     if(filtroPrio) leads = leads.filter(l => l.prioridade === filtroPrio);
     if(filtroVendedor) leads = leads.filter(l => l.vendedor === filtroVendedor);
     if(filtroTarefa) leads = leads.filter(casaTarefa);
-    leads.sort((a,b) => (b.ultimaInteracao||b.dataEntrada||'').localeCompare(a.ultimaInteracao||a.dataEntrada||''));
+    // com valor calculado automático em primeiro; sem cálculo (orçamento manual) por último
+    leads.sort((a,b) => (crmTemCalc(b)-crmTemCalc(a)) || (b.ultimaInteracao||b.dataEntrada||'').localeCompare(a.ultimaInteracao||a.dataEntrada||''));
     const cor = etapa.cor||'#64748b';
     return `<div class="kanban-col" data-etapa="${etapa.id}">
       <div class="kanban-col-header" style="border-bottom-color:${cor}">
