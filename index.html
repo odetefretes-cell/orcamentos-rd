@@ -3894,12 +3894,20 @@ function crmWhatsApp(id){
   }
   const prazo = l.prazoSW ? `${l.prazoSW} dias após o embarque` : (typeof crmPrazoTexto==='function' ? crmPrazoTexto(l) : 'a combinar');
 
+  // aviso de cidade mais próxima (quando a cidade informada não está na tabela base)
+  const notaProx=[];
+  if(l.origemAprox)  notaProx.push(`na origem, usamos *${l.origemAprox.nome}/${l.origemAprox.uf}* (cidade mais próxima de ${l.origemAprox.orig})`);
+  if(l.destinoAprox) notaProx.push(`no destino, usamos *${l.destinoAprox.nome}/${l.destinoAprox.uf}* (cidade mais próxima de ${l.destinoAprox.orig})`);
+  const blocoProx = notaProx.length
+    ? `📍 Referência de rota: ${notaProx.join('; ')}. O valor pode ajustar conforme o endereço exato.\n\n` : '';
+
   const msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
     `Segue uma *estimativa média* para o seu transporte:\n\n` +
     (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
     (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
     (media ? `💰 *Valor médio: ${moeda(media)}*\n` : '') +
     `📅 Prazo estimado: ${prazo}\n\n` +
+    blocoProx +
     `*Valor pode sofrer alterações (descontos ou acréscimos).*\n\n` +
     `Esse é um *valor médio de referência*. Se tiver interesse, responda *SIM* que preparamos o *orçamento oficial* com todos os detalhes; se não, responda *NÃO*.\n\n` +
     `🛰️ Transporte monitorado por link de rastreio, com atualização diária.\n` +
@@ -3913,6 +3921,12 @@ function crmWhatsApp(id){
   if(l.etapa==='novo') l.etapa='contato';   // gerou a média → avança p/ contato
   saveCRM();
   flash('Mensagem pronta — copie e cole na conversa ✔');
+}
+// guarda no lead a cidade mais próxima usada no cálculo (p/ avisar também no WhatsApp)
+function crmGuardarAprox(id, oR, oRaw, dR, dRaw){
+  const l=CRM_LEADS[id]; if(!l) return;
+  l.origemAprox  = oR.aproximada ? { orig:(''+oRaw).trim(), nome:oR.nome, uf:oR.uf, dist:oR.dist } : null;
+  l.destinoAprox = dR.aproximada ? { orig:(''+dRaw).trim(), nome:dR.nome, uf:dR.uf, dist:dR.dist } : null;
 }
 function copiarMsgWpp(){
   const ta = $('#msgWppTexto'); if(!ta) return;
@@ -4239,6 +4253,7 @@ async function crmCalcOpcoes(id){
   const avisosProx=[];
   if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> → mais próxima <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> → mais próxima <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
+  crmGuardarAprox(id, oR, oRaw, dR, dRaw);
   const cat = $('#calcCategoria')?.value || '';
   const match=(campo,q)=> campo===q || (q.length>3 && campo.includes(q)) || (campo.length>3 && q.includes(campo));
   const isDest = k => match(k, d);
@@ -4427,6 +4442,7 @@ async function crmCalcAuto(id, auto){
   const avisosProx=[];
   if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> não está na tabela — usando <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> não está na tabela — usando <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
+  crmGuardarAprox(id, oR, oRaw, dR, dRaw);
   const cat = $('#calcCategoria')?.value || '';
   const adj = crmAdjacencia(db);
   const nodes = Object.keys(adj);
