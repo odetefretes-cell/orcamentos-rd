@@ -1,0 +1,223 @@
+<!--
+  OBS TRANSPORTES — Formulário de cotação (com Estado → Cidade)
+  ============================================================
+  COMO USAR NO ELEMENTOR:
+   1) Crie uma PÁGINA NOVA (rascunho) para testar.
+   2) Arraste o widget "HTML" para dentro da página.
+   3) Cole TODO este conteúdo dentro do widget HTML.
+   4) Atualize/visualize a página e teste. Só publique quando estiver 100%.
+
+  O formulário grava o lead direto no CRM da OBS (Firebase) e mostra as cidades
+  em caixa de seleção (Estado primeiro, depois a cidade daquele estado, via IBGE).
+-->
+<div id="obs-cot" class="obs-cot">
+  <form id="obsForm" novalidate>
+    <h3 class="obs-titulo">Solicite sua cotação</h3>
+    <p class="obs-sub">Preencha os dados abaixo e nossa equipe retorna pelo WhatsApp.</p>
+
+    <div class="obs-linha">
+      <label>Nome completo <span>*</span>
+        <input type="text" name="nome" required autocomplete="name" placeholder="Seu nome">
+      </label>
+    </div>
+
+    <div class="obs-grid2">
+      <label>WhatsApp <span>*</span>
+        <input type="tel" name="telefone" required autocomplete="tel" placeholder="(11) 90000-0000">
+      </label>
+      <label>E-mail
+        <input type="email" name="email" autocomplete="email" placeholder="voce@email.com">
+      </label>
+    </div>
+
+    <div class="obs-grid2">
+      <label>Veículo (marca / modelo) <span>*</span>
+        <input type="text" name="veiculo" required placeholder="Ex.: Honda Civic 2020">
+      </label>
+      <label>Valor aproximado do veículo
+        <input type="text" name="valorVeiculo" inputmode="numeric" placeholder="Ex.: R$ 60.000">
+      </label>
+    </div>
+
+    <fieldset class="obs-box">
+      <legend>Origem (de onde sai) <span>*</span></legend>
+      <div class="obs-grid2">
+        <label>Estado
+          <select name="origemUF" class="obs-uf" required data-alvo="origemCidade"><option value="">Estado…</option></select>
+        </label>
+        <label>Cidade
+          <select name="origemCidade" class="obs-cidade" required disabled><option value="">Escolha o estado primeiro</option></select>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset class="obs-box">
+      <legend>Destino (para onde vai) <span>*</span></legend>
+      <div class="obs-grid2">
+        <label>Estado
+          <select name="destinoUF" class="obs-uf" required data-alvo="destinoCidade"><option value="">Estado…</option></select>
+        </label>
+        <label>Cidade
+          <select name="destinoCidade" class="obs-cidade" required disabled><option value="">Escolha o estado primeiro</option></select>
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="obs-linha">
+      <label>Observação (opcional)
+        <textarea name="mensagem" rows="2" placeholder="Alguma informação extra? (datas, retirada em casa, etc.)"></textarea>
+      </label>
+    </div>
+
+    <label class="obs-check">
+      <input type="checkbox" name="consent" required>
+      <span>Autorizo a OBS Transportes a usar meus dados para retornar esta cotação.</span>
+    </label>
+
+    <button type="submit" class="obs-btn">Solicitar cotação</button>
+    <p class="obs-erro" id="obsErro" hidden></p>
+  </form>
+
+  <div class="obs-ok" id="obsOk" hidden>
+    <div class="obs-ok-ic">✓</div>
+    <h3>Solicitação recebida!</h3>
+    <p>Recebemos os seus dados. Em instantes nossa equipe entra em contato pelo WhatsApp com a sua cotação.</p>
+  </div>
+</div>
+
+<style>
+  .obs-cot{max-width:640px;margin:0 auto;font-family:inherit;color:#1f2733}
+  .obs-cot *{box-sizing:border-box}
+  .obs-titulo{margin:0 0 4px;font-size:22px;font-weight:800}
+  .obs-sub{margin:0 0 16px;font-size:14px;color:#5b6673}
+  .obs-cot label{display:block;font-size:13px;font-weight:600;margin-bottom:10px;color:#2b3542}
+  .obs-cot label span{color:#e8202a}
+  .obs-cot input,.obs-cot select,.obs-cot textarea{
+    width:100%;margin-top:5px;padding:11px 12px;font-size:15px;border:1px solid #cfd6de;
+    border-radius:10px;background:#fff;color:#1f2733;font-family:inherit}
+  .obs-cot input:focus,.obs-cot select:focus,.obs-cot textarea:focus{outline:none;border-color:#e8202a;box-shadow:0 0 0 3px rgba(232,32,42,.12)}
+  .obs-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  @media(max-width:540px){.obs-grid2{grid-template-columns:1fr}}
+  .obs-box{border:1px solid #e2e7ee;border-radius:12px;padding:12px 14px 2px;margin:0 0 12px}
+  .obs-box legend{font-size:13px;font-weight:700;padding:0 6px;color:#2b3542}
+  .obs-box legend span{color:#e8202a}
+  .obs-check{display:flex;align-items:flex-start;gap:9px;font-weight:500!important;font-size:13px;color:#3a4653;margin:4px 0 16px}
+  .obs-check input{width:auto;margin-top:2px}
+  .obs-btn{width:100%;padding:14px;font-size:16px;font-weight:800;color:#fff;background:#e8202a;
+    border:none;border-radius:10px;cursor:pointer;transition:filter .15s}
+  .obs-btn:hover{filter:brightness(.93)}
+  .obs-btn:disabled{opacity:.6;cursor:default}
+  .obs-erro{color:#c0392b;font-size:13px;font-weight:600;margin:10px 0 0;text-align:center}
+  .obs-ok{text-align:center;padding:32px 18px}
+  .obs-ok-ic{width:64px;height:64px;line-height:64px;margin:0 auto 14px;border-radius:50%;
+    background:#16a34a;color:#fff;font-size:34px;font-weight:800}
+  .obs-ok h3{margin:0 0 8px;font-size:22px;font-weight:800}
+  .obs-ok p{margin:0;color:#5b6673;font-size:15px}
+</style>
+
+<script type="module">
+(() => {
+  'use strict';
+  if (window.__obsFormCot) return; window.__obsFormCot = true;
+
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyC4rDP5_lQ6o_ASjM_ndauC2HCq4JxnKuQ",
+    authDomain: "obs-fretes.firebaseapp.com",
+    projectId: "obs-fretes",
+    storageBucket: "obs-fretes.firebasestorage.app",
+    messagingSenderId: "307588629600",
+    appId: "1:307588629600:web:0914b25247953b56b06f05"
+  };
+
+  const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+  const $ = s => document.querySelector(s);
+  const form = $('#obsForm'); if (!form) return;
+
+  // preenche os Estados
+  form.querySelectorAll('.obs-uf').forEach(sel => {
+    UFS.forEach(uf => { const o = document.createElement('option'); o.value = uf; o.textContent = uf; sel.appendChild(o); });
+    sel.addEventListener('change', () => carregarCidades(sel));
+  });
+
+  // ao escolher o Estado, busca as cidades no IBGE
+  const cacheCidades = {};
+  async function carregarCidades(ufSel) {
+    const uf = ufSel.value;
+    const alvo = form.querySelector('[name="' + ufSel.dataset.alvo + '"]');
+    if (!alvo) return;
+    alvo.innerHTML = '<option value="">Carregando…</option>'; alvo.disabled = true;
+    if (!uf) { alvo.innerHTML = '<option value="">Escolha o estado primeiro</option>'; return; }
+    try {
+      let lista = cacheCidades[uf];
+      if (!lista) {
+        const r = await fetch('https://servicodados.ibge.gov.br/api/v1/localidades/estados/' + uf + '/municipios?orderBy=nome');
+        lista = (await r.json()).map(m => m.nome);
+        cacheCidades[uf] = lista;
+      }
+      alvo.innerHTML = '<option value="">Selecione a cidade…</option>' + lista.map(n => '<option>' + n + '</option>').join('');
+      alvo.disabled = false;
+    } catch (e) {
+      // se o IBGE falhar, deixa digitar
+      alvo.innerHTML = '<option value="">(digite a cidade abaixo)</option>';
+      alvo.disabled = false;
+      console.error('IBGE indisponível, cidade em texto livre', e);
+    }
+  }
+
+  // Firebase (carrega só quando envia)
+  let _db = null, _fb = null;
+  async function db() {
+    if (_db) return _db;
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    _fb = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const app = appMod.initializeApp(FIREBASE_CONFIG, 'obs-form-cot');
+    _db = _fb.getFirestore(app);
+    return _db;
+  }
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const erro = $('#obsErro'); erro.hidden = true;
+    const btn = form.querySelector('.obs-btn');
+    const g = n => (form.querySelector('[name="' + n + '"]') || {}).value || '';
+
+    // validação simples
+    if (!g('nome') || !g('telefone') || !g('veiculo') || !g('origemUF') || !g('origemCidade') || !g('destinoUF') || !g('destinoCidade')) {
+      erro.textContent = 'Por favor, preencha todos os campos com *.'; erro.hidden = false; return;
+    }
+    if (!form.querySelector('[name="consent"]').checked) {
+      erro.textContent = 'É necessário autorizar o uso dos dados para receber a cotação.'; erro.hidden = false; return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    const agora = new Date(), iso = agora.toISOString();
+    const origem = g('origemCidade') + ' ' + g('origemUF');
+    const destino = g('destinoCidade') + ' ' + g('destinoUF');
+    const id = 'lead_site_' + agora.getTime() + '_' + Math.random().toString(36).slice(2, 7);
+    const lead = {
+      id, nome: g('nome'), empresa: '', telefone: g('telefone'), email: g('email'), cpfCnpj: '',
+      veiculoDesc: g('veiculo'), placa: '', origem, destino,
+      valorEstimado: '', etapa: 'novo', prioridade: 'morno', vendedor: '',
+      origemLead: 'site', valorVeiculo: g('valorVeiculo'), funciona: '', blindado: '', dataEnvio: iso,
+      interesse: '', valorCotacaoSW: '', prazoSW: '', cotacaoId: '',
+      composicao: [], trajetos: [], enderecoColeta: '', enderecoEntrega: '',
+      dataUltimoContato: '', dataFechamento: '', tarefas: [],
+      dataEntrada: iso.slice(0, 10), ultimaInteracao: iso, motivoPerda: '',
+      mensagem: g('mensagem'),
+      origemUF: g('origemUF'), destinoUF: g('destinoUF'),
+      timeline: [{ data: iso, tipo: 'criacao', texto: 'Lead recebido pelo formulário do site' }],
+      _origemSite: true
+    };
+    try {
+      const base = await db();
+      await _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
+      form.hidden = true; $('#obsOk').hidden = false;
+      document.getElementById('obs-cot').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) {
+      console.error(e);
+      erro.textContent = 'Não foi possível enviar agora. Tente novamente ou chame no WhatsApp.'; erro.hidden = false;
+      btn.disabled = false; btn.textContent = 'Solicitar cotação';
+    }
+  });
+})();
+</script>
