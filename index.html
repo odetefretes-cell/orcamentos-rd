@@ -1548,6 +1548,7 @@ async function initData(){
           if(typeof CRM_LEADS==='undefined') return;
           const rascunhos=Object.values(CRM_LEADS).filter(l=>l && l._novo);   // preserva rascunho aberto
           CRM_LEADS={}; snap.forEach(d=>CRM_LEADS[d.id]=d.data());
+          if(typeof CRM_LAST_IDS!=='undefined') CRM_LAST_IDS=new Set(Object.keys(CRM_LEADS));  // o que existe na nuvem
           rascunhos.forEach(r=>{ CRM_LEADS[r.id]=r; });
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
@@ -3486,6 +3487,7 @@ let crmDragId = null;
 
 // ---- Persistência ----
 function loadCRM(){ try{ return JSON.parse(localStorage.getItem(CRM_KEY))||{}; }catch(_){ return {}; } }
+let CRM_LAST_IDS = new Set();   // ids já persistidos (p/ apagar da nuvem os removidos)
 function saveCRM(){
   // rascunhos (_novo) nunca são persistidos — só viram lead ao Salvar
   const persistir = {};
@@ -3493,9 +3495,12 @@ function saveCRM(){
   localStorage.setItem(CRM_KEY, JSON.stringify(persistir));
   if(CLOUD_ON && _fb && _fb.setDoc){
     for(const id in persistir) _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), persistir[id]);
+    // apaga da nuvem os leads que foram excluídos (senão voltam no próximo carregamento)
+    if(_fb.deleteDoc){ CRM_LAST_IDS.forEach(id=>{ if(!(id in persistir)){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'crm_leads',id)); }catch(_){} } }); }
   }
+  CRM_LAST_IDS = new Set(Object.keys(persistir));
 }
-function initCRM(){ CRM_LEADS = loadCRM(); }
+function initCRM(){ CRM_LEADS = loadCRM(); CRM_LAST_IDS = new Set(Object.keys(CRM_LEADS).filter(id=>!CRM_LEADS[id]._novo)); }
 
 // ---- Render Métricas ----
 function renderCRMMetrics(){
