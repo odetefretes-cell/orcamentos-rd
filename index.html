@@ -1575,11 +1575,13 @@ function proximoNumero(){
 function proximoNumeroLivre(){ let n=proximoNumero(); while(lerDB()['n'+n]) n++; return n; }
 function atualizarProxNum(){
   const numEl=form.elements['numero']; if(!numEl) return;
-  if(!idAtual) numEl.value = proximoNumeroLivre();   // frete novo: nº sequencial automático já preenchido
+  const semNum = !String(numEl.value||'').trim();
+  // frete novo OU frete antigo salvo sem número → recebe o próximo nº sequencial livre
+  if(!idAtual || semNum) numEl.value = proximoNumeroLivre();
   numEl.readOnly = true;                             // bloqueado p/ não haver erro de digitação
   numEl.classList.add('num-lock');
   numEl.title = 'Número automático e sequencial — não editável.';
-  const el=$('#proxNumHint'); if(el) el.textContent = idAtual ? '🔒 número do frete' : '🔒 nº automático sequencial';
+  const el=$('#proxNumHint'); if(el) el.textContent = (!idAtual||semNum) ? '🔒 nº automático sequencial' : '🔒 número do frete';
 }
 function salvar(){
   const d=dados();
@@ -2313,7 +2315,9 @@ function camposPagamentoHTML(id,f,defer){
 }
 function liberarOperacional(id){
   const db=lerDB(); if(!db[id]) return;
-  if(!confirm('Liberar o frete '+(db[id].numero||'')+' para a fila do operacional?')) return;
+  const num = String(db[id].numero||'').trim() || String(proximoNumeroLivre());   // nº sequencial se faltar
+  if(!confirm('Liberar o frete '+num+' para a fila do operacional?')) return;
+  db[id].numero=num;
   db[id].etapa='operacional'; db[id].liberadoEm=new Date().toISOString(); db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
   renderFinanceiro(); atualizarHist();
   const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
