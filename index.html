@@ -4079,15 +4079,16 @@ function basesComCoords(){
 async function cidadeMaisProxima(normCidade, uf){
   await carregarCoords(); if(!CIDADES_COORDS) return null;
   const req=CIDADES_COORDS[normCidade+'|'+uf]; if(!req) return null;
-  // 1º tenta a BASE de apoio mais próxima (coleta/entrega via guincho até a base)
-  const bases=basesComCoords();
   let best=null, bestD=Infinity;
-  for(const b of bases){ const dkm=haversine(req,b.co); if(dkm<bestD){ bestD=dkm; best={nome:b.nome, uf:b.uf, dist:Math.round(dkm)}; } }
+  // REGRA GERAL: ancora no ENDPOINT de rota mais próximo (origem/destino final = onde a transportadora
+  // opera). Assim Guarulhos → São Bernardo (hub), Franca → Ribeirão Preto (hub c/ Transpadre), e não numa
+  // base sem rota (São Paulo) ou cidade de passagem sem saída (Guará). Vale p/ todos os estados e rotas.
+  const eps=endpointsComCoords();
+  for(const e of eps){ const dkm=haversine(req,e.co); if(dkm<bestD){ bestD=dkm; best={nome:e.nome, uf:e.uf, dist:Math.round(dkm)}; } }
   if(best) return best;
-  // 2º (fallback) se não houver bases carregadas, usa a cidade de rota mais próxima
-  const cid=(typeof crmBuildCidades==='function')?crmBuildCidades():null; if(!cid) return null;
-  for(const U in cid){ for(const nome of cid[U]){ const co=CIDADES_COORDS[normTxt(nome)+'|'+U]; if(!co) continue;
-    const dkm=haversine(req,co); if(dkm<bestD){ bestD=dkm; best={nome, uf:U, dist:Math.round(dkm)}; } } }
+  // fallback: sem endpoints carregados, usa a base de apoio mais próxima
+  const bases=basesComCoords();
+  for(const b of bases){ const dkm=haversine(req,b.co); if(dkm<bestD){ bestD=dkm; best={nome:b.nome, uf:b.uf, dist:Math.round(dkm)}; } }
   return best;
 }
 // \u00e2ncoras fortes = bases (config) + HUBS (cidades que s\u00e3o ORIGEM de rota, onde a transportadora
@@ -4104,8 +4105,27 @@ function ancorasFortes(){
     if(seen.has(key)) return; const co=CIDADES_COORDS[nn+'|'+U]; if(!co) return;
     seen.add(key); ANCORAS_FORTES.push({nome, uf:U, norm:nn, co}); };
   if(db.cidades) for(const k in db.cidades){ add(db.cidades[k].cidade, db.cidades[k].uf); }
-  for(const r of (db.rotas||[])){ const t0=(r.trajetos||[])[0]; if(t0){ add(t0.oNome,t0.oUF); HUBS_SET.add(normTxt(t0.oNome)+'|'+(t0.oUF||'').toUpperCase()); } }
+  for(const r of (db.rotas||[])){ const tj=r.trajetos||[]; if(!tj.length) continue;
+    const t0=tj[0]; add(t0.oNome,t0.oUF); HUBS_SET.add(normTxt(t0.oNome)+'|'+(t0.oUF||'').toUpperCase());
+    const tl=tj[tj.length-1]; add(tl.dNome,tl.dUF); HUBS_SET.add(normTxt(tl.dNome)+'|'+(tl.dUF||'').toUpperCase()); }  // o destino final também é hub (a transportadora descarrega lá)
   return ANCORAS_FORTES;
+}
+// pontos OPERACIONAIS = origens e destinos finais de rota (onde a transportadora CARREGA/DESCARREGA).
+// Uma cidade não atendida ancora no endpoint mais próximo — não numa base sem rota (ex.: São Paulo)
+// nem numa cidade de passagem sem saída (ex.: Guará). É a base da entrada/saída na malha das cegonhas.
+let ENDPOINTS_COORDS=null;
+function endpointsComCoords(){
+  if(ENDPOINTS_COORDS) return ENDPOINTS_COORDS;
+  ENDPOINTS_COORDS=[];
+  const db=TABELA_FRETES; if(!db || !CIDADES_COORDS) return ENDPOINTS_COORDS;
+  const seen=new Set();
+  const add=(nomeBruto,uf)=>{ const U=(uf||'').toUpperCase(); if(!U||!nomeBruto) return;
+    const nome=String(nomeBruto).split('/')[0].trim(); const nn=normTxt(nome), key=nn+'|'+U;
+    if(seen.has(key)) return; const co=CIDADES_COORDS[nn+'|'+U]; if(!co) return;
+    seen.add(key); ENDPOINTS_COORDS.push({nome, uf:U, norm:nn, co}); };
+  for(const r of (db.rotas||[])){ const tj=r.trajetos||[]; if(!tj.length) continue;
+    add(tj[0].oNome, tj[0].oUF); const tl=tj[tj.length-1]; add(tl.dNome, tl.dUF); }
+  return ENDPOINTS_COORDS;
 }
 function ehHub(nc,uf){ ancorasFortes(); return HUBS_SET && HUBS_SET.has(nc+'|'+(uf||'').toUpperCase()); }
 async function ancoraForteProxima(nc, uf, maxKm){
@@ -4214,7 +4234,7 @@ async function atualizarTabelaFretes(){
     }
     try{ localStorage.setItem('obs_tabela_fretes', str); }catch(_){}
     TABELA_FRETES = tabela;   // aplica na hora (sem adjacências em cache)
-    TAB_CIDADES=null; TAB_CIDADES_TODAS={}; BASES_COORDS=null; ANCORAS_FORTES=null; HUBS_SET=null;   // recria listas/bases/hubs da nova tabela
+    TAB_CIDADES=null; TAB_CIDADES_TODAS={}; BASES_COORDS=null; ANCORAS_FORTES=null; HUBS_SET=null; ENDPOINTS_COORDS=null;   // recria listas/bases/hubs da nova tabela
     if(st){ st.style.color='#16a34a'; st.textContent=`✔ Publicado: ${tabela.rotas.length} rotas, ${Object.keys(tabela.cidades).length} cidades. ${CLOUD_ON?'Todos recebem ao atualizar a página.':'(sem nuvem — salvo só neste computador)'}`; }
     flash('Tabela de fretes publicada ✔');
   }catch(e){ if(st){ st.style.color='#dc2626'; st.textContent='Erro ao ler a planilha: '+(e.message||e); } }
@@ -4560,7 +4580,11 @@ function matchKey(nodeKey, queryKey){
   const nn=nodeKey.slice(0,i), nu=nodeKey.slice(i+1);
   const qn=queryKey.slice(0,j), qu=queryKey.slice(j+1);
   if(nu && qu && nu!==qu) return false;   // estados diferentes = cidades diferentes
-  return nn===qn || (qn.length>3 && nn.includes(qn)) || (nn.length>3 && qn.includes(nn));
+  if(nn===qn) return true;
+  // contido, mas só em limite de palavra ("santo antonio" casa "santo antonio de jesus",
+  // mas "guara" NÃO casa "guaratingueta" — evita rota fantasma por substring no meio da palavra)
+  const wb=(big,small)=> big.startsWith(small+' ') || big.endsWith(' '+small) || big.indexOf(' '+small+' ')>=0;
+  return (qn.length>3 && wb(nn,qn)) || (nn.length>3 && wb(qn,nn));
 }
 function crmAdjacencia(db){
   if(db._adj) return db._adj;
