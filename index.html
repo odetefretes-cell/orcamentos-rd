@@ -3021,7 +3021,11 @@ function renderComercial(){
     </div>`;
   }).join('');
 }
-function abrirPedidoComercial(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); flash('Pedido carregado — revise e clique em Salvar frete'); }
+function abrirPedidoComercial(id){
+  switchView('ficha'); carregarFrete(id); window.scrollTo(0,0);
+  const n=(form.elements['numero']?.value||'').trim();
+  flash(n ? ('Pedido carregado — Nº '+n+' já atribuído. Confira e clique em Salvar.') : 'Pedido carregado — revise e clique em Salvar frete');
+}
 function recusarPedido(id){
   if(!confirm('Enviar este pedido para a Lixeira? Você pode restaurá-lo depois (por 30 dias).')) return;
   moverParaLixeira(id); atualizarHist(); renderComercial();
