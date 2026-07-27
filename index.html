@@ -912,7 +912,6 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
-      <button class="btn-ghost" onclick="crmRecalcularFunil()" title="Refaz rota, taxas e valores de todos os leads com as regras atuais">🔄 Recalcular tudo</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -3624,6 +3623,7 @@ function renderCRM(){
         <span class="kch-title">${etapa.icon?esc(etapa.icon)+' ':''}${esc(etapa.titulo)}</span>
         <span class="kch-count">${leads.length}</span>
         <span class="kch-tools" style="display:flex;gap:1px;margin-left:4px">
+          ${ci===0?`<button style="${tbtn}" title="Recalcular rota/taxas/valores dos leads desta coluna" onclick="crmRecalcularFunil('${etapa.id}')">🔄</button>`:''}
           <button style="${tbtn}" title="Mover ◀" onclick="crmMoverEtapaOrdem('${etapa.id}',-1)" ${ci===0?'disabled':''}>◀</button>
           <button style="${tbtn}" title="Mover ▶" onclick="crmMoverEtapaOrdem('${etapa.id}',1)" ${ci===CRM_ETAPAS.length-1?'disabled':''}>▶</button>
           <button style="${tbtn}" title="Renomear" onclick="crmRenomearEtapa('${etapa.id}')">✎</button>
@@ -3707,10 +3707,10 @@ async function crmRecalcularLead(id){
   crmRecalcCalc(id);                                   // frete base, seguro, recebimento, reembarque, imposto, valor médio, prazo
   return true;
 }
-async function crmRecalcularFunil(){
-  const ok=await uiConfirm('Recalcular TODOS os leads do funil com as regras atuais?\n\nRefaz rota, taxas e valores de cada lead que tem origem e destino. Edições manuais de taxas serão substituídas.',{titulo:'Recalcular funil',ok:'Recalcular tudo'});
+async function crmRecalcularFunil(etapaId){
+  const ok=await uiConfirm('Recalcular os leads desta coluna com as regras atuais?\n\nRefaz rota, taxas e valores de cada lead que tem origem e destino. Edições manuais de taxas serão substituídas.',{titulo:'Recalcular leads novos',ok:'Recalcular'});
   if(!ok) return;
-  const ids=Object.keys(CRM_LEADS).filter(id=>!CRM_LEADS[id]._novo && CRM_LEADS[id].origem && CRM_LEADS[id].destino);
+  const ids=Object.keys(CRM_LEADS).filter(id=>{ const l=CRM_LEADS[id]; return !l._novo && l.origem && l.destino && (!etapaId || l.etapa===etapaId); });
   const t=flash('Recalculando '+ids.length+' lead(s)…','load');
   let feitos=0, semRota=0;
   for(const id of ids){
