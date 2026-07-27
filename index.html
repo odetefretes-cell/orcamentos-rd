@@ -198,6 +198,14 @@
   .badge.s-andamento{background:#3b82f6}.badge.s-concluido{background:var(--ok)}.badge.s-cancelado{background:#ef4444}.badge.s-aguardando{background:#e6a100}
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#ef4444;font-weight:bold}
   .badge.atraso{background:#ef4444}
+  .pend-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    margin-top:6px;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.04)}
+  .pend-bar .pend-msg{color:#fbbf24;font-size:13px;display:none}
+  .pend-bar .pend-ok{color:var(--ok);font-size:13px}
+  .pend-bar.pend-on{border-color:#fbbf2455;background:rgba(251,191,36,.10)}
+  .pend-bar.pend-on .pend-msg{display:inline}
+  .pend-bar.pend-on .pend-ok{display:none}
   table.fin{width:100%;border-collapse:collapse;font-size:13px}
   table.fin th,table.fin td{border:1px solid var(--card-border);padding:6px 8px;text-align:left;white-space:nowrap;color:#e4e4f0}
   table.fin th{background:rgba(255,255,255,.04);color:rgba(228,228,240,.6);font-size:12px}
@@ -1944,7 +1952,8 @@ function cardFrete(f){
 
   // ----- Frete já PUXADO por uma operadora: card completo -----
   const vf=num(f.valorFrete), pago=num(f.pago1)+num(f.pago2), abertoV=vf-pago, saldo=pago-somaPrest(f);
-  const optS=STATUSES.map(s=>`<option${s===st?' selected':''}>${s}</option>`).join('');
+  const stPend=fpVal(id,f,'status')||st;
+  const optS=STATUSES.map(s=>`<option${s===stPend?' selected':''}>${s}</option>`).join('');
   const optOp=operadoras.map(o=>`<option${o===op?' selected':''}>${esc(o)}</option>`).join('');
   const pz=prazoInfo(f);
   const prazoTxt = pz
@@ -1981,9 +1990,9 @@ function cardFrete(f){
       </div>
 
       <div class="fld fsec">🚦 ANDAMENTO &amp; PRAZO</div>
-      <div class="fld"><label>Status</label><select onchange="setFrete('${id}','status',this.value)">${optS}</select></div>
-      <div class="fld"><label>Nº averbação</label><input value="${escA(f.averbacao)}" onchange="setFrete('${id}','averbacao',this.value)"></div>
-      <div class="fld col2"><label>Previsão de entrega (prazo)</label><input value="${escA(f.previsaoEntrega)}" onchange="setFrete('${id}','previsaoEntrega',this.value)" placeholder="Ex.: 10 a 15 dias após embarque"></div>
+      <div class="fld"><label>Status</label><select onchange="setFreteP('${id}','status',this.value)">${optS}</select></div>
+      <div class="fld"><label>Nº averbação</label><input value="${escA(fpVal(id,f,'averbacao'))}" onchange="setFreteP('${id}','averbacao',this.value)"></div>
+      <div class="fld col2"><label>Previsão de entrega (prazo)</label><input value="${escA(fpVal(id,f,'previsaoEntrega'))}" onchange="setFreteP('${id}','previsaoEntrega',this.value)" placeholder="Ex.: 10 a 15 dias após embarque"></div>
       <div class="fld col2"><label>📦 Data de embarque</label><input type="date" value="${escA(f.embarqueFeito)}" onchange="setMarco('${id}','embarqueFeito',this.value,'Embarque confirmada')"></div>
       <div class="fld col2"><label>⏳ Prazo até a entrega</label><div class="ro">${prazoTxt}</div></div>
 
@@ -2023,7 +2032,18 @@ function cardFrete(f){
       <div class="fld"><label>Em aberto</label><div class="ro ${abertoV>0?'saldo-neg':'saldo-pos'}">${moeda(abertoV)}</div></div>
       <div class="fld"><label>Saldo do frete</label><div class="ro ${saldo<0?'saldo-neg':'saldo-pos'}">${moeda(saldo)}</div></div>
 
-      ${camposPagamentoHTML(id,f)}
+      ${camposPagamentoHTML(id,f,true)}
+
+      <div class="fld col4">
+        <div id="pendBar_${id}" class="pend-bar${temPend(id)?' pend-on':''}">
+          <span class="pend-msg">⚠️ Há alterações <b>não salvas</b> neste frete.</span>
+          <span class="pend-ok">Alterações salvas ✔</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-ghost" style="padding:7px 14px" onclick="descartarFreteOper('${id}')">Descartar</button>
+            <button class="btn-ok" style="padding:7px 18px;font-weight:700" onclick="salvarFreteOper('${id}')">💾 Salvar alterações</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -2222,13 +2242,15 @@ function setPag(id,campo,valor){
   },0);
 }
 // bloco de campos de pagamento reutilizado (A receber, liberação e card da operadora)
-function camposPagamentoHTML(id,f){
-  return `<div class="fld"><label>Pago 1 (R$)</label><input value="${escA(f.pago1)}" inputmode="decimal" onchange="setPag('${id}','pago1',this.value)"></div>
-    <div class="fld"><label>Data pagamento 1</label><input type="date" value="${escA(f.dataPago1)}" onchange="setPag('${id}','dataPago1',this.value)"></div>
-    <div class="fld"><label>Pago 2 (R$)</label><input value="${escA(f.pago2)}" inputmode="decimal" onchange="setPag('${id}','pago2',this.value)"></div>
-    <div class="fld"><label>Data pagamento 2</label><input type="date" value="${escA(f.dataPago2)}" onchange="setPag('${id}','dataPago2',this.value)"></div>
-    ${/boleto/i.test(f.formaPgto||'')?`<div class="fld"><label>📄 Data de faturamento (boleto)</label><input type="date" value="${escA(f.dataFaturamento)}" onchange="setPag('${id}','dataFaturamento',this.value)"></div>`:''}
-    ${/cart[ãa]o/i.test(f.formaPgto||'')?`<div class="fld"><label>💳 Data de pagamento do link (cartão)</label><input type="date" value="${escA(f.dataPagLink)}" onchange="setPag('${id}','dataPagLink',this.value)"></div>`:''}`;
+function camposPagamentoHTML(id,f,defer){
+  const set = defer ? 'setPagP' : 'setPag';           // no card operacional só grava ao Salvar
+  const gv  = c => escA(defer ? fpVal(id,f,c) : f[c]);
+  return `<div class="fld"><label>Pago 1 (R$)</label><input value="${gv('pago1')}" inputmode="decimal" onchange="${set}('${id}','pago1',this.value)"></div>
+    <div class="fld"><label>Data pagamento 1</label><input type="date" value="${gv('dataPago1')}" onchange="${set}('${id}','dataPago1',this.value)"></div>
+    <div class="fld"><label>Pago 2 (R$)</label><input value="${gv('pago2')}" inputmode="decimal" onchange="${set}('${id}','pago2',this.value)"></div>
+    <div class="fld"><label>Data pagamento 2</label><input type="date" value="${gv('dataPago2')}" onchange="${set}('${id}','dataPago2',this.value)"></div>
+    ${/boleto/i.test(f.formaPgto||'')?`<div class="fld"><label>📄 Data de faturamento (boleto)</label><input type="date" value="${gv('dataFaturamento')}" onchange="${set}('${id}','dataFaturamento',this.value)"></div>`:''}
+    ${/cart[ãa]o/i.test(f.formaPgto||'')?`<div class="fld"><label>💳 Data de pagamento do link (cartão)</label><input type="date" value="${gv('dataPagLink')}" onchange="${set}('${id}','dataPagLink',this.value)"></div>`:''}`;
 }
 function liberarOperacional(id){
   const db=lerDB(); if(!db[id]) return;
@@ -2883,6 +2905,30 @@ function setFrete(id,campo,valor){
   const db=lerDB(); if(!db[id]) return;
   db[id][campo]=valor; db[id]._salvoEm=new Date().toISOString();
   gravarDB(db); renderRelatorio(); atualizarHist();
+}
+// ---- Edições do card operacional só valem depois de clicar em 💾 Salvar ----
+// (sem salvamento não atualiza — o operador preenche/edita e confirma com o botão)
+let fretePend={};   // { id: {campo:valor,...} } edições ainda não salvas
+function temPend(id){ return !!(fretePend[id] && Object.keys(fretePend[id]).length); }
+function fpVal(id,f,campo){ return (fretePend[id] && (campo in fretePend[id])) ? fretePend[id][campo] : (f?f[campo]:''); }
+function setFreteP(id,campo,valor){
+  (fretePend[id]||(fretePend[id]={}))[campo]=valor;
+  const b=document.getElementById('pendBar_'+id); if(b) b.classList.add('pend-on');
+}
+function setPagP(id,campo,valor){ setFreteP(id,campo,valor); }
+function salvarFreteOper(id){
+  const p=fretePend[id];
+  if(!p || !Object.keys(p).length){ flash('Nada para salvar neste frete.'); return; }
+  const db=lerDB(); if(!db[id]) return;
+  Object.assign(db[id], p); db[id]._salvoEm=new Date().toISOString();
+  gravarDB(db); delete fretePend[id];
+  renderRelatorio(); atualizarHist();
+  flash('💾 Alterações salvas — frete '+(db[id].numero||''));
+}
+function descartarFreteOper(id){
+  if(!temPend(id)) return;
+  if(!confirm('Descartar as alterações não salvas deste frete?')) return;
+  delete fretePend[id]; renderRelatorio();
 }
 function abrirFicha(id){ switchView('ficha'); carregarFrete(id); window.scrollTo(0,0); }
 
