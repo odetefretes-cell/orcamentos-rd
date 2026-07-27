@@ -1,0 +1,169 @@
+<!--
+  OBS TRANSPORTES — Escutador do formulário do site → CRM próprio (Firebase)
+  =========================================================================
+  O QUE FAZ: a cada envio do formulário de cotação do site, grava o lead na
+  coleção "crm_leads" do Firebase (o mesmo banco do sistema/Kanban), SEM
+  atrapalhar o envio para o RD Station. O lead cai na coluna "Entrada de Lead"
+  marcado como 🌐 Site.
+
+  ONDE COLAR: no WordPress, com o plugin WPCode (ou "Inserir cabeçalho e rodapé"),
+  em um snippet do tipo HTML, com posição "Rodapé do site" (footer), em TODAS as
+  páginas — ou só na página do formulário. Cole este bloco INTEIRO.
+
+  SEGURANÇA: nesta fase o banco aceita gravação do site (regra de largada do
+  projeto). O endurecimento (gravar via função na nuvem) é a Fase 3/5 do documento.
+-->
+<script type="module">
+(() => {
+  'use strict';
+
+  // ======================= 1) AJUSTES =======================
+  // Config do Firebase (mesmo projeto do sistema — obs-fretes).
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyC4rDP5_lQ6o_ASjM_ndauC2HCq4JxnKuQ",
+    authDomain: "obs-fretes.firebaseapp.com",
+    projectId: "obs-fretes",
+    storageBucket: "obs-fretes.firebasestorage.app",
+    messagingSenderId: "307588629600",
+    appId: "1:307588629600:web:0914b25247953b56b06f05"
+  };
+
+  // Coloque true para ver no Console (F12) os campos que o formulário enviou.
+  // Útil para acertar o MAPA abaixo. Depois volte para false.
+  const DEBUG = true;
+
+  // MAPA DE CAMPOS (opcional): se souber o "name" exato de um campo do seu
+  // formulário, escreva aqui para casar 100%. Deixe '' para usar a detecção
+  // automática. Ex.: origem: 'cidade_origem'
+  const MAPA = {
+    nome: '', email: '', telefone: '', empresa: '',
+    origem: '', destino: '', veiculo: '', valorVeiculo: '', mensagem: ''
+  };
+  // ==========================================================
+
+  // Evita carregar duas vezes se o snippet aparecer em mais de um lugar.
+  if (window.__obsCrmEscutador) return;
+  window.__obsCrmEscutador = true;
+
+  const norm = s => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+  // ---- carrega o Firebase (SDK modular, mesma versão do sistema) ----
+  let _db = null, _fb = null;
+  async function db() {
+    if (_db) return _db;
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    _fb = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const app = appMod.initializeApp(FIREBASE_CONFIG, 'obs-site');
+    _db = _fb.getFirestore(app);
+    return _db;
+  }
+
+  // ---- lê TODOS os campos do formulário em um objeto { rótulo: valor } ----
+  function coletarCampos(form) {
+    const campos = {};       // por name/id/placeholder/label (normalizado)
+    const brutos = {};       // name/id -> valor (para guardar cru)
+    const els = form.querySelectorAll('input, select, textarea');
+    els.forEach(el => {
+      const tipo = (el.type || '').toLowerCase();
+      if (['submit', 'button', 'hidden', 'file', 'password'].includes(tipo)) return;
+      if ((tipo === 'checkbox' || tipo === 'radio') && !el.checked) return;
+      const val = (el.value || '').toString().trim();
+      if (!val) return;
+      // rótulos possíveis desse campo
+      let label = '';
+      if (el.id) { const lb = form.querySelector('label[for="' + el.id + '"]'); if (lb) label = lb.textContent; }
+      if (!label && el.closest('label')) label = el.closest('label').textContent;
+      const chaves = [el.name, el.id, el.placeholder, label, el.getAttribute('aria-label')];
+      chaves.forEach(k => { const n = norm(k); if (n) campos[n] = val; });
+      // e-mail/tel por tipo do input
+      if (tipo === 'email') campos['__email'] = val;
+      if (tipo === 'tel') campos['__tel'] = val;
+      if (el.name) brutos[el.name] = val;
+      else if (el.id) brutos[el.id] = val;
+    });
+    return { campos, brutos };
+  }
+
+  // acha o valor cujo rótulo casa com uma das expressões
+  function pega(campos, mapManual, regexes) {
+    if (mapManual) { const n = norm(mapManual); if (campos[n]) return campos[n]; }
+    for (const k in campos) { for (const re of regexes) { if (re.test(k)) return campos[k]; } }
+    return '';
+  }
+
+  function montarLead(campos, brutos) {
+    const nome = pega(campos, MAPA.nome, [/^nome/, /nome.completo/, /^name$/, /seu.nome/]) ||
+                 pega(campos, '', [/nome/]) || '';
+    const email = campos['__email'] || pega(campos, MAPA.email, [/e.?mail/]) || '';
+    const telefone = campos['__tel'] || pega(campos, MAPA.telefone, [/telefone/, /whats/, /celular/, /^fone/, /contato/]) || '';
+    const empresa = pega(campos, MAPA.empresa, [/empresa/, /company/, /raz[aã]o/]) || '';
+    const origem = pega(campos, MAPA.origem, [/origem/, /coleta/, /retirada/, /partida/, /cidade.*sa[ií]/, /de onde/, /^de$/]) || '';
+    const destino = pega(campos, MAPA.destino, [/destino/, /entrega/, /chegada/, /cidade.*entrega/, /para onde/, /^para$/]) || '';
+    const veiculo = pega(campos, MAPA.veiculo, [/ve[ií]culo/, /carro/, /modelo/, /autom[oó]vel/, /moto/]) || '';
+    const valorVeic = pega(campos, MAPA.valorVeiculo, [/valor.*ve[ií]culo/, /fipe/, /pre[çc]o.*ve[ií]culo/, /valor.*carro/]) || '';
+    const mensagem = pega(campos, MAPA.mensagem, [/mensagem/, /observa/, /detalhe/, /descri/, /coment/]) || '';
+
+    const agora = new Date();
+    const iso = agora.toISOString();
+    const dia = iso.slice(0, 10);
+    const id = 'lead_site_' + agora.getTime() + '_' + Math.random().toString(36).slice(2, 7);
+
+    return {
+      id, nome, empresa, telefone, email, cpfCnpj: '',
+      veiculoDesc: veiculo, placa: '', origem, destino,
+      valorEstimado: '', etapa: 'novo', prioridade: 'morno', vendedor: '',
+      origemLead: 'site', valorVeiculo: valorVeic, funciona: '', blindado: '', dataEnvio: iso,
+      interesse: '', valorCotacaoSW: '', prazoSW: '', cotacaoId: '',
+      composicao: [], trajetos: [],
+      enderecoColeta: '', enderecoEntrega: '',
+      dataUltimoContato: '', dataFechamento: '', tarefas: [],
+      dataEntrada: dia, ultimaInteracao: iso, motivoPerda: '',
+      mensagem,
+      timeline: [{ data: iso, tipo: 'criacao', texto: 'Lead recebido pelo formulário do site' }],
+      _origemSite: true, _raw: brutos
+    };
+  }
+
+  let ultimoEnvio = 0, ultimaChave = '';
+  async function gravar(form) {
+    try {
+      const { campos, brutos } = coletarCampos(form);
+      if (DEBUG) console.log('[OBS] campos do formulário:', campos, '| brutos:', brutos);
+      const lead = montarLead(campos, brutos);
+      // precisa ter pelo menos nome OU telefone/e-mail para valer
+      if (!lead.nome && !lead.telefone && !lead.email) { if (DEBUG) console.warn('[OBS] formulário sem dados de contato — ignorado'); return; }
+      // anti-duplicado: mesmo contato em menos de 8s
+      const chave = norm(lead.telefone + lead.email + lead.nome);
+      const t = Date.now();
+      if (chave && chave === ultimaChave && (t - ultimoEnvio) < 8000) { if (DEBUG) console.log('[OBS] envio duplicado ignorado'); return; }
+      ultimaChave = chave; ultimoEnvio = t;
+
+      const base = await db();
+      await _fb.setDoc(_fb.doc(base, 'crm_leads', lead.id), lead);
+      if (DEBUG) console.log('[OBS] ✔ lead gravado no CRM:', lead.id, lead);
+    } catch (e) {
+      console.error('[OBS] falha ao gravar lead no CRM (o envio ao RD segue normal):', e);
+    }
+  }
+
+  // ---- escuta o envio de QUALQUER formulário da página (fase de captura) ----
+  document.addEventListener('submit', (ev) => {
+    const form = ev.target;
+    if (!form || form.tagName !== 'FORM') return;
+    // não bloqueia o envio original — só copia os dados em paralelo
+    gravar(form);
+  }, true);
+
+  // ---- reforço: callback de conversão do RD Station, se existir ----
+  try {
+    if (window.RDStationForms) {
+      document.addEventListener('rdstation:conversion', (e) => {
+        const form = document.querySelector('form.rd-form, form[data-typed-fields], form');
+        if (form) gravar(form);
+      });
+    }
+  } catch (_) {}
+
+  if (DEBUG) console.log('[OBS] escutador do formulário → CRM ativo.');
+})();
+</script>

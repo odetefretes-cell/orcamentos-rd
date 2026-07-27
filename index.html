@@ -1552,6 +1552,7 @@ async function initData(){
           rascunhos.forEach(r=>{ CRM_LEADS[r.id]=r; });
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
+          if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
         }, ()=>{});
       }
     }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('⚠ Sem nuvem — modo local'); if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · modo local'); }
@@ -3740,6 +3741,33 @@ async function crmRecalcularFunil(etapaId){
   if(t&&t.fechar) t.fechar();
   saveCRM(); renderCRM();
   flash(`✔ ${feitos} lead(s) recalculado(s)`+(semRota?` · ${semRota} sem rota automática (conferir manual)`:''),'ok');
+}
+// Auto-cálculo do lead do site/WhatsApp: quando um lead novo chega da integração
+// (formulário do site ou ChatGuru) sem cálculo, o sistema aplica a própria regra de
+// frete e preenche o valor médio sozinho. Só o ADMIN calcula (evita várias abas
+// gravando o mesmo lead) e cada lead é tentado uma única vez (flag _calcAuto na nuvem).
+let CRM_AUTOCALC_FEITO = new Set();
+async function crmAutoCalcSite(){
+  if(!(CLOUD_ON && _fb && _fb.setDoc)) return;                              // precisa da nuvem p/ salvar
+  if(sessaoUser && sessaoUser.papel && sessaoUser.papel!=='admin') return;  // só o admin dispara
+  const pend=[];
+  for(const id in CRM_LEADS){
+    const l=CRM_LEADS[id];
+    if(!l || l._novo || l._calcAuto || CRM_AUTOCALC_FEITO.has(id)) continue;
+    if(l.origemLead!=='site' && l.origemLead!=='whatsapp') continue;
+    if(!l.origem || !l.destino) continue;
+    if(l.trajetos && l.trajetos.length) continue;                          // já calculado
+    pend.push(id);
+  }
+  if(!pend.length) return;
+  for(const id of pend.slice(0,4)){                                        // no máx. 4 por ciclo (sem rajada)
+    CRM_AUTOCALC_FEITO.add(id);
+    try{ await crmRecalcularLead(id); }catch(_){}
+    const l=CRM_LEADS[id]; if(!l) continue;
+    l._calcAuto=true;                                                      // marca (com/sem rota) p/ não repetir
+    try{ _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), l); }catch(_){}
+  }
+  const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
 }
 function crmNovoLead(){
   const id = 'lead_' + Date.now();
