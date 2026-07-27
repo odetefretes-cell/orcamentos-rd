@@ -4312,7 +4312,10 @@ async function crmCalcOpcoes(id){
   if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
   const combos=[]; const vc=new Set();
   const addCombo = (legs)=>{
-    if(legs.some(l=>l.valor==null)) return;
+    if(!legs.length || legs.some(l=>l.valor==null)) return;
+    // rejeita caminhos que repetem cidade (loops sem sentido, ex.: SP → Pedro de Toledo → SP)
+    const seqC=[normTxt(legs[0].oNome)]; for(const l of legs) seqC.push(normTxt(l.dNome));
+    if(new Set(seqC).size !== seqC.length) return;
     const sig = legs.map(l=>l.transportadora+'>'+l.dNome).join('|');
     if(vc.has(sig)) return; vc.add(sig);
     combos.push({ tipo:'combinacao', legs, total:legs.reduce((s,l)=>s+numMoeda(l.valor),0), prazo:legs.reduce((s,l)=>s+(l.prazo||0),0) });
