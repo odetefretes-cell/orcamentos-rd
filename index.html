@@ -4106,14 +4106,21 @@ async function crmCalcAuto(id, auto){
   if(!auto) flash('Frete calculado ✔');
 }
 // calcula sozinho ao abrir o lead (melhor prestador + taxas), sem exigir clique
-function crmAutoCalc(id){
+async function crmAutoCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
   if(!l.origem || !l.destino) return;                 // sem rota, nada a calcular
   if(l.composicao && l.composicao.length) {            // já tem composição: só reflete a média
     const V = crmValoresOrc(l); const f=$('#crmCotSW'); if(f && V.totalBase) f.value = String(Math.round(V.totalBase*100)/100);
     return;
   }
-  crmCalcAuto(id, true);                               // roda em silêncio
+  await crmCalcAuto(id, true);                          // roda em silêncio
+  // sem rota no banco? ainda assim monta as taxas e já preenche o SEGURO pelos estados
+  const l2 = CRM_LEADS[id];
+  if(l2 && (!l2.composicao || !l2.composicao.length)){
+    l2.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+    crmRecalcCalc(id);
+    crmRenderComp(id);
+  }
 }
 
 // recalcula Frete Base (soma dos trechos), Seguro (RCTR-C somado) e Recebimento a partir dos trechos
@@ -4122,11 +4129,21 @@ function crmRecalcCalc(id){
   const trs = l.trajetos||[];
   const base = trs.reduce((s,t)=> s + numMoeda(t.valor), 0);
   const valorVeic = numMoeda($('#crmValorVeic')?.value || l.valorVeiculo);
-  let seguro = 0;
+  const txSeg=(o,d)=> (typeof SEGURO_TX!=='undefined' && SEGURO_TX[o] && SEGURO_TX[o][d]!=null) ? SEGURO_TX[o][d] : null;
+  // seguro por trecho (reembarque) quando os trechos têm UF
+  let seguro = 0, temUFtrecho=false;
   for(const t of trs){
     const ou = (t.oUF||ufTxt(t.de)).toUpperCase(), du = (t.dUF||ufTxt(t.para)).toUpperCase();
-    const tx = (typeof SEGURO_TX!=='undefined' && SEGURO_TX[ou] && SEGURO_TX[ou][du]!=null) ? SEGURO_TX[ou][du] : null;
-    if(tx!=null && valorVeic) seguro += (tx/100)*valorVeic;
+    const tx = txSeg(ou,du);
+    if(tx!=null){ temUFtrecho=true; if(valorVeic) seguro += (tx/100)*valorVeic; }
+  }
+  // SEMPRE calcula o seguro pelos estados informados (origem→destino do lead),
+  // mesmo sem trecho de valor encontrado no banco.
+  if(!temUFtrecho){
+    const oUF = ufTxt($('#crmOrigem')?.value || l.origem).toUpperCase();
+    const dUF = ufTxt($('#crmDestino')?.value || l.destino).toUpperCase();
+    const tx = txSeg(oUF,dUF);
+    if(tx!=null && valorVeic) seguro = (tx/100)*valorVeic;
   }
   const setComp=(desc,val,ativo)=>{
     let c = l.composicao.find(c=>normTxt(c.desc)===normTxt(desc));
@@ -4134,7 +4151,7 @@ function crmRecalcCalc(id){
     c.valor = (val!=null? (Math.round(val*100)/100).toString() : c.valor);
   };
   setComp('Frete Base', base, true);
-  if(seguro>0) setComp('Seguro', seguro, true);
+  setComp('Seguro', seguro, true);   // preenche sempre (0 se faltar UF ou valor do veículo)
   // Recebimento: taxa da cidade de destino do último trecho
   const ult = trs[trs.length-1];
   if(ult && TABELA_FRETES && TABELA_FRETES.cidades){
