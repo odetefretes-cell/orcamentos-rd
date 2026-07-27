@@ -3608,7 +3608,8 @@ function crmAbrirLead(id){
   let actionsHTML = `
     <button class="btn-ghost" onclick="fecharCrmModal()">Cancelar</button>
     <button class="btn-ghost" onclick="crmWhatsApp('${id}')" style="color:#25d366;border-color:#25d366">📱 WhatsApp</button>
-    <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>`;
+    <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>
+    <button class="btn-ghost" onclick="crmLinkFormulario('${id}')" style="color:#7c3aed;border-color:#7c3aed">🔗 Link do cliente</button>`;
   if(l.etapa === 'fechado'){
     actionsHTML += `<button class="btn-ok" onclick="crmConverterEmFrete('${id}')">🚚 Converter em Frete</button>`;
   }
@@ -4435,6 +4436,39 @@ function crmEnviarOrcamento(id){
 }
 
 // ---- Converter Lead em Frete ----
+// Link do formulário do cliente a partir do lead — cliente preenche e vira frete
+function crmLinkFormulario(id){
+  const l = CRM_LEADS[id]; if(!l) return;
+  if(!CLOUD_ON){ alert('O link do cliente funciona na versão publicada (nuvem).'); }
+  // puxa o que está na tela para o lead
+  if($('#crmModal') && $('#crmModal').style.display!=='none'){
+    if(typeof crmSyncFormLead==='function') crmSyncFormLead(id);
+    const g=s=>($(s)?.value||'').trim();
+    if(g('#crmNome')) l.nome=g('#crmNome');
+    if(g('#crmTelefone')) l.telefone=g('#crmTelefone');
+  }
+  if(l._novo){ delete l._novo; if(crmDraftId===id) crmDraftId=null; }   // gerar link efetiva o lead
+  // cria (ou reaproveita) o pedido/frete vinculado a este lead
+  let fid = l.freteId;
+  if(!fid || !MEM[fid]){
+    fid = 'ped'+Date.now();
+    MEM[fid] = {
+      _id:fid, numero:'', pedido:false, linkCriado:true, cadastrado:false,
+      status:'ANDAMENTO', operadora:'', leadId:id,
+      clienteEmpresa:l.nome||'', telefone:l.telefone||'', email:l.email||'',
+      cpfCnpj:l.cpfCnpj||'', origem:l.origem||'', destino:l.destino||'',
+      atendente:l.vendedor||'',
+      veiculos:[{ marca:l.veiculoDesc||'', modelo:'', placa:l.placa||'', valor:l.valorVeiculo||'' }],
+      criadoEm:new Date().toISOString(), _salvoEm:new Date().toISOString()
+    };
+    l.freteId = fid;
+    gravarDB();
+  }
+  crmAddTimeline(id,'link','Link do formulário do cliente gerado — cliente preenche e vira frete.');
+  saveCRM();
+  fecharCrmModal();
+  gerarLinkCliente(fid);   // abre a tela com o link + botões Copiar / WhatsApp
+}
 function crmConverterEmFrete(id){
   const l = CRM_LEADS[id];
   if(!l) return;
