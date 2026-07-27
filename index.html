@@ -912,6 +912,7 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
+      <button class="btn-ghost" onclick="crmRecalcularFunil()" title="Refaz rota, taxas e valores de todos os leads com as regras atuais">🔄 Recalcular tudo</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -3688,6 +3689,37 @@ function crmAddTimeline(id, tipo, texto){
 }
 
 // ---- CRUD ----
+// recalcula UM lead (rota + taxas + valores) com as regras atuais, sem depender do modal
+async function crmRecalcularLead(id){
+  const l=CRM_LEADS[id]; if(!l || !l.origem || !l.destino) return false;
+  const db=await carregarTabelaFretes(); if(!db) return false;
+  const oR=await resolverCidade(l.origem), dR=await resolverCidade(l.destino);
+  crmGuardarAprox(id, oR, l.origem, dR, l.destino);
+  const o=nk(oR.norm,oR.uf), d=nk(dR.norm,dR.uf);
+  const cat=crmCategoriaSugerida(l);                  // categoria pela descrição do veículo
+  const { opts }=crmGerarOpcoes(db, o, d, cat);
+  if(!opts.length) return false;
+  const barata=opts.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12)||a.legs.length-b.legs.length)[0];
+  l.trajetos=barata.legs.map(g=>({ de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
+    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null }));
+  l.composicao=CRM_COMP_MODELO.map(c=>({...c}));       // recompõe com as regras novas (imposto off, reembarque por ligação)
+  l._prazoManual=false;
+  crmRecalcCalc(id);                                   // frete base, seguro, recebimento, reembarque, imposto, valor médio, prazo
+  return true;
+}
+async function crmRecalcularFunil(){
+  const ok=await uiConfirm('Recalcular TODOS os leads do funil com as regras atuais?\n\nRefaz rota, taxas e valores de cada lead que tem origem e destino. Edições manuais de taxas serão substituídas.',{titulo:'Recalcular funil',ok:'Recalcular tudo'});
+  if(!ok) return;
+  const ids=Object.keys(CRM_LEADS).filter(id=>!CRM_LEADS[id]._novo && CRM_LEADS[id].origem && CRM_LEADS[id].destino);
+  const t=flash('Recalculando '+ids.length+' lead(s)…','load');
+  let feitos=0, semRota=0;
+  for(const id of ids){
+    try{ (await crmRecalcularLead(id)) ? feitos++ : semRota++; }catch(_){ semRota++; }
+  }
+  if(t&&t.fechar) t.fechar();
+  saveCRM(); renderCRM();
+  flash(`✔ ${feitos} lead(s) recalculado(s)`+(semRota?` · ${semRota} sem rota automática (conferir manual)`:''),'ok');
+}
 function crmNovoLead(){
   const id = 'lead_' + Date.now();
   CRM_LEADS[id] = {
