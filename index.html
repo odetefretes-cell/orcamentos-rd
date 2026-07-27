@@ -3703,11 +3703,17 @@ function crmAddTimeline(id, tipo, texto){
 async function crmRecalcularLead(id){
   const l=CRM_LEADS[id]; if(!l || !l.origem || !l.destino) return false;
   const db=await carregarTabelaFretes(); if(!db) return false;
-  const oR=await resolverCidade(l.origem), dR=await resolverCidade(l.destino);
-  crmGuardarAprox(id, oR, l.origem, dR, l.destino);
-  const o=nk(oR.norm,oR.uf), d=nk(dR.norm,dR.uf);
+  let oR=await resolverCidade(l.origem), dR=await resolverCidade(l.destino);
   const cat=crmCategoriaSugerida(l);                  // categoria pela descrição do veículo
-  const { opts }=crmGerarOpcoes(db, o, d, cat);
+  let opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  if(!opts.length){
+    // fallback: ancora no hub/base mais próximo (cidade de trajeto vizinha pode ser beco sem saída)
+    const of=await ancoraForteMaisProxima(oR.norm,oR.uf), df=await ancoraForteMaisProxima(dR.norm,dR.uf);
+    if(of) oR={norm:normTxt(of.nome),uf:of.uf,aproximada:true,nome:of.nome,dist:of.dist};
+    if(df) dR={norm:normTxt(df.nome),uf:df.uf,aproximada:true,nome:df.nome,dist:df.dist};
+    opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  }
+  crmGuardarAprox(id, oR, l.origem, dR, l.destino);
   if(!opts.length){
     // sem rota automática: limpa valores/trechos falsos (ex.: "média R$500" do site) → fica sem cálculo
     l.trajetos=[]; l.valorCotacaoSW=''; l.valorEstimado=''; l.prazoSW='';
@@ -4108,6 +4114,16 @@ async function ancoraForteProxima(nc, uf, maxKm){
   for(const a of ancorasFortes()){ if(a.norm===nc && a.uf===uf) continue;
     const dk=haversine(req,a.co); if(dk<bestD){ bestD=dk; best={nome:a.nome, uf:a.uf, dist:Math.round(dk)}; } }
   return (best && best.dist<=maxKm) ? best : null;
+}
+// hub/base mais próximo em qualquer distância (fallback quando a cidade de trajeto mais próxima
+// não consegue rota — ex.: Divinópolis cai em Igaratinga, que é um beco sem saída)
+async function ancoraForteMaisProxima(nc, uf){
+  await carregarCoords(); if(!CIDADES_COORDS) return null;
+  const req=CIDADES_COORDS[nc+'|'+uf]; if(!req) return null;
+  let best=null, bestD=Infinity;
+  for(const a of ancorasFortes()){ if(a.norm===nc && a.uf===uf) return {nome:a.nome, uf:a.uf, dist:0};
+    const dk=haversine(req,a.co); if(dk<bestD){ bestD=dk; best={nome:a.nome, uf:a.uf, dist:Math.round(dk)}; } }
+  return best;
 }
 // resolve a cidade digitada: se estiver na tabela usa; sen\u00e3o acha a mais pr\u00f3xima
 async function resolverCidade(raw){
@@ -4630,14 +4646,20 @@ async function crmCalcAuto(id, auto){
   const oRaw=$('#crmOrigem')?.value, dRaw=$('#crmDestino')?.value;
   if(!normTxt(oRaw) || !normTxt(dRaw)){ box.innerHTML = '<p class="hint" style="color:#dc2626">Preencha a origem e o destino (na seção Veículo e Rota).</p>'; return; }
   // se a cidade não está na tabela, usa a mais próxima por distância
-  const oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
-  const o=nk(oR.norm,oR.uf), d=nk(dR.norm,dR.uf);
+  let oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
+  const cat = $('#calcCategoria')?.value || '';
+  let opts = crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  if(!opts.length){
+    // fallback: cidade de trajeto mais próxima é beco sem saída → ancora no hub/base mais próximo
+    const of=await ancoraForteMaisProxima(oR.norm,oR.uf), df=await ancoraForteMaisProxima(dR.norm,dR.uf);
+    if(of) oR={norm:normTxt(of.nome),uf:of.uf,aproximada:true,nome:of.nome,dist:of.dist};
+    if(df) dR={norm:normTxt(df.nome),uf:df.uf,aproximada:true,nome:df.nome,dist:df.dist};
+    opts = crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  }
   const avisosProx=[];
   if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> não está na tabela — usando <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> não está na tabela — usando <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   crmGuardarAprox(id, oR, oRaw, dR, dRaw);
-  const cat = $('#calcCategoria')?.value || '';
-  const { opts } = crmGerarOpcoes(db, o, d, cat);
   if(!opts.length){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
   // 3 recomendações: mais barata, mais rápida, menos reembarque
   const B=opts.slice();
