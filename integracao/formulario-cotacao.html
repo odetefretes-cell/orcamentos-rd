@@ -16,6 +16,16 @@
     <p class="obs-sub">Preencha os dados abaixo e nossa equipe retorna pelo WhatsApp.</p>
 
     <div class="obs-linha">
+      <label>Tipo de cliente <span>*</span>
+        <select name="tipoCliente" required>
+          <option value="">Selecione…</option>
+          <option>Pessoa Física</option>
+          <option>Pessoa Jurídica</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="obs-linha">
       <label>Nome completo <span>*</span>
         <input type="text" name="nome" required autocomplete="name" placeholder="Seu nome">
       </label>
@@ -34,6 +44,36 @@
       <label>Veículo (marca / modelo) <span>*</span>
         <input type="text" name="veiculo" required placeholder="Ex.: Honda Civic 2020">
       </label>
+      <label>Tipo de veículo <span>*</span>
+        <select name="categoria" required>
+          <option value="">Selecione…</option>
+          <option>Carro passeio</option>
+          <option>Carro grande</option>
+          <option>Moto até 300cc</option>
+          <option>Moto até 700cc</option>
+          <option>Moto acima de 700cc</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="obs-grid2">
+      <label>O veículo funciona (liga e anda)? <span>*</span>
+        <select name="funciona" required>
+          <option value="">Selecione…</option>
+          <option>Sim</option>
+          <option>Não</option>
+        </select>
+      </label>
+      <label>Veículo blindado? <span>*</span>
+        <select name="blindado" required>
+          <option value="">Selecione…</option>
+          <option>Sim</option>
+          <option>Não</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="obs-linha">
       <label>Valor aproximado do veículo
         <input type="text" name="valorVeiculo" inputmode="numeric" placeholder="Ex.: R$ 60.000">
       </label>
@@ -182,7 +222,7 @@
     const g = n => (form.querySelector('[name="' + n + '"]') || {}).value || '';
 
     // validação simples
-    if (!g('nome') || !g('telefone') || !g('veiculo') || !g('origemUF') || !g('origemCidade') || !g('destinoUF') || !g('destinoCidade')) {
+    if (!g('tipoCliente') || !g('nome') || !g('telefone') || !g('veiculo') || !g('categoria') || !g('funciona') || !g('blindado') || !g('origemUF') || !g('origemCidade') || !g('destinoUF') || !g('destinoCidade')) {
       erro.textContent = 'Por favor, preencha todos os campos com *.'; erro.hidden = false; return;
     }
     if (!form.querySelector('[name="consent"]').checked) {
@@ -198,7 +238,9 @@
       id, nome: g('nome'), empresa: '', telefone: g('telefone'), email: g('email'), cpfCnpj: '',
       veiculoDesc: g('veiculo'), placa: '', origem, destino,
       valorEstimado: '', etapa: 'novo', prioridade: 'morno', vendedor: '',
-      origemLead: 'site', valorVeiculo: g('valorVeiculo'), funciona: '', blindado: '', dataEnvio: iso,
+      origemLead: 'site', valorVeiculo: g('valorVeiculo'),
+      funciona: g('funciona'), blindado: g('blindado'), dataEnvio: iso,
+      tipoCliente: g('tipoCliente'), categoria: g('categoria'),
       interesse: '', valorCotacaoSW: '', prazoSW: '', cotacaoId: '',
       composicao: [], trajetos: [], enderecoColeta: '', enderecoEntrega: '',
       dataUltimoContato: '', dataFechamento: '', tarefas: [],

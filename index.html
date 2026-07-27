@@ -4353,7 +4353,8 @@ function crmCidadeChange(q){
   if(l){ if(q==='Origem') l.origem=val; else l.destino=val;
     if(l.composicao && l.composicao.length){ crmRecalcCalc(id); crmCompReflectValores(id); } }
 }
-function crmCategoriaSugerida(l){   // adivinha a categoria pelo modelo do veículo
+function crmCategoriaSugerida(l){   // usa a categoria escolhida (formulário do site) ou adivinha pelo modelo
+  if(l && l.categoria) return l.categoria;   // veio selecionada no formulário → respeita
   const v = normTxt(l && l.veiculoDesc);
   if(/\bmoto|cg |cb |cbr|xre|bros|titan|fan|factor|biz|pop|nmax|pcx|hornet|xj6|mt-|cc\b/.test(v)) return 'Moto até 300cc';
   return 'Carro passeio';
