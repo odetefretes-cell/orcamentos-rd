@@ -155,10 +155,15 @@
   .obs-ok p{margin:0;color:#5b6673;font-size:15px}
 </style>
 
-<script type="module">
-(() => {
+<script>
+(function () {
   'use strict';
-  if (window.__obsFormCot) return; window.__obsFormCot = true;
+  function boot() {
+    if (window.__obsFormCot) return;
+    var form = document.querySelector('#obsForm');
+    if (!form) return;                       // formulário ainda não está na página
+    if (!form.querySelector('.obs-uf')) return;
+    window.__obsFormCot = true;
 
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyC4rDP5_lQ6o_ASjM_ndauC2HCq4JxnKuQ",
@@ -171,7 +176,6 @@
 
   const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
   const $ = s => document.querySelector(s);
-  const form = $('#obsForm'); if (!form) return;
 
   // preenche os Estados
   form.querySelectorAll('.obs-uf').forEach(sel => {
@@ -261,5 +265,12 @@
       btn.disabled = false; btn.textContent = 'Solicitar cotação';
     }
   });
+  }  // fim de boot()
+
+  // roda assim que a página estiver pronta; tenta de novo caso o construtor
+  // insira o formulário depois (Elementor/otimizadores).
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+  var _t = 0, _iv = setInterval(function () { boot(); if (window.__obsFormCot || ++_t > 20) clearInterval(_iv); }, 400);
 })();
 </script>
