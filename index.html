@@ -843,6 +843,8 @@
       </div>
     </div>
 
+    <!-- Avisos de tarefas do transporte (marcos: hoje e próximos dias) -->
+    <div id="opMarcos"></div>
     <!-- Lista de fretes -->
     <div id="relLista"></div>
   </div>
@@ -1993,6 +1995,8 @@ function renderRelatorio(){
     return true;
   }).sort((a,b)=>num(b.numero)-num(a.numero));
 
+  // ======= TAREFAS DO TRANSPORTE (marcos: hoje e próximos dias) =======
+  const emk=$('#opMarcos'); if(emk) emk.innerHTML = marcosPanelHTML(fretes);
   // ======= LISTA =======
   $('#relLista').innerHTML = list.length ? list.map(linhaFrete).join('')
     : `<p class="hint" style="text-align:center;padding:20px">${relFiltro==='FILA'?'Nenhum frete na fila. Salve fretes na aba "Nova Ficha / Frete".':'Nenhum frete para este filtro.'}</p>`;
@@ -2162,6 +2166,39 @@ function puxarFrete(id,op){
 
 // ---- marcos do transporte (coleta/embarque/chegada/liberação) + lembretes ----
 function addDiasISO(iso,d){ const dt=new Date(iso+'T12:00:00'); dt.setDate(dt.getDate()+(+d||0)); return dt.toISOString().slice(0,10); }
+// tarefas pendentes de marco: previstas p/ HOJE, atrasadas, e próximos dias (não concluídas)
+function marcosPendentes(fretes, diasFrente){
+  const hoje=hojeISO(), lim=addDiasISO(hoje, diasFrente||7), tarefas=[];
+  (fretes||[]).forEach(f=>{ const st=statusDe(f); if(st==='CONCLUÍDO'||st==='CANCELADO') return;
+    [ {k:'Coleta',ic:'📥',prev:f.coletaPrev,feito:f.coletaFeito},
+      {k:'Embarque',ic:'📦',prev:f.embarquePrev,feito:f.embarqueFeito},
+      {k:'Chegada',ic:'📍',prev:f.chegadaPrev,feito:f.chegadaFeito},
+      {k:'Liberação',ic:'🔓',prev:f.liberacaoPrev,feito:f.liberacaoFeito} ].forEach(m=>{
+      if(!m.prev || m.feito || m.prev>lim) return;
+      tarefas.push({ id:f._id, numero:f.numero||'', cliente:up(f.clienteEmpresa||''),
+        rota:(up(f.origem)||'?')+' → '+(up(f.destino)||'?'), marco:m.k, ic:m.ic, data:m.prev,
+        urg: m.prev<hoje?'atrasada' : (m.prev===hoje?'hoje':'proxima') });
+    });
+  });
+  return tarefas.sort((a,b)=>a.data.localeCompare(b.data));
+}
+function marcosPanelHTML(fretes){
+  const ts=marcosPendentes(fretes,7); if(!ts.length) return '';
+  const cor={atrasada:'#ef4444',hoje:'#d97706',proxima:'#2563eb'}, rot={atrasada:'ATRASADA',hoje:'HOJE',proxima:''};
+  const item=t=>`<div onclick="abrirMarcoFrete('${t.id}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border-left:3px solid ${cor[t.urg]};background:rgba(255,255,255,.03);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:12.5px">
+    <span>${t.ic} <b>${esc(t.marco)}</b> · Frete <b>${esc(t.numero)||'s/nº'}</b> · ${esc(t.cliente)||'—'} <span class="hint">${esc(t.rota)}</span></span>
+    <span style="white-space:nowrap;color:${cor[t.urg]};font-weight:700">${dataBR(t.data)}${rot[t.urg]?(' · '+rot[t.urg]):''}</span></div>`;
+  const nAtr=ts.filter(t=>t.urg==='atrasada').length, nHoje=ts.filter(t=>t.urg==='hoje').length;
+  return `<div class="card" style="margin-bottom:12px"><div class="body">
+    <h3 style="margin:0 0 8px;font-size:14px">🗓️ Tarefas do transporte — hoje e próximos dias
+      <span class="hint" style="font-weight:400">(${nAtr} atrasada(s) · ${nHoje} para hoje · ${ts.length} no total)</span></h3>
+    ${ts.map(item).join('')}</div></div>`;
+}
+function abrirMarcoFrete(id){
+  if(typeof fretesAbertos!=='undefined'){ fretesAbertos.add(id); }
+  renderRelatorio();
+  setTimeout(()=>{ const c=document.querySelector('.fitem[data-fid="'+id+'"]'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); }, 80);
+}
 function diasEntre(a,b){ return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000); }
 function maxDiasPrazo(txt){ const ns=(txt||'').match(/\d+/g); if(!ns) return 0; return Math.max(...ns.map(Number)); }
 // ---- solicitação de coleta / entrega ao prestador (WhatsApp) ----
