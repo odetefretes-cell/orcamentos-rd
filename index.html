@@ -940,9 +940,26 @@
         <option value="semana">🔵 Próximos 7 dias</option>
         <option value="sem">⚪ Sem tarefa agendada</option>
       </select>
+      <select id="crmFiltroLink" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+        <option value="">Link: todos</option>
+        <option value="sim">🔗 Com link emitido</option>
+        <option value="nao">Sem link emitido</option>
+      </select>
+      <div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid var(--linha);border-radius:8px;padding:4px 8px">
+        <select id="crmFiltroCampoData" onchange="renderCRM()" title="Filtrar o período por qual data" style="font-size:13px;padding:5px;border:1px solid var(--linha);border-radius:6px;background:transparent">
+          <option value="dataEntrada">📅 Criação</option>
+          <option value="dataFechamento">🏁 Fechamento</option>
+          <option value="linkEmitidoEm">🔗 Link emitido</option>
+        </select>
+        <input type="date" id="crmFiltroDe" onchange="renderCRM()" title="De" style="font-size:13px;padding:5px;border:1px solid var(--linha);border-radius:6px">
+        <span class="hint" style="font-size:12px">até</span>
+        <input type="date" id="crmFiltroAte" onchange="renderCRM()" title="Até" style="font-size:13px;padding:5px;border:1px solid var(--linha);border-radius:6px">
+        <button class="btn-ghost" onclick="crmLimparPeriodo()" title="Limpar período" style="font-size:12px;padding:4px 8px">✕</button>
+      </div>
     </div>
 
     <div id="crmAvisoTarefas" style="margin:0 4px 6px"></div>
+    <div id="crmResumoFiltro" style="margin:0 4px 8px"></div>
     <!-- Kanban Board (colunas/funis geradas dinamicamente) -->
     <div style="display:flex;justify-content:flex-end;margin:2px 4px 6px">
       <button class="btn-ghost" onclick="crmAddEtapa()" style="font-size:12px;padding:5px 12px">➕ Nova etapa do funil</button>
@@ -3790,12 +3807,24 @@ function renderCRMMetrics(){
 // lead TEM cálculo automático de verdade = tem trechos de rota calculados
 // (valor médio/estimado sozinho pode ser lixo do site; só conta se houver rota)
 function crmTemCalc(l){ return !!(l && l.trajetos && l.trajetos.length); }
+function crmLimparPeriodo(){
+  ['crmFiltroDe','crmFiltroAte'].forEach(i=>{ const e=$('#'+i); if(e) e.value=''; });
+  renderCRM();
+}
 function renderCRM(){
   renderCRMMetrics();
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
   const filtroTarefa = $('#crmFiltroTarefa')?.value||'';
+  const filtroLink = $('#crmFiltroLink')?.value||'';
+  const campoData = $('#crmFiltroCampoData')?.value||'dataEntrada';
+  const perDe = $('#crmFiltroDe')?.value||'';
+  const perAte = $('#crmFiltroAte')?.value||'';
+  const temLink = l => !!(l.linkEmitidoEm || l.freteId);
+  const casaLink = l => !filtroLink || (filtroLink==='sim'?temLink(l):!temLink(l));
+  const dataDoLead = l => { const v = campoData==='linkEmitidoEm' ? (l.linkEmitidoEm||'') : (l[campoData]||''); return (v||'').slice(0,10); };
+  const casaPeriodo = l => { if(!perDe && !perAte) return true; const d=dataDoLead(l); if(!d) return false; if(perDe && d<perDe) return false; if(perAte && d>perAte) return false; return true; };
   const casaTarefa = l => {
     if(!filtroTarefa) return true;
     const t = crmProxTarefa(l);
@@ -3863,6 +3892,8 @@ function renderCRM(){
     if(filtroPrio) leads = leads.filter(l => l.prioridade === filtroPrio);
     if(filtroVendedor) leads = leads.filter(l => l.vendedor === filtroVendedor);
     if(filtroTarefa) leads = leads.filter(casaTarefa);
+    if(filtroLink) leads = leads.filter(casaLink);
+    if(perDe||perAte) leads = leads.filter(casaPeriodo);
     // com valor calculado automático em primeiro; sem cálculo (orçamento manual) por último
     leads.sort((a,b) => (crmTemCalc(b)-crmTemCalc(a)) || (b.ultimaInteracao||b.dataEntrada||'').localeCompare(a.ultimaInteracao||a.dataEntrada||''));
     const cor = etapa.cor||'#64748b';
@@ -3889,6 +3920,29 @@ function renderCRM(){
     col.ondragleave = e => { col.closest('.kanban-col').classList.remove('drag-over'); };
     col.ondrop = e => { e.preventDefault(); crmDrop(e, col); };
   });
+
+  // resumo do período/filtro (consulta) — total de leads e soma dos valores
+  const resumo=$('#crmResumoFiltro');
+  if(resumo){
+    if(filtroLink || perDe || perAte){
+      let all=Object.values(CRM_LEADS).filter(l=>!l._novo);
+      if(busca) all=all.filter(l=>`${l.nome} ${l.empresa} ${l.veiculoDesc} ${l.origem} ${l.destino} ${l.telefone} ${l.email}`.toLowerCase().includes(busca));
+      if(filtroPrio) all=all.filter(l=>l.prioridade===filtroPrio);
+      if(filtroVendedor) all=all.filter(l=>l.vendedor===filtroVendedor);
+      if(filtroTarefa) all=all.filter(casaTarefa);
+      if(filtroLink) all=all.filter(casaLink);
+      if(perDe||perAte) all=all.filter(casaPeriodo);
+      const nFech=all.filter(l=>l.etapa==='fechado').length;
+      const soma=all.reduce((s,l)=>s+(numMoeda(l.valorCotacaoSW)||numMoeda(l.valorEstimado)||0),0);
+      const rotulo={dataEntrada:'criação',dataFechamento:'fechamento',linkEmitidoEm:'link emitido'}[campoData]||'período';
+      const per=(perDe||perAte)?` · ${rotulo}${perDe?(' de '+dataBR(perDe)):''}${perAte?(' até '+dataBR(perAte)):''}`:'';
+      const lk=filtroLink?(filtroLink==='sim'?' · 🔗 com link':' · sem link'):'';
+      resumo.innerHTML=`<div style="background:rgba(37,99,235,.08);border:1px solid #2563eb;border-radius:8px;padding:7px 12px;font-size:13px;color:#93b4ff;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <span><b>${all.length}</b> lead(s)${per}${lk}</span>
+        <span>🏁 <b>${nFech}</b> fechado(s)</span>
+        <span>💰 soma das médias: <b>${moeda(soma)}</b></span></div>`;
+    } else resumo.innerHTML='';
+  }
 }
 
 // ---- Drag & Drop ----
@@ -5756,6 +5810,7 @@ function crmLinkFormulario(id){
     l.freteId = fid;
     gravarDB();
   }
+  if(!l.linkEmitidoEm) l.linkEmitidoEm = new Date().toISOString();   // marca a emissão do link (p/ filtro)
   crmAddTimeline(id,'link','Link do formulário do cliente gerado — cliente preenche e vira frete.');
   saveCRM();
   fecharCrmModal();
