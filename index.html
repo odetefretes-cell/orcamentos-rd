@@ -2464,6 +2464,27 @@ async function confirmarValorPrest(id, idx, input){
   if(!ok){ input.value = antigo; return; }   // cancelou → reverte
   setPrestFin(id, idx, 'valor', novo);
 }
+async function editarPrestNome(id, idx, input){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  const pr=(Array.isArray(f.prestadores)?f.prestadores:prestDe(f))[idx]; if(!pr) return;
+  const antigo=(pr.emp==null?'':String(pr.emp)).trim();
+  const novo=(input.value||'').trim();
+  if(up(antigo)===up(novo)){ input.value=up(antigo); return; }   // nada mudou
+  const ok=await uiConfirm(`Alterar o prestador deste frete (Nº ${esc(f.numero||'')})?\n\nDe: ${esc(up(antigo))||'—'}\nPara: ${esc(up(novo))||'—'}`,
+    {titulo:'Confirmar alteração de prestador', ok:'Salvar', perigo:false});
+  if(!ok){ input.value=up(antigo); return; }   // cancelou → reverte
+  setPrestFin(id, idx, 'emp', novo);
+  flash('Prestador atualizado ✔');
+}
+async function editarPrestPlaca(id, idx, input){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  const pr=(Array.isArray(f.prestadores)?f.prestadores:prestDe(f))[idx]; if(!pr) return;
+  const antigo=(pr.placa==null?'':String(pr.placa)).trim();
+  const novo=(input.value||'').trim();
+  if(up(antigo)===up(novo)){ input.value=up(antigo); return; }
+  setPrestFin(id, idx, 'placa', novo);
+  flash('Placa atualizada ✔');
+}
 function setPrestFin(id,idx,campo,val){
   const db=lerDB(); const f=db[id]; if(!f) return;
   if(!Array.isArray(f.prestadores)) f.prestadores=prestDe(f);
@@ -2680,8 +2701,10 @@ function renderFinanceiro(){
       const ok = !!(p.contaAzul && String(p.contaAzul).trim());
       const veic = esc(veicResumo(f)) || (p.placa?esc(up(p.placa)):'—');
       return `<tr class="${ok?'conf':''}">
-      <td><b>${esc(f.numero||'')}</b><br><button class="btn-ghost" style="font-size:11px;padding:2px 7px;margin-top:3px;white-space:nowrap" onclick="abrirFicha('${f._id}')" title="Abrir a ficha de cadastro deste frete para conferir/alterar">📋 Ficha</button></td><td>${esc(up(p.emp))}</td>
-      <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div></td>
+      <td><b>${esc(f.numero||'')}</b><br><button class="btn-ghost" style="font-size:11px;padding:2px 7px;margin-top:3px;white-space:nowrap" onclick="abrirFicha('${f._id}')" title="Abrir a ficha de cadastro deste frete para conferir/alterar">📋 Ficha</button></td>
+      <td><input value="${escA(up(p.emp||''))}" onchange="editarPrestNome('${f._id}',${idx},this)" placeholder="Empresa / motorista" title="Prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:160px;font-weight:600"></td>
+      <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div>
+        <input value="${escA(up(p.placa||''))}" onchange="editarPrestPlaca('${f._id}',${idx},this)" placeholder="Placa" title="Placa cobrada por este prestador — editável" style="font-size:11px;width:110px;margin-top:3px;text-transform:uppercase"></td>
       <td><input value="${escA(p.valor||'')}" onchange="confirmarValorPrest('${f._id}',${idx},this)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
       <td><input type="date" value="${escA(p.contaAzul)}" onchange="setPrestFin('${f._id}',${idx},'contaAzul',this.value)" title="Data de inclusão no ContaAzul — preencher = conferido e pago" style="font-size:12.5px"></td>
       <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}</td></tr>`;
