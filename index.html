@@ -3497,10 +3497,12 @@ function nivelIndividual(fechados){
   if(fechados>=60)  return {nivel:'Meta',bonus:500};
   return {nivel:'—',bonus:0};
 }
+// vendedores que contam a META INDIVIDUAL (regra do comercial)
+const CRM_META_INDIVIDUAL=['Yasmim Freitas','Thiago Lucca','Flavia Ottati'];
 // calcula o levantamento mensal AO VIVO, a partir dos fretes do sistema (MEM)
 function calcResumoMensal(){
   const MN=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-  const canon=v=>{ const n=(v||'').toString().trim().toUpperCase()||'(sem vendedor)'; return /^YASM[EI]N/.test(n)?'YASMIM':n; };
+  const canon=v=>{ const raw=(v||'').toString().trim(); if(!raw) return '(sem vendedor)'; return crmNomeCanon(raw); };  // unifica os 3 do comercial
   const meses={};
   for(const id in MEM){ const f=MEM[id]; if(!f) continue;
     if(!(f.cadastrado || (f.numero && String(f.numero).trim()))) continue;   // só contratos emitidos/numerados
@@ -3548,12 +3550,8 @@ async function renderMensal(){
     <tbody>${dados.map(linha).join('')}</tbody></table>`;
   // por vendedor (comercial) — bônus INDIVIDUAL pelo próprio nº de contratos
   const ops=$('#mensalOps');
-  const totalBy={};
-  dados.forEach(m=>Object.entries(m.vendedores||{}).forEach(([v,o])=>{ if(v!=='(sem vendedor)') totalBy[v]=(totalBy[v]||0)+(o.fechados||0); }));
-  // metas individuais valem só para a EQUIPE COMERCIAL
-  const comSet = new Set((typeof crmComercial==='function'?crmComercial():[]).map(n=>(n||'').split(' ')[0].toUpperCase()));
-  let nomes=Object.keys(totalBy).sort((a,b)=>totalBy[b]-totalBy[a]);
-  if(comSet.size) nomes=nomes.filter(n=>comSet.has((n||'').split(' ')[0].toUpperCase()));
+  // metas individuais valem SÓ para os 3 do comercial (Yasmim Freitas, Thiago Lucca, Flavia Ottati)
+  const nomes = CRM_META_INDIVIDUAL.slice();
   if(!nomes.length){ ops.innerHTML='<p class="hint">Sem dados de vendedor ainda.</p>'; }
   else{
     const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center" colspan="2">${esc(n)}</th>`).join('')}</tr>`
@@ -4143,10 +4141,13 @@ function crmDescartarRascunho(){
 
 // ===== Comercial: rodízio de responsável entre usuários logados =====
 const CRM_LUIZ_RE = /luiz\s*gustavo/i;
-// unifica nomes duplicados (ex.: "Yasmin Freitas" e "Yasmim Freitas" = mesma pessoa)
+// unifica nomes duplicados dos 3 vendedores do comercial (variações e só o primeiro nome)
 function crmNomeCanon(nome){
-  const n=(nome||'').trim();
-  if(/yasm[ei]n(\s*freitas)?/i.test(n)) return 'Yasmim Freitas';
+  const n=(nome||'').trim(); const nn=(typeof normTxt==='function'?normTxt(n):n.toLowerCase());
+  if(!nn) return n;
+  if(/yasm/.test(nn)) return 'Yasmim Freitas';           // Yasmim / Yasmin / Yasmim Freitas
+  if(/thiago|tiago/.test(nn)) return 'Thiago Lucca';     // Thiago / Thiago Lucca
+  if(/flavia|otatti|ottati/.test(nn)) return 'Flavia Ottati';  // Flavia / Flávia / Flavia Ottati
   return n;
 }
 function crmComercial(){   // nomes do comercial que entram no rodízio (exclui Luiz Gustavo; sem duplicados)
