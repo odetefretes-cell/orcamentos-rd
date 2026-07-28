@@ -598,7 +598,7 @@
         <div class="field"><label>RG / IE</label><input name="rgIe"></div>
         <div class="field"><label>Telefone</label><input name="telefone" placeholder="Ex.: (14) 99163-6750"></div>
         <div class="field"><label>E-mail</label><input name="email"></div>
-        <div class="field"><label>CEP</label><input name="cep"></div>
+        <div class="field"><label>CEP</label><input name="cep" inputmode="numeric" placeholder="00000-000" onblur="cepFicha('cep')"></div>
         <div class="field"><label>Bairro</label><input name="bairro"></div>
         <div class="field col2"><label>Endereço</label><input name="endereco" placeholder="Rua, número, complemento"></div>
         <div class="field"><label>Cidade</label><input name="cidade"></div>
@@ -614,7 +614,7 @@
           <div class="field col2"><label>Nome / Contato</label><input name="coletaNome"></div>
           <div class="field"><label>CPF / CNPJ</label><input name="coletaCpf"></div>
           <div class="field"><label>Telefone</label><input name="coletaTel"></div>
-          <div class="field"><label>CEP</label><input name="coletaCep"></div>
+          <div class="field"><label>CEP</label><input name="coletaCep" inputmode="numeric" placeholder="00000-000" onblur="cepFicha('coletaCep')"></div>
           <div class="field"><label>Bairro</label><input name="coletaBairro"></div>
           <div class="field col2"><label>Endereço</label><input name="coletaEndereco"></div>
           <div class="field"><label>Cidade</label><input name="coletaCidade"></div>
@@ -631,7 +631,7 @@
           <div class="field col2"><label>Nome / Contato</label><input name="entregaNome"></div>
           <div class="field"><label>CPF / CNPJ</label><input name="entregaCpf"></div>
           <div class="field"><label>Telefone</label><input name="entregaTel"></div>
-          <div class="field"><label>CEP</label><input name="entregaCep"></div>
+          <div class="field"><label>CEP</label><input name="entregaCep" inputmode="numeric" placeholder="00000-000" onblur="cepFicha('entregaCep')"></div>
           <div class="field"><label>Bairro</label><input name="entregaBairro"></div>
           <div class="field col2"><label>Endereço</label><input name="entregaEndereco"></div>
           <div class="field"><label>Cidade</label><input name="entregaCidade"></div>
@@ -1118,6 +1118,26 @@ function dataBR(v){
   if(!v) return '';
   const p = v.split('-');
   return p.length===3 ? `${p[2]}/${p[1]}/${p[0]}` : v;
+}
+// formata campos de dinheiro (input[inputmode=decimal]) ao sair: 50000 -> 50.000,00
+function fmtMoedaEl(el){ if(!el || el.value==='') return; const n=numMoeda(el.value);
+  el.value = n ? n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : ''; }
+document.addEventListener('focusout', e=>{ const t=e.target;
+  if(t && t.matches && t.matches('input[inputmode="decimal"]')) fmtMoedaEl(t); }, true);
+// busca endereço pelo CEP e preenche o bloco (faturamento='cep' | coleta='coletaCep' | entrega='entregaCep')
+async function cepFicha(campoCep){
+  const fm=document.getElementById('form'); if(!fm) return;
+  const el=fm.querySelector('[name="'+campoCep+'"]'); if(!el) return;
+  const cep=(el.value||'').replace(/\D/g,''); if(cep.length!==8) return;
+  try{
+    const r=await fetch('https://viacep.com.br/ws/'+cep+'/json/'); const d=await r.json();
+    if(d.erro) return;
+    const base = campoCep==='cep' ? '' : campoCep.replace(/Cep$/,'');
+    const nm = suf => base ? base+suf.charAt(0).toUpperCase()+suf.slice(1) : suf;
+    const set=(suf,val,soVazio)=>{ const f=fm.querySelector('[name="'+nm(suf)+'"]'); if(f && val && (!soVazio || !f.value)) f.value=val; };
+    set('endereco', d.logradouro, true);   // não sobrescreve rua/número já digitados
+    set('bairro', d.bairro); set('cidade', d.localidade); set('uf', d.uf);
+  }catch(_){}
 }
 function hojeBR(){
   const d=new Date();
@@ -3375,7 +3395,10 @@ async function renderMensal(){
   const ops=$('#mensalOps');
   const totalBy={};
   dados.forEach(m=>Object.entries(m.vendedores||{}).forEach(([v,o])=>{ if(v!=='(sem vendedor)') totalBy[v]=(totalBy[v]||0)+(o.fechados||0); }));
-  const nomes=Object.keys(totalBy).sort((a,b)=>totalBy[b]-totalBy[a]);
+  // metas individuais valem só para a EQUIPE COMERCIAL
+  const comSet = new Set((typeof crmComercial==='function'?crmComercial():[]).map(n=>(n||'').split(' ')[0].toUpperCase()));
+  let nomes=Object.keys(totalBy).sort((a,b)=>totalBy[b]-totalBy[a]);
+  if(comSet.size) nomes=nomes.filter(n=>comSet.has((n||'').split(' ')[0].toUpperCase()));
   if(!nomes.length){ ops.innerHTML='<p class="hint">Sem dados de vendedor ainda.</p>'; }
   else{
     const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center" colspan="2">${esc(n)}</th>`).join('')}</tr>`
