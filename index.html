@@ -1838,7 +1838,7 @@ function removeOperadora(o){
 function opDe(f){ return (f.operadora||'').toString().trim().toUpperCase(); }
 
 // ---- importar fretes do relatório (planilha) ----
-const _PRESERVAR=['status','pago1','pago2','dataPago1','dataPago2','dataFaturamento','dataPagLink','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
+const _PRESERVAR=['status','pago1','pago2','dataPago1','dataPago2','dataFaturamento','dataPagLink','obsPagamento','averbacao','previsaoRecebimento','seguro','imposto','operadora','docs'];
 function _mesclarFretes(arr){
   const ops=lerOperadoras();
   arr.forEach(f=>{ const o=(f.operadora||'').toUpperCase(); if(o && !ops.includes(o)) ops.push(o); });
@@ -2357,7 +2357,8 @@ function camposPagamentoHTML(id,f,defer){
     <div class="fld"><label>Pago 2 (R$)</label><input value="${gv('pago2')}" inputmode="decimal" onchange="${set}('${id}','pago2',this.value)"></div>
     <div class="fld"><label>Data pagamento 2</label><input type="date" value="${gv('dataPago2')}" onchange="${set}('${id}','dataPago2',this.value)"></div>
     ${/boleto/i.test(f.formaPgto||'')?`<div class="fld"><label>📄 Data de faturamento (boleto)</label><input type="date" value="${gv('dataFaturamento')}" onchange="${set}('${id}','dataFaturamento',this.value)"></div>`:''}
-    ${/cart[ãa]o/i.test(f.formaPgto||'')?`<div class="fld"><label>💳 Data de pagamento do link (cartão)</label><input type="date" value="${gv('dataPagLink')}" onchange="${set}('${id}','dataPagLink',this.value)"></div>`:''}`;
+    ${/cart[ãa]o/i.test(f.formaPgto||'')?`<div class="fld"><label>💳 Data de pagamento do link (cartão)</label><input type="date" value="${gv('dataPagLink')}" onchange="${set}('${id}','dataPagLink',this.value)"></div>`:''}
+    <div class="fld col2"><label>📝 Observação de pagamento</label><input value="${gv('obsPagamento')}" onchange="${set}('${id}','obsPagamento',this.value)" placeholder="Ex.: pago parcial, aguardando 2ª parcela, desconto combinado…"></div>`;
 }
 function liberarOperacional(id){
   const db=lerDB(); if(!db[id]) return;
