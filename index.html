@@ -1541,8 +1541,9 @@ async function initData(){
           if(typeof crmSyncFretesFechado==='function') crmSyncFretesFechado();   // cliente devolveu form → lead p/ Venda Fechada
           const vlx=$('#lixeiraModal'); if(vlx && vlx.style.display!=='none' && typeof renderLixeira==='function') renderLixeira();
           atualizarHist(); atualizarProxNum();
-          const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
-          const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
+          // não redesenha a tela enquanto a operadora está digitando (senão apaga o texto)
+          const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none' && !editandoInput(vr)) renderRelatorio();
+          const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none' && !editandoInput(vf)) renderFinanceiro();
           if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · ☁ compartilhado');
         }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); if(window.__sessaoPronta) window.__sessaoPronta('⚠ Erro na nuvem — modo local','erro'); });
         // cadastro de clientes
@@ -1570,6 +1571,11 @@ async function initData(){
   }
 }
 function setModo(txt){ const el=$('#modoBadge'); if(el) el.textContent=txt; }
+// true se o usuário está digitando num campo dentro do container (evita apagar texto ao redesenhar)
+function editandoInput(container){
+  const a=document.activeElement;
+  return !!(a && container && container.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
 
 // numeração sequencial: próximo = maior número existente + 1
 const SEQ_2026_FIM=1531;   // numeração de 2026 vai de 01 a 1531; novos emitidos seguem 1532, 1533...
