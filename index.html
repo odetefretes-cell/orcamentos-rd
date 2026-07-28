@@ -2284,6 +2284,19 @@ function setFin(id,campo,valor){
 }
 function toggleImposto(id,on){ setFin(id,'impostoOn',!!on); }
 // prestador: grava flag de conferência/pagamento
+// altera o valor do prestador com confirmação (mostra de→para e reverte se cancelar)
+async function confirmarValorPrest(id, idx, input){
+  const db=lerDB(); const f=db[id]; if(!f){ return; }
+  const pr=(Array.isArray(f.prestadores)?f.prestadores:prestDe(f))[idx]; if(!pr){ return; }
+  const antigo = pr.valor==null?'':String(pr.valor);
+  const novo = (input.value||'').trim();
+  if(antigo===novo) return;   // nada mudou
+  const ok = await uiConfirm(
+    `Alterar o valor deste prestador?\n\n${esc(up(pr.emp||''))}\nDe ${moeda(antigo)} → para ${moeda(novo)}.\n\nIsso muda o valor real do frete (reflete no lucro e nos totais).`,
+    {titulo:'Confirmar alteração de valor', ok:'Salvar valor'});
+  if(!ok){ input.value = antigo; return; }   // cancelou → reverte
+  setPrestFin(id, idx, 'valor', novo);
+}
 function setPrestFin(id,idx,campo,val){
   const db=lerDB(); const f=db[id]; if(!f) return;
   if(!Array.isArray(f.prestadores)) f.prestadores=prestDe(f);
@@ -2501,7 +2514,7 @@ function renderFinanceiro(){
       return `<tr class="${ok?'conf':''}">
       <td><b>${esc(f.numero||'')}</b><br><button class="btn-ghost" style="font-size:11px;padding:2px 7px;margin-top:3px;white-space:nowrap" onclick="abrirFicha('${f._id}')" title="Abrir a ficha de cadastro deste frete para conferir/alterar">📋 Ficha</button></td><td>${esc(up(p.emp))}</td>
       <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div></td>
-      <td><input value="${escA(p.valor||'')}" onchange="setPrestFin('${f._id}',${idx},'valor',this.value)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
+      <td><input value="${escA(p.valor||'')}" onchange="confirmarValorPrest('${f._id}',${idx},this)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
       <td><input type="date" value="${escA(p.contaAzul)}" onchange="setPrestFin('${f._id}',${idx},'contaAzul',this.value)" title="Data de inclusão no ContaAzul — preencher = conferido e pago" style="font-size:12.5px"></td>
       <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}</td></tr>`;
     }).join('');
