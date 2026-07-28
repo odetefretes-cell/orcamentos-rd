@@ -3308,13 +3308,54 @@ async function importarClientes(){
 
 // ---- levantamento mensal / metas ----
 const NIVEL_COR={'Abaixo':'#9aa7b4','Meta':'#16a34a','Acelerado':'#2563eb','Turbo':'#7c3aed','Máquina':'#d80f1f'};
+function nivelEmpresa(fechados){
+  if(fechados>=301) return {nivel:'Máquina',bonus:1500};
+  if(fechados>=241) return {nivel:'Turbo',bonus:1000};
+  if(fechados>=221) return {nivel:'Acelerado',bonus:700};
+  if(fechados>=181) return {nivel:'Meta',bonus:500};
+  return {nivel:'Abaixo',bonus:0};
+}
+function nivelIndividual(fechados){
+  if(fechados>=100) return {nivel:'Máquina',bonus:1500};
+  if(fechados>=80)  return {nivel:'Turbo',bonus:1000};
+  if(fechados>=70)  return {nivel:'Acelerado',bonus:700};
+  if(fechados>=60)  return {nivel:'Meta',bonus:500};
+  return {nivel:'—',bonus:0};
+}
+// calcula o levantamento mensal AO VIVO, a partir dos fretes do sistema (MEM)
+function calcResumoMensal(){
+  const MN=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+  const canon=v=>{ const n=(v||'').toString().trim().toUpperCase()||'(sem vendedor)'; return /^YASM[EI]N/.test(n)?'YASMIM':n; };
+  const meses={};
+  for(const id in MEM){ const f=MEM[id]; if(!f) continue;
+    if(!(f.cadastrado || (f.numero && String(f.numero).trim()))) continue;   // só contratos emitidos/numerados
+    const dt=(f.dataFechamento||(f._salvoEm||'').slice(0,10)||''); const ym=dt.slice(0,7);
+    if(!/^\d{4}-\d{2}$/.test(ym)) continue;
+    const st=statusDe(f);
+    const m=meses[ym]||(meses[ym]={total:0,concluido:0,andamento:0,cancelado:0,vendedores:{}});
+    const v=canon(f.atendente); const mv=m.vendedores[v]||(m.vendedores[v]={total:0,concluido:0,andamento:0,cancelado:0});
+    m.total++; mv.total++;
+    if(st==='CONCLUÍDO'){ m.concluido++; mv.concluido++; }
+    else if(st==='CANCELADO'){ m.cancelado++; mv.cancelado++; }
+    else { m.andamento++; mv.andamento++; }
+  }
+  return Object.keys(meses).sort().map(ym=>{
+    const m=meses[ym], [yy,mm]=ym.split('-'); const fechados=m.total-m.cancelado;
+    const ne=nivelEmpresa(fechados);
+    const vend={};
+    for(const v in m.vendedores){ const o=m.vendedores[v]; const fi=o.total-o.cancelado; const ni=nivelIndividual(fi);
+      vend[v]={ fechados:fi, total:o.total, concluido:o.concluido, andamento:o.andamento, cancelado:o.cancelado, nivelInd:ni.nivel, bonusInd:ni.bonus }; }
+    return { mes:MN[+mm-1]+' '+yy, total:m.total, concluido:m.concluido, andamento:m.andamento, cancelado:m.cancelado,
+             fechados, nivel:ne.nivel, bonus:ne.bonus, vendedores:vend };
+  });
+}
 async function renderMensal(){
   const tab=$('#mensalTabela'); if(!tab) return;
-  let dados;
-  try{
-    const r=await fetch('resumo-mensal.json?v='+Date.now());
-    dados=await r.json();
-  }catch(e){ tab.innerHTML='<p class="hint">Não foi possível carregar o levantamento (resumo-mensal.json).</p>'; return; }
+  let dados = (typeof MEM==='object') ? calcResumoMensal() : [];
+  if(!dados.length){   // sem fretes no sistema → cai no arquivo estático (histórico)
+    try{ const r=await fetch('resumo-mensal.json?v='+Date.now()); dados=await r.json(); }
+    catch(e){ tab.innerHTML='<p class="hint">Não foi possível carregar o levantamento.</p>'; return; }
+  }
   const linha=m=>{
     const cor=NIVEL_COR[m.nivel]||'#333';
     return `<tr>
