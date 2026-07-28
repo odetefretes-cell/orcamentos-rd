@@ -1598,33 +1598,40 @@ async function initData(){
           const vcl=$('#viewClientes'); if(vcl && vcl.style.display!=='none') renderClientes();
         }, ()=>{});
         // CRM (leads) compartilhado — requer a regra do Firestore p/ crm_leads
-        fsMod.onSnapshot(fsMod.collection(fs,'crm_leads'), snap=>{
+        // includeMetadataChanges: distingue o snapshot OTIMISTA (nossa gravação ainda não
+        // confirmada — hasPendingWrites) do snapshot CONFIRMADO pelo servidor. Só o servidor
+        // confirma/remove leads; o otimista nunca reverte nada. Corrige "lead some ao criar".
+        fsMod.onSnapshot(fsMod.collection(fs,'crm_leads'), {includeMetadataChanges:true}, snap=>{
           if(typeof CRM_LEADS==='undefined') return;
+          const doServidor = !snap.metadata.hasPendingWrites;   // true = confirmado pelo servidor
           const cloud={}; snap.forEach(d=>cloud[d.id]=d.data());
           const merged={};
           // 1) parte da nuvem, mas respeita edições locais ainda não confirmadas (dirty)
           for(const id in cloud){
             const c=cloud[id];
             if(CRM_DIRTY[id]!=null){
-              const cts=+(c._ts||0), lts=+CRM_DIRTY[id];
-              if(cts>=lts){ merged[id]=c; delete CRM_DIRTY[id]; CRM_SAVED[id]=_leadJSON(c); }  // nuvem confirmou → aceita
-              else { merged[id]=CRM_LEADS[id]||c; }                                             // nossa edição é mais nova → mantém local
-            } else { merged[id]=c; CRM_SAVED[id]=_leadJSON(c); }
+              if(doServidor){
+                const cts=+(c._ts||0), lts=+CRM_DIRTY[id];
+                if(cts>=lts){ merged[id]=c; delete CRM_DIRTY[id]; CRM_SAVED[id]=_leadJSON(c); }  // servidor confirmou → aceita
+                else { merged[id]=CRM_LEADS[id]||c; }                                             // nossa edição é mais nova → mantém local
+              } else { merged[id]=CRM_LEADS[id]||c; }        // snapshot otimista NÃO confirma nada
+            } else { merged[id]=c; if(doServidor) CRM_SAVED[id]=_leadJSON(c); }
           }
           // 2) leads locais que ainda não estão na nuvem
           for(const id in CRM_LEADS){
             if(merged[id]) continue;
             const local=CRM_LEADS[id]; if(!local) continue;
             if(local._novo){ merged[id]=local; continue; }              // rascunho não salvo
-            if(CRM_DIRTY[id]!=null){ merged[id]=local; continue; }      // edição pendente
-            if(!CRM_LAST_IDS.has(id)){ merged[id]=local; continue; }    // CRIADO agora, gravação ainda não confirmou → mantém (não some!)
-            // era conhecido na nuvem e sumiu → apagado por outro cliente → remove
+            if(CRM_DIRTY[id]!=null){ merged[id]=local; continue; }      // edição/criação pendente
+            if(!doServidor){ merged[id]=local; continue; }              // só o servidor decide remoção
+            if(!CRM_LAST_IDS.has(id)){ merged[id]=local; continue; }    // criado agora, ainda não confirmado → mantém
+            // servidor confirmou que sumiu (apagado por outro) → remove
           }
           // 3) o lead aberto no modal sempre mantém a versão local (edições em andamento)
           const abertoId=(typeof crmModalId!=='undefined')?crmModalId:null;
           if(abertoId && CRM_LEADS[abertoId] && !CRM_LEADS[abertoId]._novo) merged[abertoId]=CRM_LEADS[abertoId];
           CRM_LEADS=merged;
-          CRM_LAST_IDS=new Set(Object.keys(cloud));   // o que a nuvem tem agora
+          if(doServidor) CRM_LAST_IDS=new Set(Object.keys(cloud));   // só o servidor define o "conhecido na nuvem"
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
