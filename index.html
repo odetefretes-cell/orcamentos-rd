@@ -1527,11 +1527,14 @@ async function initData(){
               // docs reservados: usuários (_acesso) e funis (_etapas) — carregam ao vivo
               if(d.id==='_acesso'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ USUARIOS=li; try{localStorage.setItem(USUARIOS_KEY,JSON.stringify(USUARIOS));}catch(_){} } }
               else if(d.id==='_etapas'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ CRM_ETAPAS=li; try{localStorage.setItem(CRM_ETAPAS_KEY,JSON.stringify(CRM_ETAPAS));}catch(_){} } }
+              else if(d.id==='_presenca'){ if(typeof CRM_PRESENCA!=='undefined') CRM_PRESENCA=d.data()||{}; }
+              else if(d.id==='_rodizio'){ if(typeof CRM_RODIZIO!=='undefined') CRM_RODIZIO=d.data()||{last:''}; }
               return;
             }
             MEM[d.id]=d.data();
           }); LAST=JSON.parse(JSON.stringify(MEM));
           purgarLixeiraAntiga();
+          if(typeof crmSyncFretesFechado==='function') crmSyncFretesFechado();   // cliente devolveu form → lead p/ Venda Fechada
           const vlx=$('#lixeiraModal'); if(vlx && vlx.style.display!=='none' && typeof renderLixeira==='function') renderLixeira();
           atualizarHist(); atualizarProxNum();
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
@@ -1553,6 +1556,7 @@ async function initData(){
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
+          if(typeof crmAdminRotinas==='function') crmAdminRotinas();   // rodízio de responsável + migração Luiz→Yasmim
         }, ()=>{});
       }
     }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('⚠ Sem nuvem — modo local'); if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · modo local'); }
@@ -3385,6 +3389,7 @@ async function fazerLogin(){
   localStorage.setItem(SESSAO_KEY, JSON.stringify(sessaoUser));
   $('#loginOverlay').style.display='none'; $('#loginPass').value='';
   aplicarPermissoes(); flash('Bem-vindo(a), '+sessaoUser.nome+' ✔');
+  if(typeof crmIniciarPresenca==='function') crmIniciarPresenca();   // rodízio: marca este usuário como online
 }
 function logout(){ localStorage.removeItem(SESSAO_KEY); location.reload(); }
 function aplicarPermissoes(){
@@ -3404,7 +3409,7 @@ function iniciarAcesso(){
   USUARIOS=lerUsuarios();
   $('#loginLogo').src=logoAtual();
   let sess=null; try{ sess=JSON.parse(localStorage.getItem(SESSAO_KEY)); }catch(_){}
-  if(sess && sess.papel){ sessaoUser=sess; aplicarPermissoes(); }
+  if(sess && sess.papel){ sessaoUser=sess; aplicarPermissoes(); if(typeof crmIniciarPresenca==='function') crmIniciarPresenca(); }
   else { $('#loginOverlay').style.display='flex'; setTimeout(()=>$('#loginUser')?.focus(),100); }
   carregarUsuariosNuvem();   // atualiza a lista compartilhada quando a nuvem conectar
   if(typeof carregarEtapasCloud==='function') carregarEtapasCloud();   // funis compartilhados
@@ -3597,6 +3602,7 @@ function renderCRM(){
       <div class="kc-actions">
         <button onclick="event.stopPropagation();crmWhatsApp('${l.id}')" title="WhatsApp">📱</button>
         <button onclick="event.stopPropagation();crmEnviarOrcamento('${l.id}')" title="Orçamento">📧</button>
+        ${l.etapa!=='perdido'?`<button onclick="event.stopPropagation();crmMarcarPerda('${l.id}')" title="Marcar como perdido">❌</button>`:''}
         <button onclick="event.stopPropagation();crmExcluirLead('${l.id}')" title="Excluir">🗑️</button>
       </div>
       <div class="kc-header">
@@ -3799,6 +3805,90 @@ function crmDescartarRascunho(){
   crmDraftId = null;
 }
 
+// ===== Comercial: rodízio de responsável entre usuários logados =====
+const CRM_LUIZ_RE = /luiz\s*gustavo/i;
+function crmComercial(){   // nomes do comercial que entram no rodízio (exclui Luiz Gustavo)
+  return (USUARIOS||[]).filter(u=>u && u.papel==='comercial' && !CRM_LUIZ_RE.test(u.nome||u.user||''))
+    .map(u=>u.nome||u.user).filter(Boolean);
+}
+function crmRespOpcoes(atual){   // opções do select de Responsável (comercial + Luiz manual + atual)
+  const lista = crmComercial();
+  const luiz = (USUARIOS||[]).find(u=>u && CRM_LUIZ_RE.test(u.nome||u.user||''));
+  if(luiz){ const n=luiz.nome||luiz.user; if(!lista.includes(n)) lista.push(n); }
+  if(atual && !lista.includes(atual)) lista.push(atual);
+  return `<option value="" ${!atual?'selected':''}>— sem responsável —</option>`
+    + lista.map(n=>`<option ${atual===n?'selected':''}>${esc(n)}</option>`).join('');
+}
+let CRM_PRESENCA={}, CRM_RODIZIO={last:''}, CRM_PRES_ON=false;
+function crmPresencaPing(){   // marca o usuário logado como "online" (heartbeat)
+  if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser || clienteLiveId) return;
+  try{ _fb.setDoc(_fb.doc(_fb.fs,'fretes','_presenca'),
+       { [sessaoUser.user]: { nome:sessaoUser.nome, papel:sessaoUser.papel, em:new Date().toISOString() } },
+       {merge:true}); }catch(_){}
+}
+function crmIniciarPresenca(){ if(CRM_PRES_ON) return; CRM_PRES_ON=true; crmPresencaPing(); setInterval(crmPresencaPing, 90000); }
+function crmComercialAtivos(){   // comercial visto nos últimos 3 min
+  const lim = Date.now()-3*60*1000, ativos=[];
+  for(const u in (CRM_PRESENCA||{})){ const p=CRM_PRESENCA[u];
+    if(!p || p.papel!=='comercial' || CRM_LUIZ_RE.test(p.nome||'')) continue;
+    if(new Date(p.em||0).getTime()>=lim) ativos.push(p.nome);
+  }
+  return ativos;
+}
+function crmProxResponsavel(){   // próximo do rodízio (ativos; se nenhum, todo o comercial)
+  let pool = crmComercialAtivos(); if(!pool.length) pool = crmComercial();
+  pool = [...new Set(pool)].sort(); if(!pool.length) return '';
+  const i = pool.indexOf(CRM_RODIZIO && CRM_RODIZIO.last);
+  return pool[(i+1) % pool.length];
+}
+// rotinas do ADMIN: migra Luiz→Yasmim e distribui responsável por rodízio
+function crmAdminRotinas(){
+  if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser || sessaoUser.papel!=='admin') return;
+  const yas = crmComercial().find(n=>/yasmim|yasmin/i.test(n)) || 'Yasmim Freitas';
+  let mudou=false;
+  for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo) continue;
+    // 1) responsável Luiz Gustavo (automático) → Yasmim
+    if(CRM_LUIZ_RE.test(l.vendedor||'')){ l.vendedor=yas; crmAddTimeline(id,'movido',`Responsável Luiz Gustavo → ${yas} (rodízio).`); mudou=true; }
+    // 2) lead de site/WhatsApp sem responsável → próximo do rodízio
+    else if(!((l.vendedor||'').trim()) && (l.origemLead==='site'||l.origemLead==='whatsapp')){
+      const prox=crmProxResponsavel();
+      if(prox){ l.vendedor=prox; CRM_RODIZIO.last=prox; crmAddTimeline(id,'movido',`Responsável por rodízio: ${prox}`);
+        try{ _fb.setDoc(_fb.doc(_fb.fs,'fretes','_rodizio'), {last:prox}); }catch(_){}
+        mudou=true; }
+    }
+  }
+  if(mudou){ saveCRM(); const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
+}
+
+function crmMarcarPerda(id){
+  const l=CRM_LEADS[id]; if(!l || l.etapa==='perdido') return;
+  const motivo = prompt('Motivo da perda deste lead:');
+  if(motivo===null) return;   // cancelou
+  l.motivoPerda = motivo;
+  l.etapa = 'perdido';
+  l.ultimaInteracao = new Date().toISOString();
+  crmAddTimeline(id, 'perda', `Lead marcado como perdido: ${motivo||'sem motivo'}`);
+  saveCRM();
+  const m=$('#crmModal'); if(m && m.style.display!=='none') fecharCrmModal(); else renderCRM();
+  flash('Lead movido para Perdido ✔');
+}
+// cliente devolveu o formulário preenchido (link emitido) → move o lead p/ Venda Fechada
+function crmSyncFretesFechado(){
+  if(typeof MEM!=='object' || typeof CRM_LEADS!=='object' || clienteLiveId) return;
+  if(typeof sessaoUser==='undefined' || !sessaoUser) return;   // só a equipe logada
+  let mudou=false;
+  for(const fid in MEM){
+    const f=MEM[fid]; if(!f || !f.leadId || !f.pedido) continue;   // pedido=true => cliente preencheu e devolveu
+    const l=CRM_LEADS[f.leadId];
+    if(l && !l._novo && l.etapa!=='fechado' && l.etapa!=='perdido'){
+      l.etapa='fechado'; l.ultimaInteracao=new Date().toISOString();
+      crmAddTimeline(f.leadId,'convertido','Cliente devolveu o formulário preenchido — Venda Fechada.');
+      mudou=true;
+    }
+  }
+  if(mudou){ saveCRM(); const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
+}
+
 async function crmExcluirLead(id){
   const l=CRM_LEADS[id]; const nome=(l&&l.nome)||'sem nome';
   const ok=await uiConfirm(`Excluir o lead "${nome}"?\n\nEsta ação não pode ser desfeita.`,{titulo:'Excluir lead',ok:'Excluir lead'});
@@ -3829,16 +3919,32 @@ function crmAbrirLead(id){
   $('#crmModalBody').innerHTML = `
     <div class="cm-section">📋 Dados do Lead</div>
     <div class="grid g2">
+      <div class="field"><label>Tipo de cliente</label>
+        <select id="crmTipoCliente">
+          <option value="" ${!l.tipoCliente?'selected':''}>—</option>
+          <option ${l.tipoCliente==='Pessoa Física'?'selected':''}>Pessoa Física</option>
+          <option ${l.tipoCliente==='Pessoa Jurídica'?'selected':''}>Pessoa Jurídica</option>
+        </select></div>
       <div class="field"><label>Nome / Cliente</label><input id="crmNome" value="${escA(l.nome||'')}"></div>
-      <div class="field"><label>Empresa</label><input id="crmEmpresa" value="${escA(l.empresa||'')}"></div>
-      <div class="field"><label>Telefone</label><input id="crmTelefone" value="${escA(l.telefone||'')}"></div>
+      <div class="field"><label>WhatsApp</label><input id="crmTelefone" value="${escA(l.telefone||'')}"></div>
       <div class="field"><label>E-mail</label><input id="crmEmail" value="${escA(l.email||'')}"></div>
+      <div class="field"><label>Responsável (comercial)</label>
+        <select id="crmVendedor">${crmRespOpcoes(l.vendedor)}</select></div>
+      <div class="field"><label>Empresa</label><input id="crmEmpresa" value="${escA(l.empresa||'')}"></div>
       <div class="field"><label>CPF / CNPJ</label><input id="crmCpf" value="${escA(l.cpfCnpj||'')}"></div>
-      <div class="field"><label>Vendedor</label><input id="crmVendedor" value="${escA(l.vendedor||'')}"></div>
     </div>
     <div class="cm-section">🚗 Veículo e Rota</div>
     <div class="grid g2">
       <div class="field"><label>Veículo (marca/modelo)</label><input id="crmVeiculo" value="${escA(l.veiculoDesc||'')}" placeholder="Ex.: FIAT/ARGO"></div>
+      <div class="field"><label>Tipo de veículo</label>
+        <select id="crmTipoVeic" onchange="var c=document.getElementById('calcCategoria'); if(c){c.value=this.value;}">
+          <option value="">—</option>
+          ${['Carro passeio','Carro grande','Moto até 300cc','Moto até 700cc','Moto acima de 700cc'].map(c=>`<option ${normTxt(l.categoria||'')===normTxt(c)?'selected':''}>${c}</option>`).join('')}
+        </select></div>
+      <div class="field"><label>Veículo funciona?</label>
+        <select id="crmFunciona"><option value="">—</option><option ${l.funciona==='Sim'?'selected':''}>Sim</option><option ${l.funciona==='Não'?'selected':''}>Não</option></select></div>
+      <div class="field"><label>Veículo blindado?</label>
+        <select id="crmBlindado"><option value="">—</option><option ${l.blindado==='Sim'?'selected':''}>Sim</option><option ${l.blindado==='Não'?'selected':''}>Não</option></select></div>
       <div class="field"><label>Placa</label><input id="crmPlaca" value="${escA(l.placa||'')}"></div>
       <div class="field"><label>Origem (estado / cidade)</label>
         <input type="hidden" id="crmOrigem" value="${escA(l.origem||'')}">
@@ -3865,6 +3971,7 @@ function crmAbrirLead(id){
         </select>
       </div>
     </div>
+    <div class="field"><label>Observação</label><textarea id="crmObs" style="width:100%;min-height:44px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px" placeholder="Informações extras do cliente">${esc(l.mensagem||'')}</textarea></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 8px">
       <label style="font-size:12px;opacity:.8">Categoria:</label>
       <select id="calcCategoria" style="max-width:190px"></select>
@@ -3920,6 +4027,9 @@ function crmAbrirLead(id){
     <button class="btn-ghost" onclick="crmWhatsApp('${id}')" style="color:#25d366;border-color:#25d366">📱 WhatsApp</button>
     <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>
     <button class="btn-ghost" onclick="crmLinkFormulario('${id}')" style="color:#7c3aed;border-color:#7c3aed">🔗 Link do cliente</button>`;
+  if(l.etapa !== 'perdido'){
+    actionsHTML += `<button class="btn-ghost" onclick="crmMarcarPerda('${id}')" style="color:#c0392b;border-color:#c0392b">❌ Perda</button>`;
+  }
   if(l.etapa === 'fechado'){
     actionsHTML += `<button class="btn-ok" onclick="crmConverterEmFrete('${id}')">🚚 Converter em Frete</button>`;
   }
@@ -3964,10 +4074,18 @@ function crmSalvarLead(id){
   l.valorCotacaoSW = ($('#crmCotSW')?.value||'').trim();
   l.prazoSW = ($('#crmPrazoSW')?.value||'').trim();
   l.dataEnvio = ($('#crmDataEnvio')?.value||'').trim();
+  // campos iguais aos do formulário do site
+  { const e=$('#crmTipoCliente'); if(e) l.tipoCliente=e.value; }
+  { const e=$('#crmTipoVeic'); if(e) l.categoria=e.value; }
+  { const e=$('#crmFunciona'); if(e) l.funciona=e.value; }
+  { const e=$('#crmBlindado'); if(e) l.blindado=e.value; }
+  { const e=$('#crmObs'); if(e) l.mensagem=(e.value||'').trim(); }
   l.ultimaInteracao = new Date().toISOString();
   if(!l.nome){ flash('Preencha o nome do lead.','erro'); $('#crmNome')?.focus(); return; }
   delete l._novo;            // deixa de ser rascunho: agora é lead salvo
   if(crmDraftId===id) crmDraftId=null;
+  // regra de funil: entrada de lead salva → avança para "Contato Feito"
+  if(l.etapa==='novo'){ l.etapa='contato'; crmAddTimeline(id,'movido','Entrada de lead salva — movido para Contato Feito.'); }
   saveCRM();
   fecharCrmModal();
   renderCRM();
@@ -4036,7 +4154,6 @@ function crmWhatsApp(id){
   const ta = $('#msgWppTexto'); if(ta) ta.value = msg;
   const modal = $('#msgWppModal'); if(modal) modal.style.display='flex';
   crmAddTimeline(id, 'whatsapp', tlTxt);
-  if(l.etapa==='novo') l.etapa='contato';   // contatou o cliente → avança p/ contato
   saveCRM();
   flash('Mensagem pronta — copie e cole na conversa ✔');
 }
