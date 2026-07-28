@@ -1321,11 +1321,12 @@ function fipeUsar(){
   const d=fipeResult;
   const valorNum = String(num(d.Valor));
   const veicTxt = `${d.Marca}/${d.Modelo}`.toUpperCase();
-  // modo CRM: preenche o valor do veículo do lead
+  // modo CRM: preenche o veículo do lead (índice escolhido)
   if(fipeCrmLeadId!=null){
-    const vi=$('#crmValorVeic'); if(vi) vi.value=valorNum;
-    const ve=$('#crmVeiculo'); if(ve && !ve.value.trim()) ve.value=veicTxt;
-    const l=CRM_LEADS[fipeCrmLeadId]; if(l){ l.valorVeiculo=valorNum; if(!l.veiculoDesc) l.veiculoDesc=veicTxt; }
+    const l=CRM_LEADS[fipeCrmLeadId];
+    if(l){ const veics=crmVeics(l); const i=Math.min(crmFipeVeicIdx||0, veics.length-1);
+      if(veics[i]){ veics[i].valor=valorNum; if(!veics[i].modelo) veics[i].modelo=veicTxt; }
+      crmVeicSync(l); crmRenderVeics(fipeCrmLeadId); crmRecalcCalc(fipeCrmLeadId); crmCompReflectValores(fipeCrmLeadId); crmSalvarAuto(); }
     fipeCrmLeadId=null; fecharFipe(); flash('Valor FIPE aplicado ✔'); return;
   }
   // modo ficha: preenche o veículo indicado
@@ -4156,18 +4157,10 @@ function crmAbrirLead(id){
       <div class="field"><label>Empresa</label><input id="crmEmpresa" value="${escA(l.empresa||'')}"></div>
       <div class="field"><label>CPF / CNPJ</label><input id="crmCpf" value="${escA(l.cpfCnpj||'')}"></div>
     </div>
-    <div class="cm-section">🚗 Veículo e Rota</div>
+    <div class="cm-section">🚗 Veículos e Rota</div>
+    <div id="crmVeicWrap"></div>
+    <input type="hidden" id="calcCategoria" value="${escA(l.categoria||'')}">
     <div class="grid g2">
-      <div class="field"><label>Veículo (marca/modelo)</label><input id="crmVeiculo" value="${escA(l.veiculoDesc||'')}" placeholder="Ex.: FIAT/ARGO"></div>
-      <div class="field"><label>Tipo de veículo (categoria)</label>
-        <select id="calcCategoria" onchange="crmMudarCategoria('${id}')"></select></div>
-      <div class="field"><label>Qtd. de veículos</label>
-        <input id="crmQtdVeic" type="number" min="1" step="1" value="${escA(l.qtdVeic||1)}" oninput="crmQtdChange('${id}')" title="Nº de veículos desta categoria — cada vaga é unitária, então o Frete, o Seguro e o Recebimento são multiplicados por esta quantidade"></div>
-      <div class="field"><label>Veículo funciona?</label>
-        <select id="crmFunciona"><option value="">—</option><option ${l.funciona==='Sim'?'selected':''}>Sim</option><option ${l.funciona==='Não'?'selected':''}>Não</option></select></div>
-      <div class="field"><label>Veículo blindado?</label>
-        <select id="crmBlindado"><option value="">—</option><option ${l.blindado==='Sim'?'selected':''}>Sim</option><option ${l.blindado==='Não'?'selected':''}>Não</option></select></div>
-      <div class="field"><label>Placa</label><input id="crmPlaca" value="${escA(l.placa||'')}"></div>
       <div class="field"><label>Origem (estado / cidade)</label>
         <input type="hidden" id="crmOrigem" value="${escA(l.origem||'')}">
         <div style="display:flex;gap:6px">
@@ -4179,11 +4172,6 @@ function crmAbrirLead(id){
         <div style="display:flex;gap:6px">
           <select id="crmDestinoUF" onchange="crmUFChange('Destino')" style="width:80px"><option value="">UF</option></select>
           <select id="crmDestinoCidade" onchange="crmCidadeChange('Destino')" style="flex:1"><option value="">— cidade —</option></select>
-        </div></div>
-      <div class="field"><label>Valor do veículo (R$)</label>
-        <div style="display:flex;gap:6px">
-          <input id="crmValorVeic" value="${escA(l.valorVeiculo||'')}" inputmode="decimal" placeholder="Ex.: 20.000" style="flex:1">
-          <button type="button" class="btn-ghost" onclick="crmConsultarFipe('${id}')" style="white-space:nowrap;font-size:12px;padding:0 10px" title="Consultar tabela FIPE">🔎 FIPE</button>
         </div></div>
       <div class="field"><label>Prioridade</label>
         <select id="crmPrioridade">
@@ -4259,8 +4247,9 @@ function crmAbrirLead(id){
   }
   $('#crmModalActions').innerHTML = actionsHTML;
 
+  crmRenderVeics(id);  // lista de veículos (modelos/categorias)
   crmRenderComp(id);   // taxas SW editáveis
-  crmCalcInit(id);     // popular categorias da calculadora
+  crmCalcInit(id);     // categoria do 1º veículo guia a busca de rota
   crmRenderTarefas(id);// tarefas agendadas do lead
   crmInitCidadeSel(id);// caixas de estado/cidade (origem/destino) da tabela
   crmAutoCalc(id);     // já calcula o frete (melhor prestador) ao abrir
@@ -4288,23 +4277,17 @@ function crmSalvarLead(id){
   l.email = ($('#crmEmail')?.value||'').trim();
   l.cpfCnpj = ($('#crmCpf')?.value||'').trim();
   l.vendedor = ($('#crmVendedor')?.value||'').trim();
-  l.veiculoDesc = ($('#crmVeiculo')?.value||'').trim();
-  l.placa = ($('#crmPlaca')?.value||'').trim();
   l.origem = ($('#crmOrigem')?.value||'').trim();
   l.destino = ($('#crmDestino')?.value||'').trim();
   l.prioridade = $('#crmPrioridade')?.value||'morno';
   l.origemLead = $('#crmOrigemLead')?.value||'manual';
   l.interesse = $('#crmInteresse')?.value||'';
-  l.valorVeiculo = ($('#crmValorVeic')?.value||'').trim();
   l.valorCotacaoSW = ($('#crmCotSW')?.value||'').trim();
   l.prazoSW = ($('#crmPrazoSW')?.value||'').trim();
   l.dataEnvio = ($('#crmDataEnvio')?.value||'').trim();
+  crmVeicSync(l);   // veículos (modelo/categoria/valor/funciona/blindado) → campos-resumo do lead
   // campos iguais aos do formulário do site
   { const e=$('#crmTipoCliente'); if(e) l.tipoCliente=e.value; }
-  { const e=$('#calcCategoria'); if(e) l.categoria=e.value; }
-  { const e=$('#crmQtdVeic'); if(e) l.qtdVeic=Math.max(1, parseInt(e.value,10)||1); }
-  { const e=$('#crmFunciona'); if(e) l.funciona=e.value; }
-  { const e=$('#crmBlindado'); if(e) l.blindado=e.value; }
   { const e=$('#crmObs'); if(e) l.mensagem=(e.value||'').trim(); }
   l.ultimaInteracao = new Date().toISOString();
   if(!l.nome){ flash('Preencha o nome do lead.','erro'); $('#crmNome')?.focus(); return; }
@@ -4747,34 +4730,87 @@ function crmSubTrecho(r, isO, isD){
            oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:nk(O.norm,O.uf), dN:nk(D.norm,D.uf) };
 }
 const CRM_CATEGORIAS = ['Carro passeio','Carro grande','Moto até 300cc','Moto até 700cc','Moto acima de 700cc'];
-function crmCalcInit(id){
-  const sel = $('#calcCategoria'); if(!sel) return;
-  const cats = CRM_CATEGORIAS;   // mesmas categorias do formulário do site (preço é tolerante a nomes da planilha)
-  const atual = sel.value || crmCategoriaSugerida(CRM_LEADS[id]);   // preserva seleção; senão sugere
-  if(sel.options.length === cats.length && sel.value) return;
-  sel.innerHTML = cats.map(c=>`<option value="${escA(c)}"${normTxt(c)===normTxt(atual)?' selected':''}>${esc(c)}</option>`).join('');
+// ---- Lista de veículos do orçamento (modelos e categorias podem variar) ----
+function crmVeics(l){
+  if(!l) return [{}];
+  if(!Array.isArray(l.veiculosCalc) || !l.veiculosCalc.length){
+    // migra dos campos antigos (veículo único + quantidade)
+    const cat = l.categoria || crmCategoriaSugerida(l);
+    const n = Math.max(1, parseInt(l.qtdVeic,10)||1);
+    const molde = { modelo:l.veiculoDesc||'', categoria:cat, valor:l.valorVeiculo||'', funciona:l.funciona||'', blindado:l.blindado||'' };
+    l.veiculosCalc = Array.from({length:n}, ()=>({...molde}));
+  }
+  return l.veiculosCalc;
 }
-// quantidade de veículos (cada vaga é unitária → multiplica frete/seguro/recebimento)
-function crmQtd(l){ return Math.max(1, parseInt(l&&l.qtdVeic,10)||1); }
-function crmQtdChange(id){
-  const l=CRM_LEADS[id]; if(!l) return;
-  l.qtdVeic = Math.max(1, parseInt($('#crmQtdVeic')?.value,10)||1);
-  crmRecalcCalc(id); crmCompReflectValores(id);
-  crmSalvarAuto();
+function crmQtd(l){ return crmVeics(l).length; }               // nº de veículos
+function crmPrimeiraCat(l){ return (crmVeics(l)[0]||{}).categoria || crmCategoriaSugerida(l); }
+function crmCalcInit(id){   // mantém o #calcCategoria (oculto) = categoria do 1º veículo p/ a busca de rota
+  const l=CRM_LEADS[id]; const el=$('#calcCategoria'); if(el && l) el.value = crmPrimeiraCat(l);
 }
-// ao trocar a categoria, recalcula o frete (o valor da vaga muda conforme a categoria)
-function crmMudarCategoria(id){
-  const l=CRM_LEADS[id]; if(l){ l.categoria = $('#calcCategoria')?.value || l.categoria; }
-  if(l && l.origem && l.destino) crmCalcAuto(id);
-  crmSalvarAuto();
+function crmRenderVeics(id){
+  const l=CRM_LEADS[id]; const wrap=$('#crmVeicWrap'); if(!l||!wrap) return;
+  const veics=crmVeics(l);
+  const catOpts=(sel)=>CRM_CATEGORIAS.map(c=>`<option${normTxt(c)===normTxt(sel||'')?' selected':''}>${esc(c)}</option>`).join('');
+  const simnao=(sel)=>`<option value="">—</option><option${sel==='Sim'?' selected':''}>Sim</option><option${sel==='Não'?' selected':''}>Não</option>`;
+  wrap.innerHTML = veics.map((v,i)=>`
+    <div style="border:1px solid var(--linha);border-radius:10px;padding:10px;margin-bottom:8px;background:rgba(255,255,255,.02)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:12px;color:var(--azul)">Veículo ${i+1}</strong>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn-ghost" style="padding:2px 8px;font-size:11px" onclick="crmFipeVeic('${id}',${i})" title="Consultar tabela FIPE">🔎 FIPE</button>
+          <button type="button" class="btn-ghost" style="padding:2px 8px;font-size:11px" onclick="crmVeicDel('${id}',${i})" ${veics.length<=1?'disabled':''}>✕</button>
+        </div>
+      </div>
+      <div class="grid g2">
+        <div class="field"><label>Marca / Modelo</label><input value="${escA(v.modelo)}" placeholder="Ex.: FIAT/ARGO" oninput="crmVeicSet('${id}',${i},'modelo',this.value)"></div>
+        <div class="field"><label>Categoria (tipo)</label><select onchange="crmVeicSet('${id}',${i},'categoria',this.value)">${catOpts(v.categoria)}</select></div>
+        <div class="field"><label>Valor do veículo (R$)</label><input value="${escA(v.valor)}" inputmode="decimal" placeholder="Ex.: 20.000" oninput="crmVeicSet('${id}',${i},'valor',this.value)"></div>
+        <div class="field"><label>Placa</label><input value="${escA(v.placa)}" placeholder="Opcional" oninput="crmVeicSet('${id}',${i},'placa',this.value)"></div>
+        <div class="field"><label>Funciona?</label><select onchange="crmVeicSet('${id}',${i},'funciona',this.value)">${simnao(v.funciona)}</select></div>
+        <div class="field"><label>Blindado?</label><select onchange="crmVeicSet('${id}',${i},'blindado',this.value)">${simnao(v.blindado)}</select></div>
+      </div>
+    </div>`).join('') +
+    `<div style="margin:2px 0 10px"><button type="button" class="btn-ghost" onclick="crmVeicAdd('${id}')" style="font-size:12px;padding:4px 10px">➕ Adicionar veículo</button>
+      <span class="hint" style="margin-left:8px">${veics.length} veículo(s) — cada um cobra a vaga da sua categoria</span></div>`;
 }
-function crmSyncFormLead(id){   // salva no lead o que está no formulário (origem/destino/veículo/valor)
+function crmVeicSet(id,i,campo,val){
+  const l=CRM_LEADS[id]; if(!l) return; const veics=crmVeics(l); if(!veics[i]) return;
+  veics[i][campo]=val;
+  crmVeicSync(l);
+  if(i===0 && campo==='categoria'){   // categoria do 1º veículo guia a busca de rota → recalcula
+    const el=$('#calcCategoria'); if(el) el.value=val;
+    if(l.origem && l.destino){ crmCalcAuto(id); crmSalvarAuto(); return; }
+  }
+  crmRecalcCalc(id); crmCompReflectValores(id); crmSalvarAuto();
+}
+function crmVeicAdd(id){
+  const l=CRM_LEADS[id]; if(!l) return; const veics=crmVeics(l);
+  const ult=veics[veics.length-1]||{};
+  veics.push({ modelo:'', categoria:ult.categoria||crmPrimeiraCat(l), valor:'', funciona:'', blindado:'' });
+  crmVeicSync(l); crmRenderVeics(id); crmRecalcCalc(id); crmCompReflectValores(id); crmSalvarAuto();
+}
+function crmVeicDel(id,i){
+  const l=CRM_LEADS[id]; if(!l) return; const veics=crmVeics(l);
+  if(veics.length<=1) return;
+  veics.splice(i,1); crmVeicSync(l); crmRenderVeics(id); crmRecalcCalc(id); crmCompReflectValores(id); crmSalvarAuto();
+}
+// mantém os campos antigos em sincronia (1º veículo) p/ card do Kanban, PDF simples, etc.
+function crmVeicSync(l){
+  const veics=crmVeics(l), v0=veics[0]||{};
+  l.veiculoDesc = veics.map(v=>v.modelo).filter(Boolean).join(' + ') || v0.modelo || '';
+  l.valorVeiculo = v0.valor||'';
+  l.categoria = v0.categoria||'';
+  l.funciona = v0.funciona||''; l.blindado = v0.blindado||'';
+  l.placa = v0.placa||''; l.qtdVeic = veics.length;
+}
+function crmFipeVeic(id,i){ crmFipeVeicIdx=i; crmConsultarFipe(id); }
+let crmFipeVeicIdx=0;
+function crmSyncFormLead(id){   // salva no lead o que está no formulário (origem/destino)
   const l=CRM_LEADS[id]; if(!l) return;
   const g=(sel)=>($(sel)?.value||'').trim();
   if(g('#crmOrigem')) l.origem=g('#crmOrigem');
   if(g('#crmDestino')) l.destino=g('#crmDestino');
-  if(g('#crmVeiculo')) l.veiculoDesc=g('#crmVeiculo');
-  if(g('#crmValorVeic')) l.valorVeiculo=g('#crmValorVeic');
+  crmVeicSync(l);
 }
 function ufTxt(s){   // extrai UF de "Cidade/UF" ou "Cidade (UF)" ou "Cidade UF"
   const m = String(s||'').toUpperCase().match(/\b([A-Z]{2})\b\s*$/) || String(s||'').match(/\(([A-Za-z]{2})\)/);
@@ -4832,7 +4868,7 @@ function crmCalcAddTrecho(id, i){
   if(!l.trajetos) l.trajetos = [];
   l.trajetos.push({
     de: `${x.oNome}/${x.oUF}`, para: `${x.dNome}/${x.dUF}`,
-    transportadora: x.transp, valor: x.valor!=null?String(x.valor):'',
+    transportadora: x.transp, valor: x.valor!=null?String(x.valor):'', valores: x.valores||null,
     oUF: x.oUF, dUF: x.dUF, prazo: x.prazo||null
   });
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
@@ -4849,7 +4885,7 @@ function crmGerarOpcoes(db, o, d, cat){
   const isDest = k => matchKey(k, d);
   const isO = k=> matchKey(k, o);
   const preco = r => precoCat(r.valores,cat);
-  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:nk(t.o,t.oUF),dN:nk(t.d,t.dUF), prazo:r.prazoDias });
+  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), valores:r.valores, oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:nk(t.o,t.oUF),dN:nk(t.d,t.dUF), prazo:r.prazoDias });
   const diretas=[];
   for(const r of db.rotas){
     for(const t of (r.trajetos||[])){
@@ -4859,12 +4895,12 @@ function crmGerarOpcoes(db, o, d, cat){
   for(const r of db.rotas){
     const s=crmSubTrecho(r,isO,isDest); if(!s) continue;
     const p=precoCat(s.valores,cat); if(p==null) continue;
-    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo }], total:p, prazo:s.prazo||0 });
+    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, valores:s.valores, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo }], total:p, prazo:s.prazo||0 });
   }
   const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
   const adj = crmAdjacencia(db);
   const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
-  const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, oN:b.oN, dN:b.to, prazo:b.prazo });
+  const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), valores:b.valores, oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, oN:b.oN, dN:b.to, prazo:b.prazo });
   const saemDaOrigem=[];
   for(const k in adj){ if(!matchKey(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
   if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
@@ -4899,7 +4935,7 @@ function crmAplicarOpcao(id, x){
   const l = CRM_LEADS[id]; if(!l||!x) return;
   l.trajetos = x.legs.map(g=>({
     de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
-    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'',
+    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', valores:g.valores||null,
     oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null
   }));
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
@@ -5146,16 +5182,22 @@ function segBelemManaus(t){
 function crmRecalcCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
   const trs = l.trajetos||[];
-  const q = crmQtd(l);                                    // nº de veículos (vagas) — cada vaga é unitária
-  const base = trs.reduce((s,t)=> s + numMoeda(t.valor), 0) * q;
-  const valorVeic = numMoeda($('#crmValorVeic')?.value || l.valorVeiculo);
+  const veics = crmVeics(l);
+  const q = veics.length;                                 // nº de veículos (vagas)
+  // Frete Base: cada veículo paga a VAGA da SUA categoria em cada trecho
+  let base = 0;
+  for(const t of trs){
+    if(t.valores){ for(const v of veics){ const p=precoCat(t.valores, v.categoria); base += (p!=null?p:0); } }
+    else base += numMoeda(t.valor) * q;                   // trecho manual (sem tabela por categoria): valor × quantidade
+  }
   const txSeg=(o,d)=> (typeof SEGURO_TX!=='undefined' && SEGURO_TX[o] && SEGURO_TX[o][d]!=null) ? SEGURO_TX[o][d] : null;
-  // seguro por trecho (reembarque) quando os trechos têm UF
+  // Seguro: soma o seguro de CADA veículo (pelo valor de cada um) nos trechos com UF
+  const seguroVeics=(tx)=>{ let s=0; for(const v of veics){ const vv=numMoeda(v.valor); if(vv) s+=(tx/100)*vv; } return s; };
   let seguro = 0, temUFtrecho=false;
   for(const t of trs){
     const ou = (t.oUF||ufTxt(t.de)).toUpperCase(), du = (t.dUF||ufTxt(t.para)).toUpperCase();
     const tx = txSeg(ou,du);
-    if(tx!=null){ temUFtrecho=true; if(valorVeic) seguro += (tx/100)*valorVeic; }
+    if(tx!=null){ temUFtrecho=true; seguro += seguroVeics(tx); }
   }
   // SEMPRE calcula o seguro pelos estados informados (origem→destino do lead),
   // mesmo sem trecho de valor encontrado no banco.
@@ -5163,14 +5205,13 @@ function crmRecalcCalc(id){
     const oUF = ufTxt($('#crmOrigem')?.value || l.origem).toUpperCase();
     const dUF = ufTxt($('#crmDestino')?.value || l.destino).toUpperCase();
     const tx = txSeg(oUF,dUF);
-    if(tx!=null && valorVeic) seguro = (tx/100)*valorVeic;
+    if(tx!=null) seguro = seguroVeics(tx);
   }
   const setComp=(desc,val,ativo)=>{
     let c = l.composicao.find(c=>normTxt(c.desc)===normTxt(desc));
     if(!c){ c={desc, valor:'', ativo:!!ativo, opcional:false}; l.composicao.push(c); }
     c.valor = (val!=null? (Math.round(val*100)/100).toString() : c.valor);
   };
-  seguro *= q;                       // seguro é por veículo (valor por unidade × quantidade)
   setComp('Frete Base', base, true);
   setComp('Seguro', seguro, true);   // preenche sempre (0 se faltar UF ou valor do veículo)
   // Recebimento: taxa da cidade de destino do último trecho (por veículo)
@@ -5541,9 +5582,9 @@ function crmEnviarOrcamento(id){
       <div>🏆 OBS Transportes — 20 anos de história, pioneira no ramo de transporte de veículos.</div>
     </div>
 
-    <h2>1 · Dados do veículo a ser transportado</h2>
-    <table><tr><th>Item</th><th>Qtd.</th><th>Marca / Modelo${crmQtd(l)>1?' (categoria)':''}</th><th>Valor (FIPE)</th><th>Observações</th></tr>
-      <tr><td>1</td><td class="num">${crmQtd(l)}</td><td>${esc(l.veiculoDesc||'—')}${crmQtd(l)>1&&l.categoria?' · '+esc(l.categoria):''}</td><td class="num">${l.valorVeiculo?M(numMoeda(l.valorVeiculo)):'—'}</td><td>${esc(obsVeic)}</td></tr>
+    <h2>1 · Dados ${crmQtd(l)>1?'dos veículos':'do veículo'} a ser transportado${crmQtd(l)>1?'s':''}</h2>
+    <table><tr><th>Item</th><th>Marca / Modelo</th><th>Categoria</th><th>Valor (FIPE)</th><th>Observações</th></tr>
+      ${crmVeics(l).map((v,i)=>`<tr><td>${i+1}</td><td>${esc(v.modelo||'—')}</td><td>${esc(v.categoria||'—')}</td><td class="num">${v.valor?M(numMoeda(v.valor)):'—'}</td><td>${esc([v.funciona?('Funciona: '+v.funciona):'',v.blindado?('Blindado: '+v.blindado):''].filter(Boolean).join(' · ')||'—')}</td></tr>`).join('')}
     </table>
 
     <h2>2 · Transporte base a base</h2>
@@ -5635,7 +5676,8 @@ function crmLinkFormulario(id){
 // ---- Consulta FIPE a partir do lead (reaproveita o modal FIPE da ficha) ----
 function crmConsultarFipe(id){
   fipeCrmLeadId = id;   // sinaliza modo CRM para o fipeUsar()
-  const v=normTxt(($('#crmVeiculo')?.value)||'');
+  const l=CRM_LEADS[id]; const veics=l?crmVeics(l):[]; const alvo=veics[crmFipeVeicIdx||0]||{};
+  const v=normTxt(alvo.modelo||'')+' '+normTxt(alvo.categoria||'');
   if($('#fipeTipo')) $('#fipeTipo').value = /\bmoto|cg |cb |cbr|xre|bros|titan|fan|factor|biz|pop|nmax|pcx|hornet/.test(v)?'motos':'carros';
   abrirFipe(null);      // abre o modal; fipeIdx=null (não é veículo da ficha)
 }
