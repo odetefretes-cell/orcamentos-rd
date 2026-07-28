@@ -4145,11 +4145,10 @@ function crmAbrirLead(id){
     <div class="cm-section">🚗 Veículo e Rota</div>
     <div class="grid g2">
       <div class="field"><label>Veículo (marca/modelo)</label><input id="crmVeiculo" value="${escA(l.veiculoDesc||'')}" placeholder="Ex.: FIAT/ARGO"></div>
-      <div class="field"><label>Tipo de veículo</label>
-        <select id="crmTipoVeic" onchange="var c=document.getElementById('calcCategoria'); if(c){c.value=this.value;}">
-          <option value="">—</option>
-          ${['Carro passeio','Carro grande','Moto até 300cc','Moto até 700cc','Moto acima de 700cc'].map(c=>`<option ${normTxt(l.categoria||'')===normTxt(c)?'selected':''}>${c}</option>`).join('')}
-        </select></div>
+      <div class="field"><label>Tipo de veículo (categoria)</label>
+        <select id="calcCategoria" onchange="crmMudarCategoria('${id}')"></select></div>
+      <div class="field"><label>Qtd. de veículos</label>
+        <input id="crmQtdVeic" type="number" min="1" step="1" value="${escA(l.qtdVeic||1)}" oninput="crmQtdChange('${id}')" title="Nº de veículos desta categoria — cada vaga é unitária, então o Frete, o Seguro e o Recebimento são multiplicados por esta quantidade"></div>
       <div class="field"><label>Veículo funciona?</label>
         <select id="crmFunciona"><option value="">—</option><option ${l.funciona==='Sim'?'selected':''}>Sim</option><option ${l.funciona==='Não'?'selected':''}>Não</option></select></div>
       <div class="field"><label>Veículo blindado?</label>
@@ -4182,8 +4181,7 @@ function crmAbrirLead(id){
     </div>
     <div class="field"><label>Observação</label><textarea id="crmObs" style="width:100%;min-height:44px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px" placeholder="Informações extras do cliente">${esc(l.mensagem||'')}</textarea></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 8px">
-      <label style="font-size:12px;opacity:.8">Categoria:</label>
-      <select id="calcCategoria" style="max-width:190px"></select>
+      <span class="hint" style="font-size:11.5px">Categoria e quantidade ficam na seção 🚗 acima ↑</span>
       <button class="btn-ok" onclick="crmCalcAuto('${id}')" style="font-size:13px">🧮 Calcular frete</button>
       <button class="btn-primary" onclick="crmCalcOpcoes('${id}')" style="font-size:13px">🔍 Ver todas as opções</button>
     </div>
@@ -4287,7 +4285,8 @@ function crmSalvarLead(id){
   l.dataEnvio = ($('#crmDataEnvio')?.value||'').trim();
   // campos iguais aos do formulário do site
   { const e=$('#crmTipoCliente'); if(e) l.tipoCliente=e.value; }
-  { const e=$('#crmTipoVeic'); if(e) l.categoria=e.value; }
+  { const e=$('#calcCategoria'); if(e) l.categoria=e.value; }
+  { const e=$('#crmQtdVeic'); if(e) l.qtdVeic=Math.max(1, parseInt(e.value,10)||1); }
   { const e=$('#crmFunciona'); if(e) l.funciona=e.value; }
   { const e=$('#crmBlindado'); if(e) l.blindado=e.value; }
   { const e=$('#crmObs'); if(e) l.mensagem=(e.value||'').trim(); }
@@ -4332,6 +4331,7 @@ function crmWhatsApp(id){
     // sem rota / cálculo automático → aciona assistente humano
     msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
       (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
+      (crmQtd(l)>1 ? `🚗 Quantidade: ${crmQtd(l)} veículos\n` : '') +
       (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
       `\nO seu transporte é um pouco mais complicado que o convencional para gerarmos o seu orçamento automaticamente.\n\n` +
       `Vou acionar um *assistente humano* para o cálculo correto e já te retorno com o valor certinho. 🙌\n\n` +
@@ -4350,6 +4350,7 @@ function crmWhatsApp(id){
     msg = `🚚 *OBS TRANSPORTES*\n\nOlá ${l.nome||''}! 😊\n\n` +
       `Segue uma *estimativa média* para o seu transporte:\n\n` +
       (l.veiculoDesc ? `📦 Veículo: ${l.veiculoDesc}\n` : '') +
+      (crmQtd(l)>1 ? `🚗 Quantidade: ${crmQtd(l)} veículos\n` : '') +
       (l.origem||l.destino ? `📍 ${l.origem||'?'} → ${l.destino||'?'}\n` : '') +
       `💰 *Valor médio: ${moeda(media)}*\n` +
       `📅 Prazo estimado: ${prazo}\n\n` +
@@ -4729,13 +4730,25 @@ function crmSubTrecho(r, isO, isD){
   return { transportadora:r.transportadora, valores:r.valores, prazo:r.prazoDias,
            oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:nk(O.norm,O.uf), dN:nk(D.norm,D.uf) };
 }
+const CRM_CATEGORIAS = ['Carro passeio','Carro grande','Moto até 300cc','Moto até 700cc','Moto acima de 700cc'];
 function crmCalcInit(id){
   const sel = $('#calcCategoria'); if(!sel) return;
-  const cats = (TABELA_FRETES && TABELA_FRETES.categorias) ? TABELA_FRETES.categorias
-    : ['Moto até 300cc','Moto até 700cc','Moto acima de 700cc','Carro passeio','Carro Grande'];
+  const cats = CRM_CATEGORIAS;   // mesmas categorias do formulário do site (preço é tolerante a nomes da planilha)
   const atual = sel.value || crmCategoriaSugerida(CRM_LEADS[id]);   // preserva seleção; senão sugere
   if(sel.options.length === cats.length && sel.value) return;
-  sel.innerHTML = cats.map(c=>`<option value="${escA(c)}"${c===atual?' selected':''}>${esc(c)}</option>`).join('');
+  sel.innerHTML = cats.map(c=>`<option value="${escA(c)}"${normTxt(c)===normTxt(atual)?' selected':''}>${esc(c)}</option>`).join('');
+}
+// quantidade de veículos (cada vaga é unitária → multiplica frete/seguro/recebimento)
+function crmQtd(l){ return Math.max(1, parseInt(l&&l.qtdVeic,10)||1); }
+function crmQtdChange(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  l.qtdVeic = Math.max(1, parseInt($('#crmQtdVeic')?.value,10)||1);
+  crmRecalcCalc(id); crmCompReflectValores(id);
+}
+// ao trocar a categoria, recalcula o frete (o valor da vaga muda conforme a categoria)
+function crmMudarCategoria(id){
+  const l=CRM_LEADS[id]; if(l){ l.categoria = $('#calcCategoria')?.value || l.categoria; }
+  if(l && l.origem && l.destino) crmCalcAuto(id);
 }
 function crmSyncFormLead(id){   // salva no lead o que está no formulário (origem/destino/veículo/valor)
   const l=CRM_LEADS[id]; if(!l) return;
@@ -5111,7 +5124,8 @@ function segBelemManaus(t){
 function crmRecalcCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
   const trs = l.trajetos||[];
-  const base = trs.reduce((s,t)=> s + numMoeda(t.valor), 0);
+  const q = crmQtd(l);                                    // nº de veículos (vagas) — cada vaga é unitária
+  const base = trs.reduce((s,t)=> s + numMoeda(t.valor), 0) * q;
   const valorVeic = numMoeda($('#crmValorVeic')?.value || l.valorVeiculo);
   const txSeg=(o,d)=> (typeof SEGURO_TX!=='undefined' && SEGURO_TX[o] && SEGURO_TX[o][d]!=null) ? SEGURO_TX[o][d] : null;
   // seguro por trecho (reembarque) quando os trechos têm UF
@@ -5134,13 +5148,14 @@ function crmRecalcCalc(id){
     if(!c){ c={desc, valor:'', ativo:!!ativo, opcional:false}; l.composicao.push(c); }
     c.valor = (val!=null? (Math.round(val*100)/100).toString() : c.valor);
   };
+  seguro *= q;                       // seguro é por veículo (valor por unidade × quantidade)
   setComp('Frete Base', base, true);
   setComp('Seguro', seguro, true);   // preenche sempre (0 se faltar UF ou valor do veículo)
-  // Recebimento: taxa da cidade de destino do último trecho
+  // Recebimento: taxa da cidade de destino do último trecho (por veículo)
   const ult = trs[trs.length-1];
   if(ult && TABELA_FRETES && TABELA_FRETES.cidades){
     const cidDest = TABELA_FRETES.cidades[normTxt((ult.para||'').split('/')[0])];
-    if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento, true);
+    if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento * q, true);
   }
   // Reembarque: R$100 por ligação de uma transportadora à outra; Belém↔Manaus = R$200.
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
@@ -5486,8 +5501,8 @@ function crmEnviarOrcamento(id){
     </div>
 
     <h2>1 · Dados do veículo a ser transportado</h2>
-    <table><tr><th>Item</th><th>Marca / Modelo</th><th>Valor (FIPE)</th><th>Observações</th></tr>
-      <tr><td>1</td><td>${esc(l.veiculoDesc||'—')}</td><td class="num">${l.valorVeiculo?M(numMoeda(l.valorVeiculo)):'—'}</td><td>${esc(obsVeic)}</td></tr>
+    <table><tr><th>Item</th><th>Qtd.</th><th>Marca / Modelo${crmQtd(l)>1?' (categoria)':''}</th><th>Valor (FIPE)</th><th>Observações</th></tr>
+      <tr><td>1</td><td class="num">${crmQtd(l)}</td><td>${esc(l.veiculoDesc||'—')}${crmQtd(l)>1&&l.categoria?' · '+esc(l.categoria):''}</td><td class="num">${l.valorVeiculo?M(numMoeda(l.valorVeiculo)):'—'}</td><td>${esc(obsVeic)}</td></tr>
     </table>
 
     <h2>2 · Transporte base a base</h2>
