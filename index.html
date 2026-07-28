@@ -923,7 +923,6 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
-      <button id="crmBtnDividir" class="btn-ghost" onclick="crmDividirFlaviaHoje()" title="Dividir os leads que entraram HOJE na Flavia: 50% Thiago, 50% Yasmim" style="display:none">⚖️ Dividir leads da Flavia (hoje)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -3844,7 +3843,6 @@ function crmLimparPeriodo(){
 }
 function renderCRM(){
   renderCRMMetrics();
-  { const bd=$('#crmBtnDividir'); if(bd) bd.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
@@ -4028,28 +4026,6 @@ function crmAddTimeline(id, tipo, texto){
   if(!CRM_LEADS[id].timeline) CRM_LEADS[id].timeline = [];
   CRM_LEADS[id].timeline.push({ data: new Date().toISOString(), tipo, texto });
   CRM_LEADS[id].ultimaInteracao = new Date().toISOString();
-}
-// admin: divide os leads que ENTRARAM HOJE na Flavia — 50% Thiago Lucca, 50% Yasmim Freitas
-async function crmDividirFlaviaHoje(){
-  if(!(sessaoUser && sessaoUser.papel==='admin')){ alert('Só o admin pode redistribuir leads.'); return; }
-  const hoje=hojeISO();
-  const alvo=Object.values(CRM_LEADS).filter(l=>l && !l._novo
-    && (l.dataEntrada||'').slice(0,10)===hoje
-    && crmNomeCanon(l.vendedor)==='Flavia Ottati');
-  if(!alvo.length){ alert('Nenhum lead de HOJE ('+dataBR(hoje)+') no nome da Flavia Ottati.'); return; }
-  const nT=Math.ceil(alvo.length/2), nY=alvo.length-nT;
-  const ok=await uiConfirm(`Encontrados ${alvo.length} lead(s) de HOJE da Flavia Ottati.\n\nDividir:\n• ${nT} → Thiago Lucca\n• ${nY} → Yasmim Freitas\n\nConfirmar?`,
-    {titulo:'Redistribuir leads de hoje', ok:'Dividir', perigo:false});
-  if(!ok) return;
-  alvo.sort((a,b)=>((a.dataEntrada||'')+(a.ultimaInteracao||'')).localeCompare((b.dataEntrada||'')+(b.ultimaInteracao||'')));
-  let t=0,y=0;
-  alvo.forEach((l,i)=>{
-    const dest=(i%2===0)?'Thiago Lucca':'Yasmim Freitas';
-    l.vendedor=dest; if(dest==='Thiago Lucca') t++; else y++;
-    crmAddTimeline(l.id,'movido','Redistribuição: metade dos leads de hoje da Flavia → '+dest+'.');
-  });
-  saveCRM(); renderCRM();
-  flash('Dividido: '+t+' p/ Thiago Lucca e '+y+' p/ Yasmim Freitas ✔');
 }
 
 // ---- CRUD ----
