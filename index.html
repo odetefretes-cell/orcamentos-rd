@@ -526,6 +526,7 @@
       <option value="">— novo frete —</option>
     </select>
     <button class="btn-ghost" onclick="novoFrete()">＋ Novo frete</button>
+    <button class="btn-ghost" onclick="copiarFreteSelecionado()" title="Copiar os dados do frete escolhido acima para um NOVO frete (sem número, pagamentos ou status)">📋 Copiar p/ novo</button>
     <button class="btn-ghost" onclick="excluirFrete()">🗑️ Excluir</button>
     <button class="btn-ghost" onclick="abrirLixeira()" title="Fretes excluídos (restaurar)">🗑️ Lixeira</button>
     <span class="spacer"></span>
@@ -1689,6 +1690,31 @@ function novoFrete(){
   veiculos=[{}]; renderVeic(); prestadores=[]; renderPrest(); fichaDocs={};
   $('#hist').value=''; render(); flash('Novo frete');
 }
+// Copia os dados de um frete salvo para um NOVO frete (sem número, valores, pagamento, datas ou status)
+const _COPIAR_CAMPOS=['clienteEmpresa','cpfCnpj','rgIe','telefone','email',
+  'cep','bairro','endereco','cidade','uf',
+  'coletaCep','coletaBairro','coletaEndereco','coletaCidade','coletaUf','coletaNome','coletaCpf','coletaTel',
+  'entregaCep','entregaBairro','entregaEndereco','entregaCidade','entregaUf','entregaNome','entregaCpf','entregaTel',
+  'origem','destino','formaPgto','respFrete','atendente','equipamentos','observacoes'];
+function copiarDeFrete(id){
+  const db=lerDB(); const o=db&&db[id]; if(!o){ alert('Frete não encontrado.'); return; }
+  const d={};
+  _COPIAR_CAMPOS.forEach(k=>{ if(o[k]!=null && o[k]!=='') d[k]=o[k]; });
+  // veículos: copia modelo/placa/chassi/etc. (sem valores de pagamento do frete)
+  if(Array.isArray(o.veiculos) && o.veiculos.length) d.veiculos=o.veiculos.map(v=>({...v}));
+  else if(o.veiculo||o.placa||o.chassi){ d.veiculo=o.veiculo; d.placa=o.placa; d.chassi=o.chassi; d.anoFabMod=o.anoFabMod; d.cor=o.cor; d.valorVeiculo=o.valorVeiculo; }
+  idAtual=null; localStorage.removeItem(DRAFT);
+  fichaDocs={}; prestadores=[];
+  aplicar(d);   // aplicar() faz form.reset() → número, valores, pagamento, datas e status ficam em branco
+  $('#hist').value='';
+  const ref=o.numero?('nº '+o.numero):(up(o.clienteEmpresa||'')||'selecionado');
+  flash('Dados copiados do frete '+ref+' — confira e clique em Salvar frete', 'ok');
+}
+function copiarFreteSelecionado(){
+  const sel=$('#hist'); const id=(sel&&sel.value)||idAtual;
+  if(!id){ alert('Escolha primeiro um frete salvo na lista "— novo frete —" para copiar os dados dele.'); return; }
+  copiarDeFrete(id);
+}
 function excluirFrete(){
   if(!idAtual){ alert('Selecione um frete salvo para excluir.'); return; }
   if(!confirm('Enviar este frete para a Lixeira? Você pode restaurá-lo depois (por 30 dias).')) return;
@@ -2175,7 +2201,7 @@ function marcosPendentes(fretes, diasFrente){
       {k:'Chegada',ic:'📍',prev:f.chegadaPrev,feito:f.chegadaFeito},
       {k:'Liberação',ic:'🔓',prev:f.liberacaoPrev,feito:f.liberacaoFeito} ].forEach(m=>{
       if(!m.prev || m.feito || m.prev>lim) return;
-      tarefas.push({ id:f._id, numero:f.numero||'', cliente:up(f.clienteEmpresa||''),
+      tarefas.push({ id:f._id, numero:f.numero||'', cliente:up(f.clienteEmpresa||''), operadora:opDe(f)||'(sem operadora)',
         rota:(up(f.origem)||'?')+' → '+(up(f.destino)||'?'), marco:m.k, ic:m.ic, data:m.prev,
         urg: m.prev<hoje?'atrasada' : (m.prev===hoje?'hoje':'proxima') });
     });
@@ -2188,11 +2214,19 @@ function marcosPanelHTML(fretes){
   const item=t=>`<div onclick="abrirMarcoFrete('${t.id}')" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border-left:3px solid ${cor[t.urg]};background:rgba(255,255,255,.03);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:12.5px">
     <span>${t.ic} <b>${esc(t.marco)}</b> · Frete <b>${esc(t.numero)||'s/nº'}</b> · ${esc(t.cliente)||'—'} <span class="hint">${esc(t.rota)}</span></span>
     <span style="white-space:nowrap;color:${cor[t.urg]};font-weight:700">${dataBR(t.data)}${rot[t.urg]?(' · '+rot[t.urg]):''}</span></div>`;
+  // separa por OPERADORA
+  const grupos={}; ts.forEach(t=>{ (grupos[t.operadora]||(grupos[t.operadora]=[])).push(t); });
+  const nomes=Object.keys(grupos).sort((a,b)=>{ if(a==='(sem operadora)')return 1; if(b==='(sem operadora)')return -1; return a.localeCompare(b); });
+  const bloco=nome=>{ const g=grupos[nome]; const at=g.filter(t=>t.urg==='atrasada').length, hj=g.filter(t=>t.urg==='hoje').length;
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:12.5px;font-weight:800;color:#e4e4f0;margin:0 0 5px;padding:3px 0;border-bottom:1px solid var(--card-border)">👷 ${esc(nome)}
+        <span class="hint" style="font-weight:400">· ${g.length} tarefa(s)${at?(' · '+at+' atrasada(s)'):''}${hj?(' · '+hj+' hoje'):''}</span></div>
+      ${g.map(item).join('')}</div>`; };
   const nAtr=ts.filter(t=>t.urg==='atrasada').length, nHoje=ts.filter(t=>t.urg==='hoje').length;
   return `<div class="card" style="margin-bottom:12px"><div class="body">
-    <h3 style="margin:0 0 8px;font-size:14px">🗓️ Tarefas do transporte — hoje e próximos dias
+    <h3 style="margin:0 0 10px;font-size:14px">🗓️ Tarefas do transporte — por operadora (hoje e próximos dias)
       <span class="hint" style="font-weight:400">(${nAtr} atrasada(s) · ${nHoje} para hoje · ${ts.length} no total)</span></h3>
-    ${ts.map(item).join('')}</div></div>`;
+    ${nomes.map(bloco).join('')}</div></div>`;
 }
 function abrirMarcoFrete(id){
   if(typeof fretesAbertos!=='undefined'){ fretesAbertos.add(id); }
