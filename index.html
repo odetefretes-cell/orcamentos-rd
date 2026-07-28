@@ -4495,11 +4495,11 @@ function crmWhatsApp(id){
       _msgWppEmail = (l.email||'').trim();
       const temEmail = /@/.test(_msgWppEmail);
       alerta.style.display='block';
-      alerta.innerHTML = `<div style="background:#fdeaea;border:1px solid #dc2626;border-radius:8px;padding:9px 12px;margin-bottom:8px;color:#7a0a0f;font-size:12.5px">
-        ⚠️ <b>WhatsApp inválido${l.telefone?(' — '+esc(l.telefone)):' (sem número)'}.</b> Não dá para enviar por WhatsApp.<br>
+      alerta.innerHTML = `<div style="background:#dc2626;border:1px solid #b91c1c;border-radius:8px;padding:9px 12px;margin-bottom:8px;color:#fff;font-size:12.5px;line-height:1.5">
+        ⚠️ <b style="color:#fff">WhatsApp inválido${l.telefone?(' — '+esc(l.telefone)):' (sem número)'}.</b> Não dá para enviar por WhatsApp.<br>
         ${temEmail
-          ? `Envie por <b>e-mail</b>: ${esc(_msgWppEmail)} <button class="btn-ok" style="margin-left:6px;padding:4px 12px;font-size:12px" onclick="crmEnviarMsgEmail()">📧 Enviar pelo Gmail</button>`
-          : `O lead <b>não tem e-mail</b> cadastrado — atualize o contato do cliente.`}
+          ? `Envie por <b style="color:#fff">e-mail</b>: <span style="color:#fff;font-weight:700">${esc(_msgWppEmail)}</span> <button class="btn-ok" style="margin-left:6px;padding:4px 12px;font-size:12px" onclick="crmEnviarMsgEmail()">📧 Enviar pelo Gmail</button>`
+          : `O lead <b style="color:#fff">não tem e-mail</b> cadastrado — atualize o contato do cliente.`}
       </div>`;
       crmAddTimeline(id,'nota','⚠️ WhatsApp inválido — sugerido envio por e-mail'+(temEmail?(' ('+_msgWppEmail+')'):' (sem e-mail cadastrado)'));
     } else { alerta.style.display='none'; alerta.innerHTML=''; _msgWppEmail=''; }
