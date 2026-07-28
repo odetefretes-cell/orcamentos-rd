@@ -3770,7 +3770,9 @@ async function crmRecalcularLead(id){
     return false;
   }
   const barata=opts.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12)||a.legs.length-b.legs.length)[0];
-  l.trajetos=barata.legs.map(g=>({ de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
+  const menos =opts.slice().sort((a,b)=>(a.legs.length-b.legs.length)||(a.total??1e12)-(b.total??1e12))[0];
+  const escolhida = crmPadraoDireta(barata, menos);   // prefere menos embarques quando o extra é pequeno
+  l.trajetos=escolhida.legs.map(g=>({ de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
     transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null }));
   l.composicao=CRM_COMP_MODELO.map(c=>({...c}));       // recompõe com as regras novas (imposto off, reembarque por ligação)
   l._prazoManual=false;
@@ -4860,6 +4862,14 @@ function crmCustoAteDestino(db, cat, isDest){
   }
   return { custo, prox };
 }
+// escolhe a opção padrão: prefere a rota com MENOS embarques quando ela custa
+// só um pouco mais que a mais barata (evita reembarque desnecessário por poucos reais)
+const CRM_TETO_DIRETA = 150;   // R$ a mais aceitáveis para ganhar um embarque a menos
+function crmPadraoDireta(barata, menos){
+  if(menos && barata && menos.legs.length < barata.legs.length
+     && (menos.total??1e12) <= (barata.total??0) + CRM_TETO_DIRETA) return menos;
+  return barata;
+}
 async function crmCalcAuto(id, auto){
   const box = $('#crmCalcRes'); if(!box) return;
   if(!auto) box.innerHTML = '<p class="hint">Procurando o melhor caminho…</p>';
@@ -4891,9 +4901,10 @@ async function crmCalcAuto(id, auto){
   const rapida = B.slice().sort((a,b)=>((a.prazo||1e9)-(b.prazo||1e9)) || (a.total??1e12)-(b.total??1e12))[0];
   const menos  = B.slice().sort((a,b)=>(a.legs.length-b.legs.length) || (a.total??1e12)-(b.total??1e12))[0];
   window.__crmRecom = { barata, rapida, menos };
-  crmAplicarOpcao(id, barata);   // aplica a mais barata por padrão
+  const padrao = crmPadraoDireta(barata, menos);   // prefere menos embarques quando o extra é pequeno
+  crmAplicarOpcao(id, padrao);
   const sig = x => x.legs.map(l=>l.transportadora+'>'+normTxt(l.dNome)).join('|');
-  const sB=sig(barata), sR=sig(rapida), sM=sig(menos);
+  const sB=sig(barata), sR=sig(rapida), sM=sig(menos), sP=sig(padrao);
   const legTxt = x => x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
   const card = (x, icon, titulo, key, aplicada, nota) => `
     <div style="border:1px solid ${aplicada?'#16a34a':'var(--linha)'};border-radius:8px;padding:8px;margin-bottom:6px;background:${aplicada?'rgba(22,163,74,.06)':'transparent'}">
@@ -4909,10 +4920,10 @@ async function crmCalcAuto(id, auto){
     </div>`;
   box.innerHTML = `
     ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
-    <div style="font-size:12px;font-weight:600;margin:2px 0 6px">Escolha a opção (a mais barata já foi aplicada):</div>
-    ${card(barata,'💰','Mais barata','barata', true, '')}
-    ${card(rapida,'⚡','Mais rápida','rapida', false, sR===sB?'(igual à mais barata)':'')}
-    ${card(menos,'🔁','Menos reembarque','menos', false, sM===sB?'(igual à mais barata)':(sM===sR?'(igual à mais rápida)':''))}
+    <div style="font-size:12px;font-weight:600;margin:2px 0 6px">Escolha a opção (a destacada ✓ já foi aplicada):</div>
+    ${card(barata,'💰','Mais barata','barata', sB===sP, '')}
+    ${card(rapida,'⚡','Mais rápida','rapida', sR===sP, sR===sB?'(igual à mais barata)':'')}
+    ${card(menos,'🔁','Menos reembarque','menos', sM===sP, sM===sB?'(igual à mais barata)':(sM===sR?'(igual à mais rápida)':''))}
     <button class="btn-ghost" style="font-size:11.5px;padding:4px 10px;margin-top:2px" onclick="crmCalcOpcoes('${id}')">🔍 Ver todas as opções</button>
     <div class="hint" style="margin-top:4px;font-size:11px">💡 Você pode trocar a transportadora de cada trecho na composição abaixo.</div>`;
   if(!auto) flash('Frete calculado ✔');
