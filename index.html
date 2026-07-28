@@ -4520,12 +4520,13 @@ function telWppValido(tel){
   return true;
 }
 let _msgWppEmail='';
+const OBS_EMAIL_REMETENTE='atendimento@obstransportes.com.br';   // conta que envia (remetente fixo)
 function crmEnviarMsgEmail(){
   const msg=$('#msgWppTexto')?.value||'';
   if(!/@/.test(_msgWppEmail)){ alert('Sem e-mail cadastrado para este lead. Atualize o contato.'); return; }
   const su='Orçamento OBS Transportes', to=encodeURIComponent(_msgWppEmail);
-  // abre o Gmail (compose) já preenchido, do seu Gmail logado no navegador
-  const gmail='https://mail.google.com/mail/?view=cm&fs=1&tf=1&to='+to+'&su='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg);
+  // abre o Gmail (compose) da conta atendimento@obstransportes.com.br, já preenchido
+  const gmail='https://mail.google.com/mail/?view=cm&fs=1&tf=1&authuser='+encodeURIComponent(OBS_EMAIL_REMETENTE)+'&to='+to+'&su='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg);
   const w=window.open(gmail,'_blank');
   if(!w){   // se o navegador bloquear o pop-up, cai no e-mail padrão (mailto)
     const a=document.createElement('a'); a.href='mailto:'+to+'?subject='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg); a.click();
