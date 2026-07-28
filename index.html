@@ -371,14 +371,16 @@
   /* CRM Modal */
   .crm-modal{position:fixed;inset:0;background:rgba(10,10,25,.7);backdrop-filter:blur(8px);display:flex;align-items:flex-start;justify-content:center;z-index:200;padding:30px 16px;overflow:auto;opacity:0;transition:opacity .2s}
   .crm-modal.open{opacity:1}
-  .crm-modal .cm-sheet{background:var(--card);border:1px solid var(--card-border);border-radius:20px;max-width:700px;width:100%;padding:0;box-shadow:var(--shadow-lg);transform:translateY(20px);transition:transform .25s;overflow:hidden}
+  .crm-modal .cm-sheet{background:var(--card);border:1px solid var(--card-border);border-radius:20px;max-width:900px;width:100%;padding:0;box-shadow:var(--shadow-lg);transform:translateY(20px);transition:transform .25s;overflow:hidden}
   .crm-modal.open .cm-sheet{transform:translateY(0)}
   .cm-sheet-head{background:linear-gradient(135deg,#cc1016 0%,#e8202a 100%);color:#fff;padding:22px 28px;display:flex;justify-content:space-between;align-items:center}
   .cm-sheet-head h3{font-size:18px;margin:0;font-weight:800;letter-spacing:-.02em}
   .cm-sheet-head .cm-close{background:rgba(255,255,255,.2);border:none;color:#fff;font-size:18px;width:34px;height:34px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
   .cm-sheet-head .cm-close:hover{background:rgba(255,255,255,.35)}
-  .cm-sheet-body{padding:24px 28px;max-height:calc(100vh - 200px);overflow-y:auto}
-  .cm-sheet-body .field{margin-bottom:14px}
+  .cm-sheet-body{padding:24px 28px;max-height:calc(100vh - 170px);overflow-y:auto;overflow-x:hidden}
+  .cm-sheet-body .field{margin-bottom:14px;min-width:0}
+  .cm-sheet-body input,.cm-sheet-body select,.cm-sheet-body textarea{max-width:100%}
+  @media(max-width:820px){ .cm-sheet-body .g2{grid-template-columns:1fr} }
   .cm-sheet-body .cm-section{font-size:11.5px;font-weight:800;color:var(--azul);letter-spacing:.5px;border-bottom:1px solid var(--card-border);padding:14px 0 4px;margin:18px 0 12px;text-transform:uppercase}
   .cm-sheet-actions{padding:18px 28px;border-top:1px solid var(--card-border);display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;background:rgba(255,255,255,.02)}
 
