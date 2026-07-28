@@ -3871,8 +3871,12 @@ function renderCRM(){
     let atr=0, hj=0;
     Object.values(CRM_LEADS).forEach(l=>{ if(l._novo) return; const t=crmProxTarefa(l); if(!t) return; const s=crmStatusTarefa(t.data); if(s==='atrasada') atr++; else if(s==='hoje') hj++; });
     if(!atr && !hj){ av.innerHTML=''; return; }
-    const partes=[]; if(atr) partes.push(`<b>${atr}</b> atrasada${atr>1?'s':''}`); if(hj) partes.push(`<b>${hj}</b> para hoje`);
-    av.innerHTML=`<div onclick="const s=document.getElementById('crmFiltroTarefa'); if(s){s.value='${atr?'atrasada':'hoje'}';renderCRM();}" style="cursor:pointer;background:#fdeaea;border:1px solid #dc2626;border-radius:8px;padding:8px 12px;color:#7a0a0f;font-size:13px;font-weight:600">⏰ Você tem ${partes.join(' e ')} — clique para ver.</div>`;
+    const chip=(txt,bg,fg)=>`<span style="background:${bg};color:${fg};padding:2px 10px;border-radius:20px;font-weight:800;font-size:12.5px;white-space:nowrap">${txt}</span>`;
+    const partes=[];
+    if(atr) partes.push(chip(`${atr} atrasada${atr>1?'s':''}`, '#ef4444', '#fff'));
+    if(hj)  partes.push(chip(`${hj} para hoje`, '#f59e0b', '#3a2600'));
+    av.innerHTML=`<div onclick="const s=document.getElementById('crmFiltroTarefa'); if(s){s.value='${atr?'atrasada':'hoje'}';renderCRM();}" title="Ver tarefas ${atr?'atrasadas':'de hoje'}" style="cursor:pointer;display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);border-left:4px solid #ef4444;border-radius:10px;padding:10px 14px;color:#f4d9d9;font-size:13.5px;font-weight:600">
+      <span style="font-size:16px">⏰</span><span>Você tem</span>${partes.join('<span style="opacity:.6"> e </span>')}<span>de tarefa — <u>clique para ver</u>.</span></div>`;
   })();
 
   // atualizar select de vendedores
