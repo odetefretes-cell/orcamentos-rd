@@ -4498,7 +4498,7 @@ function crmWhatsApp(id){
       alerta.innerHTML = `<div style="background:#fdeaea;border:1px solid #dc2626;border-radius:8px;padding:9px 12px;margin-bottom:8px;color:#7a0a0f;font-size:12.5px">
         ⚠️ <b>WhatsApp inválido${l.telefone?(' — '+esc(l.telefone)):' (sem número)'}.</b> Não dá para enviar por WhatsApp.<br>
         ${temEmail
-          ? `Envie por <b>e-mail</b>: ${esc(_msgWppEmail)} <button class="btn-ok" style="margin-left:6px;padding:4px 12px;font-size:12px" onclick="crmEnviarMsgEmail()">📧 Enviar por e-mail</button>`
+          ? `Envie por <b>e-mail</b>: ${esc(_msgWppEmail)} <button class="btn-ok" style="margin-left:6px;padding:4px 12px;font-size:12px" onclick="crmEnviarMsgEmail()">📧 Enviar pelo Gmail</button>`
           : `O lead <b>não tem e-mail</b> cadastrado — atualize o contato do cliente.`}
       </div>`;
       crmAddTimeline(id,'nota','⚠️ WhatsApp inválido — sugerido envio por e-mail'+(temEmail?(' ('+_msgWppEmail+')'):' (sem e-mail cadastrado)'));
@@ -4523,9 +4523,14 @@ let _msgWppEmail='';
 function crmEnviarMsgEmail(){
   const msg=$('#msgWppTexto')?.value||'';
   if(!/@/.test(_msgWppEmail)){ alert('Sem e-mail cadastrado para este lead. Atualize o contato.'); return; }
-  const url='mailto:'+encodeURIComponent(_msgWppEmail)+'?subject='+encodeURIComponent('Orçamento OBS Transportes')+'&body='+encodeURIComponent(msg);
-  const a=document.createElement('a'); a.href=url; a.click();
-  flash('Abrindo o e-mail para '+_msgWppEmail+' ✔');
+  const su='Orçamento OBS Transportes', to=encodeURIComponent(_msgWppEmail);
+  // abre o Gmail (compose) já preenchido, do seu Gmail logado no navegador
+  const gmail='https://mail.google.com/mail/?view=cm&fs=1&tf=1&to='+to+'&su='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg);
+  const w=window.open(gmail,'_blank');
+  if(!w){   // se o navegador bloquear o pop-up, cai no e-mail padrão (mailto)
+    const a=document.createElement('a'); a.href='mailto:'+to+'?subject='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg); a.click();
+  }
+  flash('Abrindo o Gmail para '+_msgWppEmail+' ✔');
 }
 // guarda no lead a cidade mais próxima usada no cálculo (p/ avisar também no WhatsApp)
 function crmGuardarAprox(id, oR, oRaw, dR, dRaw){
