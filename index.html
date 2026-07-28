@@ -5214,7 +5214,7 @@ async function crmCalcOpcoes(id){
     </div>`;
   };
   box.innerHTML = `
-    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado.</div>`:''}
+    ${avisosProx.length?`<div style="background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.5);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11.5px;color:#fcd34d;line-height:1.55">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado.</div>`:''}
     <div style="font-size:12px;font-weight:600;margin:2px 0 4px">${nDiretas} rota(s) direta(s) e ${nCombos} combinação(ões) — a mais barata já está aplicada</div>
     <div style="max-height:280px;overflow:auto;border:1px solid var(--linha);border-radius:8px;padding:6px">
       ${opts.map((x,i)=>cardOpt(x,i)).join('')}
@@ -5383,7 +5383,7 @@ async function crmCalcAuto(id, auto){
       ${viaTxt(x)}
     </div>`;
   box.innerHTML = `
-    ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
+    ${avisosProx.length?`<div style="background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.5);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11.5px;color:#fcd34d;line-height:1.55">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
     <div style="font-size:12px;font-weight:600;margin:2px 0 6px">Escolha a opção (a destacada ✓ já foi aplicada):</div>
     ${card(barata,'💰','Mais barata','barata', sB===sP, '')}
     ${card(rapida,'⚡','Mais rápida','rapida', sR===sP, sR===sB?'(igual à mais barata)':'')}
