@@ -862,7 +862,8 @@
   <!-- ===================== MENSAL / METAS ===================== -->
   <div id="viewMensal" style="display:none">
     <div class="card">
-      <h2>📊 Levantamento mensal · Metas</h2>
+      <h2 style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><span>📊 Levantamento mensal · Metas</span>
+        <button class="btn-ghost" style="font-size:12px;padding:6px 14px" onclick="renderMensal()">🔄 Atualizar números</button></h2>
       <div class="body">
         <p class="hint" style="margin-top:0">Quantidade de <b>contratos fechados</b> (total − cancelados), concluídos, em andamento e cancelamentos por mês. O <b>operacional</b> recebe o bônus pela <b>meta da empresa</b> (mesmo valor para todos).</p>
         <div id="mensalTabela" style="overflow-x:auto"></div>
@@ -3404,8 +3405,8 @@ const USUARIOS_PADRAO=[
 ];
 const PERMISSOES={
   admin:['crm','ficha','rel','fin','clientes','mensal','relatorios'],   // acesso total
-  comercial:['crm','ficha','relatorios'],    // CRM + cadastro de frete/emissão de contrato + relatório
-  operacional:['rel','ficha','relatorios'], // operacional + emissão de ficha/contrato
+  comercial:['crm','ficha','mensal','relatorios'],    // CRM + ficha + metas + relatório
+  operacional:['rel','ficha','mensal','relatorios'], // operacional + ficha + metas + relatório
   financeiro:['fin','ficha','relatorios'],  // financeiro + ficha (corrigir valor de prestador) + relatório
 };
 const PAPEL_NOME={admin:'Administrador',comercial:'Comercial',operacional:'Operacional',financeiro:'Financeiro'};
