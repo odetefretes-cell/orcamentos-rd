@@ -990,7 +990,7 @@
     <div class="card">
       <h2>🚚 Prestadores — conferência e pagamento</h2>
       <div class="body">
-        <p class="hint" style="margin-top:0">Cada prestador cobra por placa/veículo. Marque <b>Conferido</b> quando validar a cobrança e <b>No pagamento</b> quando incluir no sistema de pagamento. Os conferidos ficam destacados.</p>
+        <p class="hint" style="margin-top:0">Cada prestador cobra por placa/veículo. Preencher a <b>Data ContaAzul</b> marca como conferido/pago. O <b>Valor</b> é editável — corrija aqui se necessário. Use <b>📋 Ficha</b> para abrir o cadastro completo do frete.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <strong style="font-size:13px;color:rgba(228,228,240,.5)">Ver:</strong>
           <span id="finPrestPills" class="pills"></span>
@@ -2499,9 +2499,9 @@ function renderFinanceiro(){
       const ok = !!(p.contaAzul && String(p.contaAzul).trim());
       const veic = esc(veicResumo(f)) || (p.placa?esc(up(p.placa)):'—');
       return `<tr class="${ok?'conf':''}">
-      <td><b>${esc(f.numero||'')}</b></td><td>${esc(up(p.emp))}</td>
+      <td><b>${esc(f.numero||'')}</b><br><button class="btn-ghost" style="font-size:11px;padding:2px 7px;margin-top:3px;white-space:nowrap" onclick="abrirFicha('${f._id}')" title="Abrir a ficha de cadastro deste frete para conferir/alterar">📋 Ficha</button></td><td>${esc(up(p.emp))}</td>
       <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div></td>
-      <td>${moeda(p.valor)}</td>
+      <td><input value="${escA(p.valor||'')}" onchange="setPrestFin('${f._id}',${idx},'valor',this.value)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
       <td><input type="date" value="${escA(p.contaAzul)}" onchange="setPrestFin('${f._id}',${idx},'contaAzul',this.value)" title="Data de inclusão no ContaAzul — preencher = conferido e pago" style="font-size:12.5px"></td>
       <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}</td></tr>`;
     }).join('');
@@ -3363,7 +3363,7 @@ const PERMISSOES={
   admin:['crm','ficha','rel','fin','clientes','mensal','relatorios'],   // acesso total
   comercial:['crm','ficha','relatorios'],    // CRM + cadastro de frete/emissão de contrato + relatório
   operacional:['rel','ficha','relatorios'], // operacional + emissão de ficha/contrato
-  financeiro:['fin','relatorios'],          // financeiro + relatório financeiro
+  financeiro:['fin','ficha','relatorios'],  // financeiro + ficha (corrigir valor de prestador) + relatório
 };
 const PAPEL_NOME={admin:'Administrador',comercial:'Comercial',operacional:'Operacional',financeiro:'Financeiro'};
 let USUARIOS=[], sessaoUser=null;
