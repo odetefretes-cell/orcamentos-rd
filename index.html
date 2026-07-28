@@ -1583,15 +1583,31 @@ async function initData(){
         // CRM (leads) compartilhado — requer a regra do Firestore p/ crm_leads
         fsMod.onSnapshot(fsMod.collection(fs,'crm_leads'), snap=>{
           if(typeof CRM_LEADS==='undefined') return;
-          const rascunhos=Object.values(CRM_LEADS).filter(l=>l && l._novo);   // preserva rascunho aberto
-          // preserva o lead aberto no modal AGORA: suas edições (taxas/trechos/qtd) não podem
-          // ser sobrescritas por uma sincronização da nuvem antes de terminarem de salvar.
+          const cloud={}; snap.forEach(d=>cloud[d.id]=d.data());
+          const merged={};
+          // 1) parte da nuvem, mas respeita edições locais ainda não confirmadas (dirty)
+          for(const id in cloud){
+            const c=cloud[id];
+            if(CRM_DIRTY[id]!=null){
+              const cts=+(c._ts||0), lts=+CRM_DIRTY[id];
+              if(cts>=lts){ merged[id]=c; delete CRM_DIRTY[id]; CRM_SAVED[id]=_leadJSON(c); }  // nuvem confirmou → aceita
+              else { merged[id]=CRM_LEADS[id]||c; }                                             // nossa edição é mais nova → mantém local
+            } else { merged[id]=c; CRM_SAVED[id]=_leadJSON(c); }
+          }
+          // 2) leads locais que ainda não estão na nuvem
+          for(const id in CRM_LEADS){
+            if(merged[id]) continue;
+            const local=CRM_LEADS[id]; if(!local) continue;
+            if(local._novo){ merged[id]=local; continue; }              // rascunho não salvo
+            if(CRM_DIRTY[id]!=null){ merged[id]=local; continue; }      // edição pendente
+            if(!CRM_LAST_IDS.has(id)){ merged[id]=local; continue; }    // CRIADO agora, gravação ainda não confirmou → mantém (não some!)
+            // era conhecido na nuvem e sumiu → apagado por outro cliente → remove
+          }
+          // 3) o lead aberto no modal sempre mantém a versão local (edições em andamento)
           const abertoId=(typeof crmModalId!=='undefined')?crmModalId:null;
-          const abertoLocal=(abertoId && CRM_LEADS[abertoId] && !CRM_LEADS[abertoId]._novo)?CRM_LEADS[abertoId]:null;
-          CRM_LEADS={}; snap.forEach(d=>CRM_LEADS[d.id]=d.data());
-          if(typeof CRM_LAST_IDS!=='undefined') CRM_LAST_IDS=new Set(Object.keys(CRM_LEADS));  // o que existe na nuvem
-          rascunhos.forEach(r=>{ CRM_LEADS[r.id]=r; });
-          if(abertoLocal) CRM_LEADS[abertoId]=abertoLocal;   // mantém a versão em edição
+          if(abertoId && CRM_LEADS[abertoId] && !CRM_LEADS[abertoId]._novo) merged[abertoId]=CRM_LEADS[abertoId];
+          CRM_LEADS=merged;
+          CRM_LAST_IDS=new Set(Object.keys(cloud));   // o que a nuvem tem agora
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
@@ -3693,20 +3709,36 @@ let crmDragId = null;
 
 // ---- Persistência ----
 function loadCRM(){ try{ return JSON.parse(localStorage.getItem(CRM_KEY))||{}; }catch(_){ return {}; } }
-let CRM_LAST_IDS = new Set();   // ids já persistidos (p/ apagar da nuvem os removidos)
+let CRM_LAST_IDS = new Set();   // ids que já vimos na nuvem (p/ distinguir "apagado" de "criado agora")
+let CRM_SAVED = {};             // id -> JSON (sem _ts) do que já foi gravado/confirmado na nuvem
+let CRM_DIRTY = {};             // id -> _ts local aguardando confirmação (impede o onSnapshot de reverter)
+function _leadSemTs(l){ const o={}; for(const k in l){ if(k!=='_ts') o[k]=l[k]; } return o; }
+function _leadJSON(l){ try{ return JSON.stringify(_leadSemTs(l)); }catch(_){ return ''; } }
 function saveCRM(){
   // rascunhos (_novo) nunca são persistidos — só viram lead ao Salvar
   const persistir = {};
   for(const id in CRM_LEADS){ if(!CRM_LEADS[id]._novo) persistir[id]=CRM_LEADS[id]; }
-  localStorage.setItem(CRM_KEY, JSON.stringify(persistir));
+  try{ localStorage.setItem(CRM_KEY, JSON.stringify(persistir)); }catch(_){}
   if(CLOUD_ON && _fb && _fb.setDoc){
-    for(const id in persistir) _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), persistir[id]);
-    // apaga da nuvem os leads que foram excluídos (senão voltam no próximo carregamento)
-    if(_fb.deleteDoc){ CRM_LAST_IDS.forEach(id=>{ if(!(id in persistir)){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'crm_leads',id)); }catch(_){} } }); }
+    // grava SÓ os leads que este cliente realmente mudou — nunca reescreve a coleção inteira
+    // (senão sobrescreve na nuvem os leads que o site/outros criaram ao mesmo tempo).
+    for(const id in persistir){
+      const l=persistir[id]; const j=_leadJSON(l);
+      if(CRM_SAVED[id]===j) continue;                 // não mudou desde a última gravação → não regrava
+      l._ts = Date.now();                              // marca a versão desta gravação
+      CRM_DIRTY[id] = l._ts;                           // aguardando o eco da nuvem (não deixa reverter)
+      CRM_SAVED[id] = j;
+      try{ _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), l); }catch(_){}
+    }
+    // apaga da nuvem só o que ESTE cliente removeu (estava e saiu) — nunca o que nunca vimos
+    if(_fb.deleteDoc){ CRM_LAST_IDS.forEach(id=>{ if(!(id in persistir)){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'crm_leads',id)); }catch(_){} delete CRM_SAVED[id]; delete CRM_DIRTY[id]; } }); }
   }
-  CRM_LAST_IDS = new Set(Object.keys(persistir));
 }
-function initCRM(){ CRM_LEADS = loadCRM(); CRM_LAST_IDS = new Set(Object.keys(CRM_LEADS).filter(id=>!CRM_LEADS[id]._novo)); }
+function initCRM(){
+  CRM_LEADS = loadCRM();
+  CRM_LAST_IDS = new Set();   // ainda não confirmamos a nuvem — o 1º onSnapshot preenche (leads locais não confirmados são preservados)
+  CRM_SAVED = {}; CRM_DIRTY = {};
+}
 
 // ---- Render Métricas ----
 function renderCRMMetrics(){
