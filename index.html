@@ -3807,17 +3807,25 @@ function crmDescartarRascunho(){
 
 // ===== Comercial: rodízio de responsável entre usuários logados =====
 const CRM_LUIZ_RE = /luiz\s*gustavo/i;
-function crmComercial(){   // nomes do comercial que entram no rodízio (exclui Luiz Gustavo)
-  return (USUARIOS||[]).filter(u=>u && u.papel==='comercial' && !CRM_LUIZ_RE.test(u.nome||u.user||''))
-    .map(u=>u.nome||u.user).filter(Boolean);
+// unifica nomes duplicados (ex.: "Yasmin Freitas" e "Yasmim Freitas" = mesma pessoa)
+function crmNomeCanon(nome){
+  const n=(nome||'').trim();
+  if(/yasm[ei]n(\s*freitas)?/i.test(n)) return 'Yasmim Freitas';
+  return n;
+}
+function crmComercial(){   // nomes do comercial que entram no rodízio (exclui Luiz Gustavo; sem duplicados)
+  const nomes = (USUARIOS||[]).filter(u=>u && u.papel==='comercial' && !CRM_LUIZ_RE.test(u.nome||u.user||''))
+    .map(u=>crmNomeCanon(u.nome||u.user)).filter(Boolean);
+  return [...new Set(nomes)];
 }
 function crmRespOpcoes(atual){   // opções do select de Responsável (comercial + Luiz manual + atual)
   const lista = crmComercial();
   const luiz = (USUARIOS||[]).find(u=>u && CRM_LUIZ_RE.test(u.nome||u.user||''));
   if(luiz){ const n=luiz.nome||luiz.user; if(!lista.includes(n)) lista.push(n); }
-  if(atual && !lista.includes(atual)) lista.push(atual);
-  return `<option value="" ${!atual?'selected':''}>— sem responsável —</option>`
-    + lista.map(n=>`<option ${atual===n?'selected':''}>${esc(n)}</option>`).join('');
+  const at = crmNomeCanon(atual);
+  if(at && !lista.includes(at)) lista.push(at);
+  return `<option value="" ${!at?'selected':''}>— sem responsável —</option>`
+    + lista.map(n=>`<option ${at===n?'selected':''}>${esc(n)}</option>`).join('');
 }
 let CRM_PRESENCA={}, CRM_RODIZIO={last:''}, CRM_PRES_ON=false;
 function crmPresencaPing(){   // marca o usuário logado como "online" (heartbeat)
@@ -3827,13 +3835,13 @@ function crmPresencaPing(){   // marca o usuário logado como "online" (heartbea
        {merge:true}); }catch(_){}
 }
 function crmIniciarPresenca(){ if(CRM_PRES_ON) return; CRM_PRES_ON=true; crmPresencaPing(); setInterval(crmPresencaPing, 90000); }
-function crmComercialAtivos(){   // comercial visto nos últimos 3 min
+function crmComercialAtivos(){   // comercial visto nos últimos 3 min (sem duplicados)
   const lim = Date.now()-3*60*1000, ativos=[];
   for(const u in (CRM_PRESENCA||{})){ const p=CRM_PRESENCA[u];
     if(!p || p.papel!=='comercial' || CRM_LUIZ_RE.test(p.nome||'')) continue;
-    if(new Date(p.em||0).getTime()>=lim) ativos.push(p.nome);
+    if(new Date(p.em||0).getTime()>=lim) ativos.push(crmNomeCanon(p.nome));
   }
-  return ativos;
+  return [...new Set(ativos)];
 }
 function crmProxResponsavel(){   // próximo do rodízio (ativos; se nenhum, todo o comercial)
   let pool = crmComercialAtivos(); if(!pool.length) pool = crmComercial();
@@ -3849,6 +3857,8 @@ function crmAdminRotinas(){
   for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo) continue;
     // 1) responsável Luiz Gustavo (automático) → Yasmim
     if(CRM_LUIZ_RE.test(l.vendedor||'')){ l.vendedor=yas; crmAddTimeline(id,'movido',`Responsável Luiz Gustavo → ${yas} (rodízio).`); mudou=true; }
+    // 1b) unifica nomes duplicados (Yasmin/Yasmim = mesma pessoa)
+    else if(l.vendedor && crmNomeCanon(l.vendedor)!==l.vendedor){ l.vendedor=crmNomeCanon(l.vendedor); mudou=true; }
     // 2) lead de site/WhatsApp sem responsável → próximo do rodízio
     else if(!((l.vendedor||'').trim()) && (l.origemLead==='site'||l.origemLead==='whatsapp')){
       const prox=crmProxResponsavel();
