@@ -1583,9 +1583,14 @@ async function initData(){
         fsMod.onSnapshot(fsMod.collection(fs,'crm_leads'), snap=>{
           if(typeof CRM_LEADS==='undefined') return;
           const rascunhos=Object.values(CRM_LEADS).filter(l=>l && l._novo);   // preserva rascunho aberto
+          // preserva o lead aberto no modal AGORA: suas edições (taxas/trechos/qtd) não podem
+          // ser sobrescritas por uma sincronização da nuvem antes de terminarem de salvar.
+          const abertoId=(typeof crmModalId!=='undefined')?crmModalId:null;
+          const abertoLocal=(abertoId && CRM_LEADS[abertoId] && !CRM_LEADS[abertoId]._novo)?CRM_LEADS[abertoId]:null;
           CRM_LEADS={}; snap.forEach(d=>CRM_LEADS[d.id]=d.data());
           if(typeof CRM_LAST_IDS!=='undefined') CRM_LAST_IDS=new Set(Object.keys(CRM_LEADS));  // o que existe na nuvem
           rascunhos.forEach(r=>{ CRM_LEADS[r.id]=r; });
+          if(abertoLocal) CRM_LEADS[abertoId]=abertoLocal;   // mantém a versão em edição
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
@@ -3997,6 +4002,14 @@ function crmNovoLead(avulso){
   crmAbrirLead(id);
 }
 let crmDraftId = null;
+let crmModalId = null;   // lead aberto no modal agora (protege as edições em andamento do onSnapshot)
+// salva as edições (taxas, trechos, quantidade) na hora, sem esperar o botão Salvar —
+// assim nada se perde ao atualizar a página nem quando a nuvem sincroniza.
+let _crmSaveT = null;
+function crmSalvarAuto(){
+  clearTimeout(_crmSaveT);
+  _crmSaveT = setTimeout(()=>{ try{ if(typeof saveCRM==='function') saveCRM(); }catch(_){} }, 500);
+}
 function crmDescartarRascunho(){
   if(crmDraftId && CRM_LEADS[crmDraftId] && CRM_LEADS[crmDraftId]._novo){
     delete CRM_LEADS[crmDraftId];
@@ -4112,6 +4125,7 @@ async function crmExcluirLead(id){
 function crmAbrirLead(id){
   const l = CRM_LEADS[id];
   if(!l) return;
+  crmModalId = id;
   const modal = $('#crmModal');
   const isNovo = !l.nome;
   $('#crmModalTitle').textContent = l._avulso ? '🧮 Calcular Orçamento' : (isNovo ? '➕ Novo Lead' : `✏️ ${l.nome}`);
@@ -4256,6 +4270,8 @@ function crmAbrirLead(id){
 }
 
 function fecharCrmModal(){
+  if(crmModalId && CRM_LEADS[crmModalId] && !CRM_LEADS[crmModalId]._novo){ crmSalvarAuto(); }  // garante que as edições foram salvas
+  crmModalId = null;
   crmDescartarRascunho();   // se fechou sem salvar, o rascunho não vira lead
   const modal = $('#crmModal');
   modal.classList.remove('open');
@@ -4744,11 +4760,13 @@ function crmQtdChange(id){
   const l=CRM_LEADS[id]; if(!l) return;
   l.qtdVeic = Math.max(1, parseInt($('#crmQtdVeic')?.value,10)||1);
   crmRecalcCalc(id); crmCompReflectValores(id);
+  crmSalvarAuto();
 }
 // ao trocar a categoria, recalcula o frete (o valor da vaga muda conforme a categoria)
 function crmMudarCategoria(id){
   const l=CRM_LEADS[id]; if(l){ l.categoria = $('#calcCategoria')?.value || l.categoria; }
   if(l && l.origem && l.destino) crmCalcAuto(id);
+  crmSalvarAuto();
 }
 function crmSyncFormLead(id){   // salva no lead o que está no formulário (origem/destino/veículo/valor)
   const l=CRM_LEADS[id]; if(!l) return;
@@ -4820,6 +4838,7 @@ function crmCalcAddTrecho(id, i){
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
   crmRecalcCalc(id);
   crmRenderComp(id);
+  crmSalvarAuto();
   flash('Trecho adicionado ✔');
 }
 // ---- Todas as opções: rotas diretas + combinações (reembarque) ----
@@ -4886,6 +4905,7 @@ function crmAplicarOpcao(id, x){
   if(!l.composicao || !l.composicao.length) l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
   l._prazoManual=false;
   crmRecalcCalc(id); crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmUsarRecom(id, k){ const x=(window.__crmRecom||{})[k]; if(!x) return; crmAplicarOpcao(id,x); flash('Opção aplicada ✔'); }
 async function crmCalcOpcoes(id){
@@ -5101,7 +5121,9 @@ async function crmCalcAuto(id, auto){
 async function crmAutoCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
   if(!l.origem || !l.destino) return;                 // sem rota, nada a calcular
-  if(l.composicao && l.composicao.length) {            // já tem composição: só reflete a média
+  if(l.composicao && l.composicao.length) {            // já tem composição
+    // se tem trechos, re-deriva para refletir a quantidade de veículos atual (auto-corrige leads antigos)
+    if(l.trajetos && l.trajetos.length){ crmRecalcCalc(id); crmRenderComp(id); }
     const V = crmValoresOrc(l); const f=$('#crmCotSW'); if(f && V.totalBase) f.value = String(Math.round(V.totalBase*100)/100);
     return;
   }
@@ -5168,8 +5190,15 @@ function crmRecalcCalc(id){
           if(t0 && t1 && t0===t1) continue;   // mesma transportadora nos 2 trechos: não é reembarque
           reemb += (segBelemManaus(trs[i]) || segBelemManaus(trs[i-1])) ? 200 : 100;
         }
-        rb.valor = String(reemb);
+        rb.valor = String(reemb * q);   // reembarque é por veículo
       } else { rb.ativo=false; rb.valor='0'; }
+    } }
+  // Taxa Fixa (Lucro): também multiplica pela quantidade de veículos.
+  // Guarda o valor POR VEÍCULO em l.lucroUnit; o campo mostra o total (unit × qtd).
+  { const lc=l.composicao.find(c=>normTxt(c.desc)==='taxa fixa (lucro)');
+    if(lc){
+      if(l.lucroUnit==null || l.lucroUnit==='') l.lucroUnit = (numMoeda(lc.valor)||500);   // valor atual = por veículo
+      lc.valor = String(Math.round(numMoeda(l.lucroUnit)*q*100)/100);
     } }
   crmCompRecalcImposto(id);   // Imposto 12% sobre as demais taxas
   // "Valor médio do frete" = total base a base (reflete no campo)
@@ -5222,10 +5251,13 @@ function crmCompSet(id,i,campo,val){
   const l=CRM_LEADS[id]; if(!l||!l.composicao[i]) return;
   l.composicao[i][campo]=val;
   if(campo==='valor'){
+    // ao editar o Lucro, guarda o valor POR VEÍCULO (o que foi digitado é o total ÷ quantidade)
+    if(normTxt(l.composicao[i].desc)==='taxa fixa (lucro)'){ const q=crmQtd(l); l.lucroUnit = numMoeda(val)/(q||1); }
     // editar qualquer taxa que não seja o Imposto recalcula o Imposto (12%)
     if(normTxt(l.composicao[i].desc)!=='imposto'){ crmCompRecalcImposto(id); crmCompReflectImposto(id); }
     crmCompUpdTotal(id);
   }
+  crmSalvarAuto();   // persiste na hora — não se perde ao atualizar a página
 }
 function crmCompReflectImposto(id){
   const l=CRM_LEADS[id]; if(!l) return;
@@ -5239,33 +5271,40 @@ function crmCompToggle(id,i){
   l.composicao[i].ativo=!l.composicao[i].ativo;
   crmCompRecalcImposto(id);
   crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmCompAdd(id){
   const l=CRM_LEADS[id]; if(!l) return;
   if(!l.composicao) l.composicao=[];
   l.composicao.push({ desc:'', valor:'', ativo:true, opcional:false });
   crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmCompDel(id,i){
   const l=CRM_LEADS[id]; if(!l) return;
   l.composicao.splice(i,1); crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmCompModelo(id){
   const l=CRM_LEADS[id]; if(!l) return;
   l.composicao = CRM_COMP_MODELO.map(c=>({...c}));
+  l.lucroUnit = null;   // volta ao lucro padrão
   crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmTrajAdd(id){
   const l=CRM_LEADS[id]; if(!l) return;
   if(!l.trajetos) l.trajetos=[];
   l.trajetos.push({ de:'', para:'', transportadora:'', valor:'' });
   crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmTrajDel(id,i){
   const l=CRM_LEADS[id]; if(!l) return;
   l.trajetos.splice(i,1);
   crmRecalcCalc(id);            // recalcula o Frete Base (soma dos trechos)
   crmRenderComp(id);
+  crmSalvarAuto();
 }
 function crmTrajSet(id,i,campo,val){
   const l=CRM_LEADS[id]; if(!l||!l.trajetos[i]) return;
@@ -5274,6 +5313,7 @@ function crmTrajSet(id,i,campo,val){
     crmRecalcCalc(id);
     crmCompReflectValores(id);
   }
+  crmSalvarAuto();
 }
 // transportadoras que atendem um trecho (cidade origem → cidade destino) e seus preços
 function crmPrestadoresTrecho(deNorm, deUF, paraNorm, paraUF, cat){
@@ -5302,6 +5342,7 @@ function crmTrajTrocaPrest(id,i,val){
   l._prazoManual=false;
   crmRecalcCalc(id);
   crmRenderComp(id);
+  crmSalvarAuto();
   flash('Transportadora do trecho trocada ✔');
 }
 // atualiza os valores das taxas na tela (sem re-renderizar, p/ não perder o foco)
@@ -5375,12 +5416,12 @@ function crmRenderComp(id){
     ${endHTML('Coleta','enderecoColeta',ativo('Coleta'))}
     ${endHTML('Entrega','enderecoEntrega',ativo('Entrega'))}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:2px solid var(--linha)">
-      <span style="font-weight:700">Total do frete (confirmado)</span>
+      <span style="font-weight:700">Total do frete (confirmado)${crmQtd(l)>1?` <span class="hint" style="font-weight:600">· ${crmQtd(l)} veículos (todas as taxas ×${crmQtd(l)})</span>`:''}</span>
       <span id="crmCompTotal" style="font-weight:800;font-size:17px;color:#16a34a">${moeda(crmCompTotal(l))}</span>
     </div>`;
   const wrap=$('#crmCompWrap'); if(wrap) wrap.style.display = comp.length ? '' : 'none';
 }
-function crmEndSet(id,campo,val){ const l=CRM_LEADS[id]; if(l) l[campo]=val; }
+function crmEndSet(id,campo,val){ const l=CRM_LEADS[id]; if(l){ l[campo]=val; crmSalvarAuto(); } }
 // ---- Tarefas agendadas dos leads ----
 function hojeISO(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function crmProxTarefa(l){   // próxima tarefa pendente (menor data)
