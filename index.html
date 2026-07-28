@@ -5534,8 +5534,28 @@ function crmCompReflectValores(id){
   });
   crmCompUpdTotal(id);
 }
+// garante que TODAS as taxas padrão existam (Recebimento, Lucro, Reembarque, Imposto, Coleta, Entrega)
+// — para poder habilitar/editar cada uma, inclusive coleta e entrega com endereço. Não mexe nas já existentes.
+function crmGarantirTaxas(l){
+  if(!l) return false;
+  if(!Array.isArray(l.composicao)) l.composicao=[];
+  if(!l.composicao.length) return false;   // sem nenhuma taxa ainda (lead sem cálculo) — não força
+  let mudou=false;
+  CRM_COMP_MODELO.forEach(m=>{
+    if(l.composicao.some(c=>normTxt(c.desc)===normTxt(m.desc))) return;
+    const novo={...m};
+    if(normTxt(m.desc)==='reembarque'){ const n=(l.trajetos||[]).length; if(n<=1){ novo.ativo=false; novo.valor='0'; } }  // só ativa com reembarque real
+    l.composicao.push(novo); mudou=true;
+  });
+  if(mudou){   // coloca as taxas padrão na ordem certa; taxas personalizadas ficam no fim
+    const ordem={}; CRM_COMP_MODELO.forEach((m,i)=>ordem[normTxt(m.desc)]=i);
+    l.composicao.sort((a,b)=>((ordem[normTxt(a.desc)]??999)-(ordem[normTxt(b.desc)]??999)));
+  }
+  return mudou;
+}
 function crmRenderComp(id){
   const l=CRM_LEADS[id]; const box=$('#crmComposicao'); if(!l||!box) return;
+  if(crmGarantirTaxas(l)){ crmCompRecalcImposto(id); crmSalvarAuto(); }   // completa as taxas padrão que faltarem
   const trajetos=l.trajetos||[], comp=l.composicao||[];
   const catAtual = ($('#calcCategoria')?.value) || crmCategoriaSugerida(l) || 'Carro passeio';
   const trajHTML = trajetos.map((t,i)=>{
