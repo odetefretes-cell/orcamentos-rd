@@ -2574,8 +2574,11 @@ function addAtualizacao(id,tipo){
 
 // ---- link de acompanhamento do cliente ----
 function clienteData(f){
+  const rec=num(f.pago1)+num(f.pago2), vf=num(f.valorFrete), ab=vf-rec;
   return { n:f.numero||'', v:veicResumo(f), o:up(f.origem||''), d:up(f.destino||''),
     st:statusDe(f), prev:up(f.previsaoEntrega||''), cli:up(f.clienteEmpresa||''),
+    valorFrete:f.valorFrete||'', formaPgto:up(f.formaPgto||''),
+    pg1:f.pago1||'', pg2:f.pago2||'', dpg1:f.dataPago1||'', dpg2:f.dataPago2||'', recebido:rec, aberto:ab,
     h:histOf(f,'cliente').map(x=>({t:x.ts,x:x.texto})) };
 }
 function gerarLinkCliente(id){
@@ -2652,6 +2655,18 @@ function renderClienteView(data){
       ${linha('Origem', data.o)}
       ${linha('Destino', data.d)}
     </div></div>
+    ${(data.valorFrete||data.recebido||data.pg1) ? `
+    <div class="cli-info" style="margin-top:12px">
+      <h2 style="font-size:15px;margin:0 0 10px;color:var(--azul)">💳 Pagamento</h2>
+      <div class="grid2">
+        ${linha('Valor do frete', moeda(data.valorFrete))}
+        ${linha('Forma de pagamento', data.formaPgto)}
+        ${data.pg1?linha('1º pagamento', moeda(data.pg1)+(data.dpg1?(' · '+dataBR(data.dpg1)):'')):''}
+        ${data.pg2?linha('2º pagamento', moeda(data.pg2)+(data.dpg2?(' · '+dataBR(data.dpg2)):'')):''}
+        ${linha('Total recebido', moeda(data.recebido))}
+        ${linha('Em aberto', (data.aberto<=0.005 && data.recebido>0)?'✓ Quitado':moeda(data.aberto))}
+      </div>
+    </div>` : ''}
     <div class="cli-timeline">
       <h2>📦 Andamento do transporte</h2>
       ${tl}
