@@ -4009,8 +4009,15 @@ let crmModalId = null;   // lead aberto no modal agora (protege as edições em 
 let _crmSaveT = null;
 function crmSalvarAuto(){
   clearTimeout(_crmSaveT);
-  _crmSaveT = setTimeout(()=>{ try{ if(typeof saveCRM==='function') saveCRM(); }catch(_){} }, 500);
+  _crmSaveT = setTimeout(()=>{ _crmSaveT=null; try{ if(typeof saveCRM==='function') saveCRM(); }catch(_){} }, 500);
 }
+// grava AGORA (sem esperar o debounce) — usado ao fechar o modal e ao sair/atualizar a página
+function crmFlushSave(){
+  if(_crmSaveT){ clearTimeout(_crmSaveT); _crmSaveT=null; }
+  try{ if(typeof saveCRM==='function') saveCRM(); }catch(_){}
+}
+// ao atualizar/fechar a aba, garante que o localStorage tem a última edição (não se perde no refresh)
+try{ window.addEventListener('beforeunload', ()=>{ if(_crmSaveT) crmFlushSave(); }); }catch(_){}
 function crmDescartarRascunho(){
   if(crmDraftId && CRM_LEADS[crmDraftId] && CRM_LEADS[crmDraftId]._novo){
     delete CRM_LEADS[crmDraftId];
@@ -4259,7 +4266,7 @@ function crmAbrirLead(id){
 }
 
 function fecharCrmModal(){
-  if(crmModalId && CRM_LEADS[crmModalId] && !CRM_LEADS[crmModalId]._novo){ crmSalvarAuto(); }  // garante que as edições foram salvas
+  if(crmModalId && CRM_LEADS[crmModalId] && !CRM_LEADS[crmModalId]._novo){ crmFlushSave(); }  // grava as edições na hora
   crmModalId = null;
   crmDescartarRascunho();   // se fechou sem salvar, o rascunho não vira lead
   const modal = $('#crmModal');
@@ -5202,9 +5209,9 @@ async function crmCalcAuto(id, auto){
 async function crmAutoCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
   if(!l.origem || !l.destino) return;                 // sem rota, nada a calcular
-  if(l.composicao && l.composicao.length) {            // já tem composição
-    // se tem trechos, re-deriva para refletir a quantidade de veículos atual (auto-corrige leads antigos)
-    if(l.trajetos && l.trajetos.length){ crmRecalcCalc(id); crmRenderComp(id); }
+  if(l.composicao && l.composicao.length) {            // já tem composição salva
+    // NÃO recalcula ao abrir — respeita os valores salvos (edições manuais/negociadas não podem ser sobrescritas).
+    // O recálculo só acontece em ações explícitas: mudar quantidade, trecho, transportadora ou "🧮 Calcular frete".
     const V = crmValoresOrc(l); const f=$('#crmCotSW'); if(f && V.totalBase) f.value = String(Math.round(V.totalBase*100)/100);
     return;
   }
