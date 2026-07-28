@@ -453,6 +453,7 @@
   <button class="sb-btn" id="sbCli" onclick="switchView('clientes')" title="Clientes"><span>👥</span></button>
   <button class="sb-btn" id="sbMensal" onclick="switchView('mensal')" title="Metas"><span>📊</span></button>
   <button class="sb-btn" id="sbRelatorios" onclick="switchView('relatorios')" title="Relatórios"><span>📈</span></button>
+  <button class="sb-btn" id="sbOrcamento" onclick="crmCalcAvulso()" title="Calcular orçamento (com PDF)"><span>🧮</span></button>
   <div style="flex:1"></div>
   <button class="sb-btn" onclick="abrirUsuarios()" title="Configurações"><span>⚙️</span></button>
 </nav>
@@ -3468,9 +3469,9 @@ const USUARIOS_PADRAO=[
   {user:'operacional', senha:'op2026', papel:'operacional', nome:'Operacional'},
 ];
 const PERMISSOES={
-  admin:['crm','ficha','rel','fin','clientes','mensal','relatorios'],   // acesso total
-  comercial:['crm','ficha','mensal','relatorios'],    // CRM + ficha + metas + relatório
-  operacional:['rel','ficha','mensal','relatorios'], // operacional + ficha + metas + relatório
+  admin:['crm','ficha','rel','fin','clientes','mensal','relatorios','orcamento'],   // acesso total
+  comercial:['crm','ficha','mensal','relatorios','orcamento'],    // CRM + ficha + metas + relatório + orçamento avulso
+  operacional:['rel','ficha','mensal','relatorios','orcamento'], // operacional + ficha + metas + relatório + orçamento (calcular + PDF)
   financeiro:['fin','ficha','relatorios'],  // financeiro + ficha (corrigir valor de prestador) + relatório
 };
 const PAPEL_NOME={admin:'Administrador',comercial:'Comercial',operacional:'Operacional',financeiro:'Financeiro'};
@@ -3505,7 +3506,7 @@ function aplicarPermissoes(){
   const perm=PERMISSOES[sessaoUser.papel]||['ficha'];
   const map={ficha:'#tabFicha',rel:'#tabRel',fin:'#tabFin',clientes:'#tabCli',mensal:'#tabMensal',crm:'#tabCrm'};
   Object.entries(map).forEach(([v,sel])=>{ const el=$(sel); if(el) el.style.display=perm.includes(v)?'':'none'; });
-  const sbPerm={crm:'sbCrm',ficha:'sbFicha',rel:'sbRel',fin:'sbFin',clientes:'sbCli',mensal:'sbMensal',relatorios:'sbRelatorios'};
+  const sbPerm={crm:'sbCrm',ficha:'sbFicha',rel:'sbRel',fin:'sbFin',clientes:'sbCli',mensal:'sbMensal',relatorios:'sbRelatorios',orcamento:'sbOrcamento'};
   Object.entries(sbPerm).forEach(([v,id])=>{ const el=document.getElementById(id); if(el) el.style.display=perm.includes(v)?'':'none'; });
   $('#userChip').style.display='inline-flex';
   $('#userNome').textContent=sessaoUser.nome;
@@ -3885,9 +3886,12 @@ async function crmAutoCalcSite(){
   }
   const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
 }
-function crmNovoLead(){
+// calculadora de orçamento avulsa (operacional/comercial): calcula + emite PDF, sem virar lead do CRM
+function crmCalcAvulso(){ crmNovoLead(true); }
+function crmNovoLead(avulso){
   const id = 'lead_' + Date.now();
   CRM_LEADS[id] = {
+    _avulso: !!avulso,
     id, nome:'', empresa:'', telefone:'', email:'', cpfCnpj:'',
     veiculoDesc:'', placa:'', origem:'', destino:'',
     valorEstimado:'', etapa:'novo', prioridade:'morno',
@@ -4025,7 +4029,7 @@ function crmAbrirLead(id){
   if(!l) return;
   const modal = $('#crmModal');
   const isNovo = !l.nome;
-  $('#crmModalTitle').textContent = isNovo ? '➕ Novo Lead' : `✏️ ${l.nome}`;
+  $('#crmModalTitle').textContent = l._avulso ? '🧮 Calcular Orçamento' : (isNovo ? '➕ Novo Lead' : `✏️ ${l.nome}`);
 
   const timelineHTML = (l.timeline||[]).slice().reverse().map(t => {
     const d = new Date(t.data);
@@ -4143,17 +4147,19 @@ function crmAbrirLead(id){
 
   // Botões do modal
   let actionsHTML = `
-    <button class="btn-ghost" onclick="fecharCrmModal()">Cancelar</button>
+    <button class="btn-ghost" onclick="fecharCrmModal()">${l._avulso?'Fechar':'Cancelar'}</button>
     <button class="btn-ghost" onclick="crmWhatsApp('${id}')" style="color:#25d366;border-color:#25d366">📱 WhatsApp</button>
-    <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>
-    <button class="btn-ghost" onclick="crmLinkFormulario('${id}')" style="color:#7c3aed;border-color:#7c3aed">🔗 Link do cliente</button>`;
-  if(l.etapa !== 'perdido'){
-    actionsHTML += `<button class="btn-ghost" onclick="crmMarcarPerda('${id}')" style="color:#c0392b;border-color:#c0392b">❌ Perda</button>`;
+    <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>`;
+  if(!l._avulso){   // calculadora avulsa: só calcula e emite PDF, não cria lead
+    actionsHTML += `<button class="btn-ghost" onclick="crmLinkFormulario('${id}')" style="color:#7c3aed;border-color:#7c3aed">🔗 Link do cliente</button>`;
+    if(l.etapa !== 'perdido'){
+      actionsHTML += `<button class="btn-ghost" onclick="crmMarcarPerda('${id}')" style="color:#c0392b;border-color:#c0392b">❌ Perda</button>`;
+    }
+    if(l.etapa === 'fechado'){
+      actionsHTML += `<button class="btn-ok" onclick="crmConverterEmFrete('${id}')">🚚 Converter em Frete</button>`;
+    }
+    actionsHTML += `<button class="btn-primary" onclick="crmSalvarLead('${id}')">💾 Salvar</button>`;
   }
-  if(l.etapa === 'fechado'){
-    actionsHTML += `<button class="btn-ok" onclick="crmConverterEmFrete('${id}')">🚚 Converter em Frete</button>`;
-  }
-  actionsHTML += `<button class="btn-primary" onclick="crmSalvarLead('${id}')">💾 Salvar</button>`;
   $('#crmModalActions').innerHTML = actionsHTML;
 
   crmRenderComp(id);   // taxas SW editáveis
