@@ -16,8 +16,8 @@
     messagingSenderId: "307588629600",
     appId: "1:307588629600:web:0914b25247953b56b06f05"
   };
-  // RD Station — token PÚBLICO (envia a conversão em paralelo, sem parar de alimentar o RD)
-  var RD_TOKEN = '32f7523c5d71799219ad1b192ce1cdd1';
+  // Ponte Make → RD Station (o navegador manda pro Make; o Make entrega no RD pelo servidor, sem bloqueio CORS)
+  var MAKE_WEBHOOK = 'https://hook.us2.make.com/s1a9hk0iu3oyn80or2dkvdslppgt2utz';
   var RD_IDENTIFICADOR = 'Cotacao Site OBS';
 
   var UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
@@ -124,24 +124,19 @@
       });
     }
 
-    // envia a conversão para o RD Station (Token público) — em paralelo ao CRM
+    // envia o lead para a ponte Make (que entrega no RD Station pelo servidor) — em paralelo ao CRM
     function enviarRD(lead) {
       var body = {
-        event_type: 'CONVERSION', event_family: 'CDP',
-        payload: {
-          conversion_identifier: RD_IDENTIFICADOR,
-          email: lead.email, name: lead.nome, personal_phone: lead.telefone,
-          cf_tipo_cliente: lead.tipoCliente, cf_veiculo: lead.veiculoDesc,
-          cf_tipo_veiculo: lead.categoria, cf_veiculo_funciona: lead.funciona,
-          cf_veiculo_blindado: lead.blindado, cf_valor_veiculo: lead.valorVeiculo,
-          cf_cidade_origem: lead.origem, cf_cidade_destino: lead.destino,
-          cf_observacao: lead.mensagem
-        }
+        identificador: RD_IDENTIFICADOR,
+        email: lead.email, nome: lead.nome, telefone: lead.telefone,
+        tipoCliente: lead.tipoCliente, veiculo: lead.veiculoDesc, tipoVeiculo: lead.categoria,
+        funciona: lead.funciona, blindado: lead.blindado, valorVeiculo: lead.valorVeiculo,
+        origem: lead.origem, destino: lead.destino, observacao: lead.mensagem
       };
-      return fetch('https://api.rd.services/platform/conversions?api_key=' + RD_TOKEN, {
+      return fetch(MAKE_WEBHOOK, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-      }).then(function (r) { if (!r.ok) console.warn('RD status', r.status); })
-        .catch(function (e) { console.warn('RD falhou (lead segue no CRM):', e); });
+      }).then(function (r) { if (!r.ok) console.warn('Make status', r.status); })
+        .catch(function (e) { console.warn('Ponte Make falhou (lead segue no CRM):', e); });
     }
 
     form.addEventListener('submit', function (ev) {
