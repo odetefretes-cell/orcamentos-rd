@@ -5453,13 +5453,17 @@ function crmRenderComp(id){
     let prestField;
     if(alts.length){
       const atualNorm=normTxt(t.transportadora||'');
-      const naLista = alts.some(a=>normTxt(a.carrier)===atualNorm);
+      const atualCent=Math.round(numMoeda(t.valor)*100);
+      // casa por transportadora E valor — um mesmo carrier pode ter 2 preços (rota direta vs. sub-trecho)
+      const naLista = alts.some(a=>normTxt(a.carrier)===atualNorm && Math.round(numMoeda(a.valor)*100)===atualCent);
+      let jaSel=false;
       const opcoes = alts.map(a=>{
         const v=`${a.carrier}§${a.valor!=null?a.valor:''}§${a.prazo!=null?a.prazo:''}`;
-        const sel = normTxt(a.carrier)===atualNorm ? ' selected':'';
-        return `<option value="${escA(v)}"${sel}>${esc(a.carrier)}${a.valor!=null?(' · '+moeda(a.valor)):''}${a.prazo?(' · '+a.prazo+'d'):''}</option>`;
+        const match = !jaSel && naLista && normTxt(a.carrier)===atualNorm && Math.round(numMoeda(a.valor)*100)===atualCent;
+        if(match) jaSel=true;
+        return `<option value="${escA(v)}"${match?' selected':''}>${esc(a.carrier)}${a.valor!=null?(' · '+moeda(a.valor)):''}${a.prazo?(' · '+a.prazo+'d'):''}</option>`;
       }).join('');
-      const extra = (!naLista && t.transportadora)? `<option value="${escA((t.transportadora)+'§'+(t.valor||'')+'§'+(t.prazo||''))}" selected>${esc(t.transportadora)} (atual)</option>`:'';
+      const extra = (!naLista && t.transportadora)? `<option value="${escA((t.transportadora)+'§'+(t.valor||'')+'§'+(t.prazo||''))}" selected>${esc(t.transportadora)}${numMoeda(t.valor)?(' · '+moeda(numMoeda(t.valor))):''} (atual)</option>`:'';
       prestField = `<select title="Trocar transportadora do trecho" onchange="crmTrajTrocaPrest('${id}',${i},this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">${extra}${opcoes}</select>`;
     } else {
       prestField = `<input value="${escA(t.transportadora||'')}" placeholder="Transportadora" oninput="crmTrajSet('${id}',${i},'transportadora',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--linha);border-radius:6px">`;
