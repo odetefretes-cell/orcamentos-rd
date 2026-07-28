@@ -4930,6 +4930,45 @@ function crmGerarOpcoes(db, o, d, cat){
   const opts = diretasU.concat(combos.slice(0,40));
   return { diretasU, combos, opts };
 }
+// endpoints (origens/destinos de rota) fortes perto de uma cidade — mesma região (ex.: Betim → Belo Horizonte, 29 km)
+async function crmEndpointsProximos(nc, uf, maxKm, limite){
+  await carregarCoords(); if(!CIDADES_COORDS) return [];
+  const req=CIDADES_COORDS[nc+'|'+uf]; if(!req) return [];
+  const out=[];
+  for(const e of endpointsComCoords()){
+    if(e.norm===nc && e.uf===uf) continue;
+    const dk=haversine(req,e.co);
+    if(dk<=maxKm) out.push({ norm:e.norm, uf:e.uf, nome:e.nome, dist:Math.round(dk) });
+  }
+  out.sort((a,b)=>a.dist-b.dist);
+  return out.slice(0, limite||2);
+}
+// junta as opções da cidade EXATA + as de hubs vizinhos (quando a cidade não é hub).
+// Ex.: Betim/MG não é hub e fica a 29 km de Belo Horizonte → também traz as rotas que saem de BH.
+async function crmColetarOpcoes(db, oR, dR, cat){
+  const KM=45, LIM=2;
+  const oHubs = ehHub(oR.norm,oR.uf) ? [] : await crmEndpointsProximos(oR.norm,oR.uf,KM,LIM);
+  const dHubs = ehHub(dR.norm,dR.uf) ? [] : await crmEndpointsProximos(dR.norm,dR.uf,KM,LIM);
+  const oCands = [{norm:oR.norm,uf:oR.uf,nome:oR.nome||oR.norm,dist:0}].concat(oHubs);
+  const dCands = [{norm:dR.norm,uf:dR.uf,nome:dR.nome||dR.norm,dist:0}].concat(dHubs);
+  // itera exato primeiro, depois hubs mais próximos → a 1ª ocorrência já é a melhor retirada/entrega
+  const seen=new Set(), all=[];
+  for(const oc of oCands){ for(const dc of dCands){
+    const res = crmGerarOpcoes(db, nk(oc.norm,oc.uf), nk(dc.norm,dc.uf), cat);
+    for(const x of res.opts){
+      // dedup por transportadora(s) + destino final + preço (ignora a cidade de retirada, que pode variar na região)
+      const ult=x.legs[x.legs.length-1];
+      const sig = x.legs.map(l=>normTxt(l.transportadora)).join('>')+'|'+normTxt(ult.dNome)+'/'+(ult.dUF||'')+'|'+(x.total==null?'?':x.total);
+      if(seen.has(sig)) continue; seen.add(sig);
+      x._viaOrigem  = oc.dist>0 ? {nome:oc.nome,uf:oc.uf,dist:oc.dist} : null;   // retirada num hub vizinho
+      x._viaDestino = dc.dist>0 ? {nome:dc.nome,uf:dc.uf,dist:dc.dist} : null;   // entrega num hub vizinho
+      all.push(x);
+    }
+  }}
+  // ordena: diretas primeiro, depois por preço
+  all.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
+  return all;
+}
 // aplica uma opção (lista de trechos) ao lead
 function crmAplicarOpcao(id, x){
   const l = CRM_LEADS[id]; if(!l||!x) return;
@@ -4959,17 +4998,20 @@ async function crmCalcOpcoes(id){
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> → mais próxima <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   crmGuardarAprox(id, oR, oRaw, dR, dRaw);
   const cat = $('#calcCategoria')?.value || '';
-  const { diretasU, combos, opts } = crmGerarOpcoes(db, o, d, cat);
+  const opts = await crmColetarOpcoes(db, oR, dR, cat);   // exata + hubs vizinhos (mesma região)
+  const nDiretas=opts.filter(x=>x.tipo==='direta').length, nCombos=opts.length-nDiretas;
   window.__crmOpcoes = opts;
   if(!opts.length){ box.innerHTML = `<p class="hint">Nenhuma opção encontrada para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b>. Preencha manualmente.</p>`; crmAbrirComposicaoManual(id); return; }
   const cardOpt = (x,i)=>{
     const legTxt = x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
+    const via = [x._viaOrigem?`retirada em ${esc(x._viaOrigem.nome)}/${esc(x._viaOrigem.uf)} (${x._viaOrigem.dist} km)`:'', x._viaDestino?`entrega em ${esc(x._viaDestino.nome)}/${esc(x._viaDestino.uf)} (${x._viaDestino.dist} km)`:''].filter(Boolean).join(' · ');
     const tag = x.tipo==='direta' ? '<span style="background:#16a34a;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px">DIRETA</span>'
                                   : `<span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px">${x.legs.length} TRECHOS</span>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--linha)">
       <div style="min-width:0">
         <div style="margin-bottom:2px">${tag} ${x.prazo?`<span class="hint">· ${x.prazo}d</span>`:''}</div>
         <div class="hint" style="margin:0;font-size:11.5px;line-height:1.35">${legTxt}</div>
+        ${via?`<div class="hint" style="margin:1px 0 0;font-size:10.5px;color:#c88a00">📍 ${via} — cidade vizinha</div>`:''}
       </div>
       <div style="text-align:right;white-space:nowrap">
         <div style="font-weight:700;color:#16a34a">${x.total!=null?moeda(x.total):'—'}</div>
@@ -4979,7 +5021,7 @@ async function crmCalcOpcoes(id){
   };
   box.innerHTML = `
     ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado.</div>`:''}
-    <div style="font-size:12px;font-weight:600;margin:2px 0 4px">${diretasU.length} rota(s) direta(s) e ${combos.length} combinação(ões) — a mais barata já está aplicada</div>
+    <div style="font-size:12px;font-weight:600;margin:2px 0 4px">${nDiretas} rota(s) direta(s) e ${nCombos} combinação(ões) — a mais barata já está aplicada</div>
     <div style="max-height:280px;overflow:auto;border:1px solid var(--linha);border-radius:8px;padding:6px">
       ${opts.map((x,i)=>cardOpt(x,i)).join('')}
     </div>`;
@@ -5107,7 +5149,8 @@ async function crmCalcAuto(id, auto){
   // se a cidade não está na tabela, usa a mais próxima por distância
   let oR=await resolverCidade(oRaw), dR=await resolverCidade(dRaw);
   const cat = $('#calcCategoria')?.value || '';
-  let opts = crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  // opções da cidade exata + hubs vizinhos da mesma região (ex.: Betim usa também Belo Horizonte)
+  let opts = await crmColetarOpcoes(db, oR, dR, cat);
   if(!opts.length){
     // fallback: cidade de trajeto mais próxima é beco sem saída → ancora no hub/base mais próximo
     const of=await ancoraForteMaisProxima(oR.norm,oR.uf), df=await ancoraForteMaisProxima(dR.norm,dR.uf);
@@ -5131,6 +5174,7 @@ async function crmCalcAuto(id, auto){
   const sig = x => x.legs.map(l=>l.transportadora+'>'+normTxt(l.dNome)).join('|');
   const sB=sig(barata), sR=sig(rapida), sM=sig(menos), sP=sig(padrao);
   const legTxt = x => x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
+  const viaTxt = x => { const v=[]; if(x._viaOrigem) v.push(`retirada em ${esc(x._viaOrigem.nome)}/${esc(x._viaOrigem.uf)} (${x._viaOrigem.dist} km)`); if(x._viaDestino) v.push(`entrega em ${esc(x._viaDestino.nome)}/${esc(x._viaDestino.uf)} (${x._viaDestino.dist} km)`); return v.length?`<div class="hint" style="margin:2px 0 0;font-size:10.5px;color:#c88a00">📍 ${v.join(' · ')} — cidade vizinha da região</div>`:''; };
   const card = (x, icon, titulo, key, aplicada, nota) => `
     <div style="border:1px solid ${aplicada?'#16a34a':'var(--linha)'};border-radius:8px;padding:8px;margin-bottom:6px;background:${aplicada?'rgba(22,163,74,.06)':'transparent'}">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -5142,6 +5186,7 @@ async function crmCalcAuto(id, auto){
       </div>
       <div class="hint" style="margin:3px 0 0;font-size:11px">${x.legs.length} trecho(s)${x.prazo?(' · '+x.prazo+' dias'):''}</div>
       <div class="hint" style="margin:2px 0 0;font-size:11px;line-height:1.35">${legTxt(x)}</div>
+      ${viaTxt(x)}
     </div>`;
   box.innerHTML = `
     ${avisosProx.length?`<div style="background:#fff7e6;border:1px solid #e6a100;border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11.5px;color:#7a5200">📍 Cidade mais próxima que atendemos: ${avisosProx.join('; ')}. Valor aproximado — confira.</div>`:''}
