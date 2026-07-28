@@ -3893,7 +3893,8 @@ function renderCRM(){
 
   const board = $('#kanbanBoard'); if(!board) return;
   const cardHTML = l => `
-    <div class="k-card" draggable="true" data-id="${l.id}"
+    <div class="k-card${l.emailEnviadoEm?' k-card-email':''}" draggable="true" data-id="${l.id}"
+         ${l.emailEnviadoEm?`style="border-left:4px solid #22c55e;box-shadow:0 0 0 1px rgba(34,197,94,.4),0 2px 14px rgba(34,197,94,.18)"`:''}
          ondragstart="crmDragStart(event)" ondragend="crmDragEnd(event)"
          onclick="crmAbrirLead('${l.id}')">
       <div class="kc-actions">
@@ -3910,6 +3911,7 @@ function renderCRM(){
       ${l.veiculoDesc ? `<div class="kc-veiculo">🚗 ${esc(l.veiculoDesc)}</div>` : ''}
       ${l.origem||l.destino ? `<div class="kc-rota">📍 ${esc(l.origem||'?')} → ${esc(l.destino||'?')}</div>` : ''}
       ${l.origemLead==='whatsapp'||l.origemLead==='site' ? `<div class="kc-rota">${l.origemLead==='whatsapp'?'📱 WhatsApp':'🌐 Site'}${crmTemCalc(l)?' · média '+moeda(l.valorCotacaoSW):''}</div>` : ''}
+      ${l.emailEnviadoEm?`<div style="margin-top:3px"><span class="kc-tag" style="background:#22c55e;color:#052e16;font-weight:700">✉️ E-mail enviado · ${dataBR((l.emailEnviadoEm||'').slice(0,10))}</span></div>`:''}
       ${l.interesse==='sim'?`<div style="margin-top:3px"><span class="kc-tag quente">✅ Interesse SIM</span></div>`:l.interesse==='nao'?`<div style="margin-top:3px"><span class="kc-tag frio">❌ Sem interesse</span></div>`:''}
       ${(()=>{ const t=crmProxTarefa(l); if(!t) return ''; const s=crmStatusTarefa(t.data); const c=s==='atrasada'?'#dc2626':s==='hoje'?'#d97706':'#2563eb'; const ic=s==='atrasada'?'⏰':s==='hoje'?'📌':'🗓️'; return `<div style="margin-top:4px;font-size:11px;color:${c};font-weight:600" title="${escA(t.texto)}">${ic} ${esc(t.texto.length>26?t.texto.slice(0,26)+'…':t.texto)} · ${dataBR(t.data)}</div>`; })()}
       <div class="kc-footer">
@@ -4518,8 +4520,10 @@ function crmEmailLead(id){
   const gmail='https://mail.google.com/mail/?view=cm&fs=1&tf=1&authuser='+encodeURIComponent(OBS_EMAIL_REMETENTE)+'&to='+to+'&su='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg);
   const w=window.open(gmail,'_blank');
   if(!w){ const a=document.createElement('a'); a.href='mailto:'+to+'?subject='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg); a.click(); }
+  l.emailEnviadoEm = new Date().toISOString();   // marca o envio → destaca o card
   crmAddTimeline(id,'email','Orçamento enviado por e-mail para '+email+' (Gmail).');
   saveCRM();
+  if(typeof renderCRM==='function') renderCRM();
   flash('Abrindo o Gmail para '+email+' ✔');
 }
 // ---- WhatsApp ----
