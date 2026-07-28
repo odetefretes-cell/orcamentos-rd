@@ -1051,6 +1051,7 @@
       <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('msgWppModal').style.display='none'">✕ fechar</button>
     </div>
     <p class="hint" style="margin-top:0">Copie e cole na conversa do WhatsApp com o cliente.</p>
+    <div id="msgWppAlerta" style="display:none"></div>
     <textarea id="msgWppTexto" readonly style="width:100%;height:300px;resize:vertical;font-size:13px;line-height:1.5;padding:12px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg,#0e1424);color:inherit;white-space:pre-wrap"></textarea>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
       <button class="btn-ghost" style="padding:8px 16px" onclick="document.getElementById('msgWppModal').style.display='none'">Fechar</button>
@@ -4487,10 +4488,44 @@ function crmWhatsApp(id){
   }
   // não abre o WhatsApp: mostra a mensagem formatada para copiar e colar na conversa
   const ta = $('#msgWppTexto'); if(ta) ta.value = msg;
+  // valida o número p/ WhatsApp; se inválido, alerta e sugere enviar por e-mail
+  const alerta=$('#msgWppAlerta');
+  if(alerta){
+    if(!telWppValido(l.telefone)){
+      _msgWppEmail = (l.email||'').trim();
+      const temEmail = /@/.test(_msgWppEmail);
+      alerta.style.display='block';
+      alerta.innerHTML = `<div style="background:#fdeaea;border:1px solid #dc2626;border-radius:8px;padding:9px 12px;margin-bottom:8px;color:#7a0a0f;font-size:12.5px">
+        ⚠️ <b>WhatsApp inválido${l.telefone?(' — '+esc(l.telefone)):' (sem número)'}.</b> Não dá para enviar por WhatsApp.<br>
+        ${temEmail
+          ? `Envie por <b>e-mail</b>: ${esc(_msgWppEmail)} <button class="btn-ok" style="margin-left:6px;padding:4px 12px;font-size:12px" onclick="crmEnviarMsgEmail()">📧 Enviar por e-mail</button>`
+          : `O lead <b>não tem e-mail</b> cadastrado — atualize o contato do cliente.`}
+      </div>`;
+      crmAddTimeline(id,'nota','⚠️ WhatsApp inválido — sugerido envio por e-mail'+(temEmail?(' ('+_msgWppEmail+')'):' (sem e-mail cadastrado)'));
+    } else { alerta.style.display='none'; alerta.innerHTML=''; _msgWppEmail=''; }
+  }
   const modal = $('#msgWppModal'); if(modal) modal.style.display='flex';
   crmAddTimeline(id, 'whatsapp', tlTxt);
   saveCRM();
   flash('Mensagem pronta — copie e cole na conversa ✔');
+}
+// valida número brasileiro para WhatsApp (DDD + celular/fixo)
+function telWppValido(tel){
+  let d=(tel||'').replace(/\D/g,'');
+  if(d.length>11 && d.startsWith('55')) d=d.slice(2);   // remove código do país (+55)
+  if(d.length<10 || d.length>11) return false;          // precisa de DDD + 8/9 dígitos
+  const ddd=+d.slice(0,2); if(ddd<11 || ddd>99) return false;
+  if(/^(\d)\1+$/.test(d)) return false;                  // todos os dígitos iguais
+  if(d.length===11 && d[2]!=='9') return false;          // celular de 11 dígitos começa com 9
+  return true;
+}
+let _msgWppEmail='';
+function crmEnviarMsgEmail(){
+  const msg=$('#msgWppTexto')?.value||'';
+  if(!/@/.test(_msgWppEmail)){ alert('Sem e-mail cadastrado para este lead. Atualize o contato.'); return; }
+  const url='mailto:'+encodeURIComponent(_msgWppEmail)+'?subject='+encodeURIComponent('Orçamento OBS Transportes')+'&body='+encodeURIComponent(msg);
+  const a=document.createElement('a'); a.href=url; a.click();
+  flash('Abrindo o e-mail para '+_msgWppEmail+' ✔');
 }
 // guarda no lead a cidade mais próxima usada no cálculo (p/ avisar também no WhatsApp)
 function crmGuardarAprox(id, oR, oRaw, dR, dRaw){
