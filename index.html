@@ -4658,17 +4658,16 @@ function basesComCoords(){
 async function cidadeMaisProxima(normCidade, uf){
   await carregarCoords(); if(!CIDADES_COORDS) return null;
   const req=CIDADES_COORDS[normCidade+'|'+uf]; if(!req) return null;
-  let best=null, bestD=Infinity;
-  // REGRA GERAL: ancora no ENDPOINT de rota mais próximo (origem/destino final = onde a transportadora
-  // opera). Assim Guarulhos → São Bernardo (hub), Franca → Ribeirão Preto (hub c/ Transpadre), e não numa
-  // base sem rota (São Paulo) ou cidade de passagem sem saída (Guará). Vale p/ todos os estados e rotas.
-  const eps=endpointsComCoords();
-  for(const e of eps){ const dkm=haversine(req,e.co); if(dkm<bestD){ bestD=dkm; best={nome:e.nome, uf:e.uf, dist:Math.round(dkm)}; } }
-  if(best) return best;
-  // fallback: sem endpoints carregados, usa a base de apoio mais próxima
-  const bases=basesComCoords();
-  for(const b of bases){ const dkm=haversine(req,b.co); if(dkm<bestD){ bestD=dkm; best={nome:b.nome, uf:b.uf, dist:Math.round(dkm)}; } }
-  return best;
+  let best=null, bestEp=null, bestD=Infinity, bestEpD=Infinity;
+  // nó de rota mais próximo (endpoint OU cidade de passagem por onde o caminhão passa)
+  for(const b of basesComCoords()){ const dkm=haversine(req,b.co); if(dkm<bestD){ bestD=dkm; best={nome:b.nome, uf:b.uf, dist:Math.round(dkm)}; } }
+  // endpoint (hub de rota) mais próximo
+  for(const e of endpointsComCoords()){ const dkm=haversine(req,e.co); if(dkm<bestEpD){ bestEpD=dkm; bestEp={nome:e.nome, uf:e.uf, dist:Math.round(dkm)}; } }
+  // Regra: prefere o HUB (endpoint) — mais rotas — a não ser que uma cidade de passagem esteja
+  // MUITO mais perto (>50 km mais perto). Assim: Franca → Ribeirão Preto (hub, 82 km) e não Guará
+  // (45 km); mas Florianópolis → São José/SC (9 km) e não São José dos Pinhais (238 km).
+  if(best && bestEp){ return (bestEpD <= bestD + 50) ? bestEp : best; }
+  return best || bestEp;
 }
 // \u00e2ncoras fortes = bases (config) + HUBS (cidades que s\u00e3o ORIGEM de rota, onde a transportadora
 // opera). Uma cidade de PASSAGEM colada num hub (ex.: Curitiba a 15km de Colombo, base da M1)
