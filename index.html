@@ -5446,6 +5446,28 @@ function segBelemManaus(t){
   const a=normTxt((t.de||'').split('/')[0]), b=normTxt((t.para||'').split('/')[0]);
   return (a==='belem'&&b==='manaus')||(a==='manaus'&&b==='belem');
 }
+// Acha a cidade na tabela de Configurações (recebimento / coleta-entrega) a partir de um
+// nome "Cidade/UF". A chave da tabela pode ser composta ("São José dos Pinhais/Curitiba"),
+// então casa por parte da chave e pela UF quando informada, com substring como último recurso.
+function crmCidadeConfig(nomeBruto, uf){
+  const db=TABELA_FRETES; if(!db||!db.cidades) return null;
+  const cidades=db.cidades;
+  const alvo=normTxt((String(nomeBruto||'').split('/')[0]));   // "sao jose dos pinhais"
+  if(!alvo) return null;
+  const U=(uf||ufTxt(nomeBruto)||'').toUpperCase().trim();
+  if(cidades[alvo]) return cidades[alvo];                      // 1) chave normalizada direta
+  let melhor=null;                                             // 2) casa por parte da chave (chave composta) e pela UF
+  for(const k in cidades){
+    const c=cidades[k];
+    if(U && c.uf && c.uf.toUpperCase()!==U) continue;
+    const partes=String(k).split('/').map(p=>normTxt(p)).filter(Boolean);
+    for(const p of partes){
+      if(p===alvo) return c;                                  // parte idêntica: melhor casamento possível
+      if(!melhor && ((p.length>3 && p.includes(alvo)) || (alvo.length>3 && alvo.includes(p)))) melhor=c;
+    }
+  }
+  return melhor;
+}
 // recalcula Frete Base (soma dos trechos), Seguro (RCTR-C somado) e Recebimento a partir dos trechos
 function crmRecalcCalc(id){
   const l = CRM_LEADS[id]; if(!l) return;
@@ -5482,12 +5504,12 @@ function crmRecalcCalc(id){
   };
   setComp('Frete Base', base, true);
   setComp('Seguro', seguro, true);   // preenche sempre (0 se faltar UF ou valor do veículo)
-  // Recebimento: taxa da cidade de destino do último trecho (por veículo)
-  const ult = trs[trs.length-1];
-  if(ult && TABELA_FRETES && TABELA_FRETES.cidades){
-    const cidDest = TABELA_FRETES.cidades[normTxt((ult.para||'').split('/')[0])];
-    if(cidDest && cidDest.recebimento!=null) setComp('Recebimento', cidDest.recebimento * q, true);
-  }
+  // Recebimento: taxa da BASE DE ORIGEM (onde o veículo é recebido/coletado), por veículo.
+  // Vem da cidade de origem do PRIMEIRO trecho — ex.: João Pessoa, Natal, Curitiba, Porto Alegre.
+  { const prim = trs[0];
+    const cidOrig = prim ? crmCidadeConfig(prim.de, prim.oUF) : null;
+    const rec = (cidOrig && cidOrig.recebimento!=null) ? cidOrig.recebimento : 0;
+    setComp('Recebimento', rec * q, true); }
   // Reembarque: R$100 por ligação de uma transportadora à outra; Belém↔Manaus = R$200.
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
     if(rb){
