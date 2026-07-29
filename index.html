@@ -5482,16 +5482,18 @@ function crmRecalcCalc(id){
   };
   setComp('Frete Base', base, true);
   setComp('Seguro', seguro, true);   // preenche sempre (0 se faltar UF ou valor do veículo)
-  // Recebimento: taxa da BASE DE ORIGEM (onde a transportadora recebe o veículo p/ carregar), por veículo.
-  // Procura pela cidade de origem do 1º trecho; se ela não tiver taxa cadastrada, tenta a origem informada no lead.
-  const prim = trs[0];
-  if(prim && TABELA_FRETES && TABELA_FRETES.cidades){
+  // Recebimento: AS DUAS BASES cobram — a de ORIGEM (recebe o veículo p/ carregar) e a de
+  // DESTINO (recebe o veículo no fim). Soma as duas taxas (cada uma por veículo).
+  const prim = trs[0], ult = trs[trs.length-1];
+  if((prim||ult) && TABELA_FRETES && TABELA_FRETES.cidades){
     const cds = TABELA_FRETES.cidades;
-    let rec = null;
-    const cOrig = cds[normTxt((prim.de||'').split('/')[0])];
-    if(cOrig && cOrig.recebimento!=null) rec = cOrig.recebimento;
-    if(rec==null){ const cLead = cds[normTxt((l.origem||'').split('/')[0])]; if(cLead && cLead.recebimento!=null) rec = cLead.recebimento; }
-    if(rec!=null) setComp('Recebimento', rec * q, true);
+    const recDe = nome => { const c=cds[normTxt((nome||'').split('/')[0])]; return (c && c.recebimento!=null)?c.recebimento:null; };
+    let ro = recDe(prim&&prim.de); if(ro==null) ro = recDe(l.origem);
+    let rd = recDe(ult&&ult.para); if(rd==null) rd = recDe(l.destino);
+    let recTot=0, achou=false;
+    if(ro!=null){ recTot+=ro; achou=true; }
+    if(rd!=null){ recTot+=rd; achou=true; }
+    if(achou) setComp('Recebimento', recTot * q, true);
   }
   // Reembarque: R$100 por ligação de uma transportadora à outra; Belém↔Manaus = R$200.
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
