@@ -4077,7 +4077,7 @@ async function crmRecalcularLead(id){
   const menos =opts.slice().sort((a,b)=>(a.legs.length-b.legs.length)||(a.total??1e12)-(b.total??1e12))[0];
   const escolhida = crmPadraoDireta(barata, menos);   // prefere menos embarques quando o extra é pequeno
   l.trajetos=escolhida.legs.map(g=>({ de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
-    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null }));
+    transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', valores:g.valores||null, oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null }));
   l.composicao=CRM_COMP_MODELO.map(c=>({...c}));       // recompõe com as regras novas (imposto off, reembarque por ligação)
   l._prazoManual=false;
   crmRecalcCalc(id);                                   // frete base, seguro, recebimento, reembarque, imposto, valor médio, prazo
@@ -5736,6 +5736,17 @@ function crmRenderComp(id){
       <button onclick="crmCompDel('${id}',${i})" title="Excluir taxa" style="border:none;background:none;cursor:pointer">🗑️</button>
     </div>`).join('');
   const ativo = d => { const c=comp.find(c=>normTxt(c.desc)===normTxt(d)); return c && c.ativo; };
+  // detalhamento da VAGA por veículo (cada categoria cobra o seu valor na rota)
+  let brkHTML='';
+  { const veics=crmVeics(l);
+    if(veics.length && trajetos.length){
+      const parts=veics.map((v,i)=>{
+        let tot=0, ok=false;
+        for(const t of trajetos){ if(t.valores){ const pc=precoCat(t.valores, v.categoria); if(pc!=null){ tot+=pc; ok=true; } } else if(t.valor!==''){ tot+=numMoeda(t.valor); ok=true; } }
+        return `<span style="white-space:nowrap">${esc(v.categoria||'?')}${v.modelo?(' <span style="opacity:.7">('+esc(v.modelo)+')</span>'):''}: <b>${ok?moeda(tot):'—'}</b></span>`;
+      });
+      if(veics.length>1) brkHTML=`<div class="hint" style="margin:0 0 8px;font-size:11.5px;line-height:1.5">🚗 Vaga por veículo (Frete Base) — ${parts.join(' &nbsp;·&nbsp; ')}</div>`;
+    } }
   const endHTML = (label, campo, on) => on ? `
     <div class="field" style="margin:6px 0 0">
       <label style="font-size:12px">${label} — endereço completo (sai no PDF)</label>
@@ -5746,6 +5757,7 @@ function crmRenderComp(id){
     <div style="font-size:12px;font-weight:600;opacity:.75;margin:2px 0 6px">🛣️ Trajetos / trechos</div>
     ${trajHTML || '<p class="hint" style="margin:0 0 6px">Nenhum trecho. Clique em 🧮 Calcular frete ou adicione manualmente.</p>'}
     <button class="btn-ghost" onclick="crmTrajAdd('${id}')" style="font-size:12px;padding:4px 10px;margin-bottom:10px">➕ Trecho</button>
+    ${brkHTML}
     <div style="font-size:12px;font-weight:600;opacity:.75;margin:6px 0">💵 Taxas (ligue/desligue, edite ou exclua) <span style="font-weight:400">— 🧾 Imposto entra só quando o cliente pede NF (ligue no botão)</span></div>
     ${compHTML || '<p class="hint" style="margin:0 0 6px">Nenhuma taxa lançada ainda.</p>'}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
