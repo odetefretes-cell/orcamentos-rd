@@ -923,6 +923,7 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
+      <button id="crmBtnRecalcTudo" class="btn-ghost" onclick="crmRecalcularTudo()" title="Recalcular TODOS os leads com as regras atuais (rota, recebimento das 2 bases, categorias)" style="display:none">🔄 Recalcular CRM (lote)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -3871,6 +3872,7 @@ function crmLimparPeriodo(){
 }
 function renderCRM(){
   renderCRMMetrics();
+  { const bt=$('#crmBtnRecalcTudo'); if(bt) bt.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
@@ -4100,6 +4102,30 @@ async function crmRecalcularFunil(etapaId){
   if(t&&t.fechar) t.fechar();
   saveCRM(); renderCRM();
   flash(`✔ ${feitos} lead(s) recalculado(s)`+(semRota?` · ${semRota} sem rota automática (conferir manual)`:''),'ok');
+}
+// Recalcula TODO o CRM em lote (roda no próprio sistema — sem automação de navegador, não é barrado).
+// Aplica as regras atuais: rota, recebimento das 2 bases, categorias por veículo, seguro, etc.
+async function crmRecalcularTudo(){
+  if(!(sessaoUser && sessaoUser.papel==='admin')){ alert('Só o admin pode recalcular em lote.'); return; }
+  const ids=Object.keys(CRM_LEADS).filter(id=>{ const l=CRM_LEADS[id]; return l && !l._novo && l.origem && l.destino && l.etapa!=='perdido'; });
+  if(!ids.length){ alert('Nenhum lead com origem e destino para recalcular.'); return; }
+  const ok=await uiConfirm(`Recalcular ${ids.length} lead(s) do CRM com as regras atuais?\n\nRefaz rota, taxas e valores (recebimento das 2 bases, categorias por veículo, seguro). Edições manuais de taxas serão substituídas.\n\nRoda por dentro do sistema (sem automação) e salva o progresso. Pode levar alguns minutos.`,
+    {titulo:'Recalcular CRM em lote', ok:'Recalcular'});
+  if(!ok) return;
+  const t=flash('Recalculando 0/'+ids.length+'…','load');
+  const setTxt=s=>{ if(t){ const tx=t.querySelector&&t.querySelector('.tx'); if(tx) tx.textContent=s; } };
+  let feitos=0, semRota=0;
+  for(let i=0;i<ids.length;i++){
+    try{ (await crmRecalcularLead(ids[i])) ? feitos++ : semRota++; }catch(_){ semRota++; }
+    if(i%10===9 || i===ids.length-1){
+      setTxt('Recalculando '+(i+1)+'/'+ids.length+'…');
+      try{ saveCRM(); }catch(_){}                       // salva o progresso a cada 10 (não perde se fechar)
+      await new Promise(r=>setTimeout(r,0));             // devolve o controle p/ a tela não travar
+    }
+  }
+  if(t&&t.fechar) t.fechar();
+  saveCRM(); if(typeof renderCRM==='function') renderCRM();
+  flash('✔ '+feitos+' lead(s) recalculado(s)'+(semRota?(' · '+semRota+' sem rota automática (conferir manual)'):''),'ok');
 }
 // Auto-cálculo do lead do site/WhatsApp: quando um lead novo chega da integração
 // (formulário do site ou ChatGuru) sem cálculo, o sistema aplica a própria regra de
