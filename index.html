@@ -2090,7 +2090,11 @@ function renderRelatorio(){
     if(relStatusF!=='TODOS' && statusDe(f)!==relStatusF) return false;
     if(q){ const hay=[f.numero,f.clienteEmpresa,f.origem,f.destino,f.placa,f.atendente,...((f.veiculos||[]).map(v=>v.placa))].join(' ').toLowerCase(); if(!hay.includes(q)) return false; }
     return true;
-  }).sort((a,b)=>num(b.numero)-num(a.numero));
+  }).sort((a,b)=>{
+    // fretes NA FILA (sem operadora, aguardando) sempre em cima; depois por nº (mais novo primeiro)
+    const fa=opDe(a)?1:0, fb=opDe(b)?1:0;
+    return (fa-fb) || (num(b.numero)-num(a.numero));
+  });
 
   // ======= TAREFAS DO TRANSPORTE (marcos: hoje e próximos dias) =======
   const emk=$('#opMarcos'); if(emk) emk.innerHTML = marcosPanelHTML(fretes);
