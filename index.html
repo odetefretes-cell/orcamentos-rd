@@ -1538,10 +1538,22 @@ function gravarDB(_){
   if(CLOUD_ON && _fb) cloudSync();
   else localStorage.setItem(DB, JSON.stringify(MEM));
 }
+// avisa quando uma gravação REALMENTE falha (permissão, documento grande demais, dados inválidos)
+// — não dispara por estar offline (nesse caso a gravação fica na fila e reenvia sozinha).
+let _syncErros=0, _syncErroT=null;
+function _syncErro(oque, e){
+  _syncErros++; console.error('⚠ Falha ao gravar na nuvem:', oque, e);
+  clearTimeout(_syncErroT);
+  _syncErroT=setTimeout(()=>{ try{ if(typeof flash==='function') flash('⚠ '+_syncErros+' gravação(ões) recusada(s) pela nuvem — avise o suporte (F12 → Console).','erro'); }catch(_){}} , 400);
+}
+function _setDocSeguro(ref, data, oque){
+  try{ const r=_fb.setDoc(ref, data); if(r && r.catch) r.catch(e=>_syncErro(oque, e)); }
+  catch(e){ _syncErro(oque, e); }
+}
 function cloudSync(){
-  const {fs,doc,setDoc,deleteDoc}=_fb;
-  for(const id in MEM){ if(JSON.stringify(MEM[id])!==JSON.stringify(LAST[id])) setDoc(doc(fs,'fretes',id), MEM[id]); }
-  for(const id in LAST){ if(!(id in MEM)) deleteDoc(doc(fs,'fretes',id)); }
+  const {fs,doc,deleteDoc}=_fb;
+  for(const id in MEM){ if(JSON.stringify(MEM[id])!==JSON.stringify(LAST[id])) _setDocSeguro(doc(fs,'fretes',id), MEM[id], 'frete '+((MEM[id]&&MEM[id].numero)||id)); }
+  for(const id in LAST){ if(!(id in MEM)){ try{ deleteDoc(doc(fs,'fretes',id)); }catch(_){} } }
   LAST=JSON.parse(JSON.stringify(MEM));
 }
 async function initData(){
@@ -1553,7 +1565,14 @@ async function initData(){
       const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
       const fsMod =await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
       const app=appMod.initializeApp(FIREBASE_CONFIG);
-      const fs=fsMod.getFirestore(app);
+      // PERSISTÊNCIA OFFLINE (IndexedDB): as gravações ficam numa fila local que SOBREVIVE ao
+      // fechar/atualizar a aba e são reenviadas sozinhas até chegarem na nuvem — nada se perde
+      // se a conexão cair ou a aba fechar antes de terminar de salvar. Multi-aba habilitado.
+      let fs;
+      try{
+        fs=fsMod.initializeFirestore(app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
+        console.log('☁ Firestore com persistência offline ativada (gravações não se perdem).');
+      }catch(e){ console.warn('Persistência offline indisponível, usando padrão:',e); try{ fs=fsMod.getFirestore(app); }catch(_){ fs=fsMod.getFirestore(app); } }
       _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc};
       // Storage (upload de documentos) — opcional; só funciona se o Storage estiver ativado
       try{
@@ -1617,6 +1636,9 @@ async function initData(){
                 if(cts>=lts){ merged[id]=c; delete CRM_DIRTY[id]; CRM_SAVED[id]=_leadJSON(c); }  // servidor confirmou → aceita
                 else { merged[id]=CRM_LEADS[id]||c; }                                             // nossa edição é mais nova → mantém local
               } else { merged[id]=CRM_LEADS[id]||c; }        // snapshot otimista NÃO confirma nada
+            } else if(doServidor && CRM_LEADS[id] && +(CRM_LEADS[id]._ts||0) > +(c._ts||0)){
+              // versão LOCAL é mais nova (edição de uma sessão anterior que não chegou na nuvem) → mantém e reenvia
+              merged[id]=CRM_LEADS[id]; CRM_DIRTY[id]=+(CRM_LEADS[id]._ts||0); _crmResync=true;
             } else { merged[id]=c; if(doServidor) CRM_SAVED[id]=_leadJSON(c); }
           }
           // 2) leads locais que ainda não estão na nuvem
@@ -1635,6 +1657,7 @@ async function initData(){
           CRM_LEADS=merged;
           if(doServidor) CRM_LAST_IDS=new Set(Object.keys(cloud));   // só o servidor define o "conhecido na nuvem"
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
+          if(_crmResync){ _crmResync=false; try{ if(typeof crmSalvarAuto==='function') crmSalvarAuto(); }catch(_){} }  // reenvia p/ a nuvem o que estava só local
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
           if(typeof crmAdminRotinas==='function') crmAdminRotinas();   // rodízio de responsável + migração Luiz→Yasmim
@@ -3759,6 +3782,7 @@ function loadCRM(){ try{ return JSON.parse(localStorage.getItem(CRM_KEY))||{}; }
 let CRM_LAST_IDS = new Set();   // ids que já vimos na nuvem (p/ distinguir "apagado" de "criado agora")
 let CRM_SAVED = {};             // id -> JSON (sem _ts) do que já foi gravado/confirmado na nuvem
 let CRM_DIRTY = {};             // id -> _ts local aguardando confirmação (impede o onSnapshot de reverter)
+let _crmResync = false;         // sinaliza que há leads locais mais novos p/ reenviar à nuvem
 function _leadSemTs(l){ const o={}; for(const k in l){ if(k!=='_ts') o[k]=l[k]; } return o; }
 function _leadJSON(l){ try{ return JSON.stringify(_leadSemTs(l)); }catch(_){ return ''; } }
 function saveCRM(){
@@ -3775,7 +3799,7 @@ function saveCRM(){
       l._ts = Date.now();                              // marca a versão desta gravação
       CRM_DIRTY[id] = l._ts;                           // aguardando o eco da nuvem (não deixa reverter)
       CRM_SAVED[id] = j;
-      try{ _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), l); }catch(_){}
+      _setDocSeguro(_fb.doc(_fb.fs,'crm_leads',id), l, 'lead '+((l&&l.nome)||id));
     }
     // apaga da nuvem só o que ESTE cliente removeu (estava e saiu) — nunca o que nunca vimos
     if(_fb.deleteDoc){ CRM_LAST_IDS.forEach(id=>{ if(!(id in persistir)){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'crm_leads',id)); }catch(_){} delete CRM_SAVED[id]; delete CRM_DIRTY[id]; } }); }
