@@ -5152,25 +5152,30 @@ function crmGerarOpcoes(db, o, d, cat){
   const opts = diretasU.concat(combos.slice(0,40));
   return { diretasU, combos, opts };
 }
-// endpoints (origens/destinos de rota) fortes perto de uma cidade — mesma região (ex.: Betim → Belo Horizonte, 29 km)
-async function crmEndpointsProximos(nc, uf, maxKm, limite){
+// nós de rota (endpoints E cidades de passagem) perto de uma cidade — mesma região.
+// Ex.: Betim → Belo Horizonte (29 km); Jaboatão → Recife (15 km, onde a Advaldo passa).
+async function crmNosProximos(nc, uf, maxKm, limite){
   await carregarCoords(); if(!CIDADES_COORDS) return [];
   const req=CIDADES_COORDS[nc+'|'+uf]; if(!req) return [];
-  const out=[];
-  for(const e of endpointsComCoords()){
-    if(e.norm===nc && e.uf===uf) continue;
-    const dk=haversine(req,e.co);
-    if(dk<=maxKm) out.push({ norm:e.norm, uf:e.uf, nome:e.nome, dist:Math.round(dk) });
-  }
+  const proximos=(lista)=>{ const o=[]; for(const b of lista){ const bn=normTxt(b.nome); if(bn===nc&&b.uf===uf) continue;
+      const dk=haversine(req,b.co); if(dk<=maxKm) o.push({ norm:bn, uf:b.uf, nome:b.nome, dist:Math.round(dk) }); }
+    o.sort((a,b)=>a.dist-b.dist); return o; };
+  const lim=limite||2;
+  const hubs = proximos(endpointsComCoords()).slice(0, lim);   // hubs vizinhos (ex.: Betim → Belo Horizonte)
+  const nos  = proximos(basesComCoords()).slice(0, lim);       // cidades de passagem vizinhas (ex.: Jaboatão → Recife)
+  const seen=new Set(), out=[];
+  for(const x of hubs.concat(nos)){ const k=x.norm+'|'+x.uf; if(seen.has(k)) continue; seen.add(k); out.push(x); }
   out.sort((a,b)=>a.dist-b.dist);
-  return out.slice(0, limite||2);
+  return out;
 }
-// junta as opções da cidade EXATA + as de hubs vizinhos (quando a cidade não é hub).
-// Ex.: Betim/MG não é hub e fica a 29 km de Belo Horizonte → também traz as rotas que saem de BH.
+// junta as opções da cidade EXATA + as de cidades vizinhas da mesma região (retirada/entrega local).
+// Ex.: Jaboatão/PE também traz as rotas que passam por Recife (15 km); Betim usa Belo Horizonte.
 async function crmColetarOpcoes(db, oR, dR, cat){
-  const KM=45, LIM=2;
-  const oHubs = ehHub(oR.norm,oR.uf) ? [] : await crmEndpointsProximos(oR.norm,oR.uf,KM,LIM);
-  const dHubs = ehHub(dR.norm,dR.uf) ? [] : await crmEndpointsProximos(dR.norm,dR.uf,KM,LIM);
+  const KM=42, LIM=2;
+  // amplia origem E destino com cidades vizinhas da mesma região (hubs + cidades de passagem):
+  // Betim usa Belo Horizonte (29 km), Jaboatão usa Recife (15 km). A lista final é limitada.
+  const oHubs = await crmNosProximos(oR.norm,oR.uf,KM,LIM);
+  const dHubs = await crmNosProximos(dR.norm,dR.uf,KM,LIM);
   const oCands = [{norm:oR.norm,uf:oR.uf,nome:oR.nome||oR.norm,dist:0}].concat(oHubs);
   const dCands = [{norm:dR.norm,uf:dR.uf,nome:dR.nome||dR.norm,dist:0}].concat(dHubs);
   // itera exato primeiro, depois hubs mais próximos → a 1ª ocorrência já é a melhor retirada/entrega
@@ -5187,9 +5192,9 @@ async function crmColetarOpcoes(db, oR, dR, cat){
       all.push(x);
     }
   }}
-  // ordena: diretas primeiro, depois por preço
+  // ordena: diretas primeiro, depois por preço; limita a lista p/ não ficar gigante
   all.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
-  return all;
+  return all.slice(0, 60);
 }
 // aplica uma opção (lista de trechos) ao lead
 function crmAplicarOpcao(id, x){
