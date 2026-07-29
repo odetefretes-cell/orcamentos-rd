@@ -4120,7 +4120,12 @@ async function crmAutoCalcSite(){
     try{ await crmRecalcularLead(id); }catch(_){}
     const l=CRM_LEADS[id]; if(!l) continue;
     l._calcAuto=true;                                                      // marca (com/sem rota) p/ não repetir
-    try{ _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), l); }catch(_){}
+    // grava SÓ os campos do cálculo com merge — NUNCA sobrescreve etapa/vendedor/nome
+    // (senão uma aba com visão antiga reverteria a coluna que outra pessoa moveu).
+    const patch={ trajetos:l.trajetos||[], composicao:l.composicao||[],
+      valorCotacaoSW:l.valorCotacaoSW||'', valorEstimado:l.valorEstimado||'', prazoSW:l.prazoSW||'',
+      origemAprox:l.origemAprox||null, destinoAprox:l.destinoAprox||null, _prazoManual:!!l._prazoManual, _calcAuto:true };
+    try{ _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), patch, {merge:true}); }catch(_){}
   }
   const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
 }
