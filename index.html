@@ -1589,7 +1589,7 @@ async function initData(){
         fs=fsMod.initializeFirestore(app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
         console.log('☁ Firestore com persistência offline ativada (gravações não se perdem).');
       }catch(e){ console.warn('Persistência offline indisponível, usando padrão:',e); try{ fs=fsMod.getFirestore(app); }catch(_){ fs=fsMod.getFirestore(app); } }
-      _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc};
+      _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
       // Storage (upload de documentos) — opcional; só funciona se o Storage estiver ativado
       try{
         const stMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
@@ -3811,25 +3811,48 @@ let CRM_DIRTY = {};             // id -> _ts local aguardando confirmação (imp
 let _crmResync = false;         // sinaliza que há leads locais mais novos p/ reenviar à nuvem
 function _leadSemTs(l){ const o={}; for(const k in l){ if(k!=='_ts') o[k]=l[k]; } return o; }
 function _leadJSON(l){ try{ return JSON.stringify(_leadSemTs(l)); }catch(_){ return ''; } }
-function saveCRM(){
+// saveCRM é async e RETORNA a Promise da gravação na nuvem — quem precisa de durabilidade
+// (ex.: marcar perdas em lote) faz `await saveCRM()` e só reporta "concluído" quando a nuvem
+// confirmar. Os demais chamadores continuam usando fire-and-forget (ignoram a Promise).
+async function saveCRM(){
   // rascunhos (_novo) nunca são persistidos — só viram lead ao Salvar
   const persistir = {};
   for(const id in CRM_LEADS){ if(!CRM_LEADS[id]._novo) persistir[id]=CRM_LEADS[id]; }
   try{ localStorage.setItem(CRM_KEY, JSON.stringify(persistir)); }catch(_){}
-  if(CLOUD_ON && _fb && _fb.setDoc){
-    // grava SÓ os leads que este cliente realmente mudou — nunca reescreve a coleção inteira
-    // (senão sobrescreve na nuvem os leads que o site/outros criaram ao mesmo tempo).
-    for(const id in persistir){
-      const l=persistir[id]; const j=_leadJSON(l);
-      if(CRM_SAVED[id]===j) continue;                 // não mudou desde a última gravação → não regrava
-      l._ts = Date.now();                              // marca a versão desta gravação
-      CRM_DIRTY[id] = l._ts;                           // aguardando o eco da nuvem (não deixa reverter)
-      CRM_SAVED[id] = j;
-      _setDocSeguro(_fb.doc(_fb.fs,'crm_leads',id), l, 'lead '+((l&&l.nome)||id));
-    }
-    // apaga da nuvem só o que ESTE cliente removeu (estava e saiu) — nunca o que nunca vimos
-    if(_fb.deleteDoc){ CRM_LAST_IDS.forEach(id=>{ if(!(id in persistir)){ try{ _fb.deleteDoc(_fb.doc(_fb.fs,'crm_leads',id)); }catch(_){} delete CRM_SAVED[id]; delete CRM_DIRTY[id]; } }); }
+  if(!(CLOUD_ON && _fb && _fb.setDoc)) return;
+  // grava SÓ os leads que este cliente realmente mudou — nunca reescreve a coleção inteira
+  // (senão sobrescreve na nuvem os leads que o site/outros criaram ao mesmo tempo).
+  const ops=[];
+  for(const id in persistir){
+    const l=persistir[id]; const j=_leadJSON(l);
+    if(CRM_SAVED[id]===j) continue;                 // não mudou desde a última gravação → não regrava
+    l._ts = Date.now();                              // marca a versão desta gravação
+    CRM_DIRTY[id] = l._ts;                           // aguardando o eco da nuvem (não deixa reverter)
+    CRM_SAVED[id] = j;
+    ops.push({tipo:'set', id, data:l, oque:'lead '+((l&&l.nome)||id)});
   }
+  // apaga da nuvem só o que ESTE cliente removeu (estava e saiu) — nunca o que nunca vimos
+  if(_fb.deleteDoc){ CRM_LAST_IDS.forEach(id=>{ if(!(id in persistir)){ ops.push({tipo:'del', id, oque:'remover lead '+id}); delete CRM_SAVED[id]; delete CRM_DIRTY[id]; } }); }
+  if(!ops.length) return;
+  return _crmGravarOps(ops);
+}
+// grava a lista de operações na nuvem AGUARDANDO a confirmação. Usa writeBatch (atômico e rápido,
+// 1 ida ao servidor por bloco de 400) quando disponível; senão cai no modo por-documento.
+async function _crmGravarOps(ops){
+  const {fs, doc, writeBatch, setDoc, deleteDoc}=_fb;
+  try{
+    if(writeBatch){
+      for(let i=0;i<ops.length;i+=400){
+        const chunk=ops.slice(i,i+400);
+        const b=writeBatch(fs);
+        for(const op of chunk){ const ref=doc(fs,'crm_leads',op.id); if(op.tipo==='del') b.delete(ref); else b.set(ref, op.data); }
+        await b.commit();
+      }
+    }else{
+      // fallback sem writeBatch: dispara todos e aguarda o conjunto
+      await Promise.all(ops.map(op=>{ const ref=doc(fs,'crm_leads',op.id); return (op.tipo==='del'?deleteDoc(ref):setDoc(ref, op.data)); }));
+    }
+  }catch(e){ _syncErro('gravação do CRM na nuvem', e); throw e; }
 }
 function initCRM(){
   CRM_LEADS = loadCRM();
@@ -4190,10 +4213,11 @@ function crmSalvarAuto(){
   clearTimeout(_crmSaveT);
   _crmSaveT = setTimeout(()=>{ _crmSaveT=null; try{ if(typeof saveCRM==='function') saveCRM(); }catch(_){} }, 500);
 }
-// grava AGORA (sem esperar o debounce) — usado ao fechar o modal e ao sair/atualizar a página
+// grava AGORA (sem esperar o debounce) — usado ao fechar o modal e ao sair/atualizar a página.
+// Retorna a Promise da gravação p/ quem quiser aguardar (ex.: perdas em lote).
 function crmFlushSave(){
   if(_crmSaveT){ clearTimeout(_crmSaveT); _crmSaveT=null; }
-  try{ if(typeof saveCRM==='function') saveCRM(); }catch(_){}
+  try{ if(typeof saveCRM==='function') return saveCRM(); }catch(_){}
 }
 // ao atualizar/fechar a aba, garante que o localStorage tem a última edição (não se perde no refresh)
 try{ window.addEventListener('beforeunload', ()=>{ if(_crmSaveT) crmFlushSave(); }); }catch(_){}
@@ -4356,26 +4380,44 @@ async function crmProcessarPerdasLote(){
   await crmMarcarPerdaLote(aMarcar, st);
 }
 // marca a lista de leads como PERDIDO reutilizando a mesma lógica do botão individual (sem prompt), salvando em blocos
+// marca UM lead como perdido SÓ na memória (sem gravar) — usado pelo lote p/ salvar tudo de uma vez
+function crmMarcarPerdaSemSalvar(id, motivo){
+  const l=CRM_LEADS[id]; if(!l || l.etapa==='perdido') return false;
+  l.motivoPerda = motivo||'';
+  l.etapa = 'perdido';
+  l.ultimaInteracao = new Date().toISOString();
+  crmAddTimeline(id, 'perda', `Lead marcado como perdido (lote): ${motivo||'sem motivo'}`);
+  return true;
+}
+// marca a lista TODA em memória e grava UMA vez, AGUARDANDO a nuvem confirmar antes de reportar.
+// (antes: saveCRM por lead, fire-and-forget → sob centenas de leads muitas gravações não chegavam
+//  na nuvem e revertiam no reload. Agora é 1 writeBatch atômico e aguardado.)
 async function crmMarcarPerdaLote(lista, st){
   const bt=$('#perdaLoteBtnConfirmar'); if(bt) bt.disabled=true;
-  const agora=new Date().toISOString(); let feitos=0;
-  for(const item of lista){
-    const l=CRM_LEADS[item.id]; if(!l || l.etapa==='perdido') continue;
-    l.motivoPerda=item.motivo||'';
-    l.etapa='perdido';
-    l.ultimaInteracao=agora;
-    crmAddTimeline(item.id,'perda',`Lead marcado como perdido (lote): ${item.motivo||'sem motivo'}`);
-    feitos++;
-    if(feitos%10===0){
-      saveCRM();
-      if(st) st.innerHTML=`Processando… <b>${feitos}/${lista.length}</b>`;
-      await new Promise(r=>setTimeout(r,0));   // cede o thread p/ a UI respirar
-    }
-  }
-  saveCRM();
+  let feitos=0;
+  for(const item of lista){ if(crmMarcarPerdaSemSalvar(item.id, item.motivo)) feitos++; }   // tudo em memória (síncrono)
+  if(st) st.innerHTML=`Gravando <b>${feitos}</b> na nuvem… aguarde.`;
   const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
-  if(st) st.innerHTML=`✅ Concluído — <b>${feitos}</b> lead(s) marcados como perdido.`;
+  // aguarda a gravação (writeBatch). Com timeout: se a rede estiver lenta/offline, a persistência
+  // offline (IndexedDB) já guardou tudo e sincroniza sozinha — não trava o botão eternamente.
+  let resultado='ok';
+  try{
+    const gravar = saveCRM().then(()=>'ok');
+    const prazo  = new Promise(res=>setTimeout(()=>res('timeout'), 30000));
+    resultado = await Promise.race([gravar, prazo]);
+  }catch(e){ resultado='erro'; console.error('perdas lote:', e); }
   if(bt) bt.disabled=false;
+  if(resultado==='erro'){
+    if(st) st.innerHTML=`⚠ ${feitos} marcados na tela, mas a gravação na nuvem falhou. Verifique a conexão e tente de novo (F12 → Console).`;
+    flash('⚠ Falha ao gravar as perdas na nuvem — tente novamente.','erro');
+    return;
+  }
+  if(resultado==='timeout'){
+    if(st) st.innerHTML=`⏳ <b>${feitos}</b> marcados e <b>na fila de gravação</b> (a persistência offline garante o envio quando a conexão estabilizar). Pode aguardar alguns segundos antes de recarregar.`;
+    flash(`${feitos} marcados — sincronizando com a nuvem…`);
+    return;
+  }
+  if(st) st.innerHTML=`✅ Concluído — <b>${feitos}</b> lead(s) marcados como perdido e <b>gravados na nuvem</b>.`;
   flash(`${feitos} lead(s) movidos para Perdido ✔`);
 }
 // cliente devolveu o formulário preenchido (link emitido) → move o lead p/ Venda Fechada
