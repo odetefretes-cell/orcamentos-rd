@@ -779,7 +779,6 @@
         <tr><td class="lbl">Valor do frete</td><td id="c_valorf" class="val"></td><td class="lbl">Forma de pgto</td><td id="c_forma" class="val"></td></tr>
         <tr><td class="lbl">Frete pago</td><td id="c_pago" class="val"></td><td class="lbl">Equipamento</td><td id="c_equip" class="val"></td></tr>
         <tr><td class="lbl">Local de carregamento</td><td id="c_carreg" class="val"></td><td class="lbl">Local de descarregamento</td><td id="c_descar" class="val"></td></tr>
-        <tr><td class="lbl">Observações</td><td id="c_obs" class="val" colspan="3"></td></tr>
       </table>
       <div class="note" style="text-align:center">(Data de embarque sujeita a alteração e a imprevistos nas estradas.)</div>
 
@@ -1424,10 +1423,10 @@ function render(){
   set('c_cli', up(d.clienteEmpresa)); set('c_cpf', d.cpfCnpj);
   set('c_end', up(d.endereco)); set('c_bairro', up(d.bairro));
   set('c_cid', up(d.cidade)+(d.uf?(' / '+up(d.uf)):'')); set('c_fone', d.telefone);
-  set('c_prev', up(d.previsaoEntrega||d.observacoes)); set('c_valorf', moeda(d.valorFrete));
+  set('c_prev', up(d.previsaoEntrega)); set('c_valorf', moeda(d.valorFrete));   // NÃO usar observacoes (nota interna) no contrato do cliente
   set('c_forma', up(d.formaPgto)||'TRANSFERENCIA'); set('c_pago', up(d.fretePago));
   set('c_equip', up(d.equipamentos)); set('c_carreg', up(d.origem)); set('c_descar', up(d.destino));
-  set('c_obs', up(d.observacoes));
+  // Observações do frete são internas (prazo/condições/operacional) e NÃO aparecem no contrato do cliente.
   set('c_hoje', hojeBR());
   set('c_assnome', up(d.clienteEmpresa)); set('c_asscpf', d.cpfCnpj);
   atualizarProxNum();
