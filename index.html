@@ -1680,16 +1680,20 @@ function editandoInput(container){
 const SEQ_2026_FIM=1531;    // a numeração 2026 começou depois do 1531 (importados 01…1531)
 const SEQ_2026_TETO=1595;   // o ciclo atual vai até 1595; de 1596 em diante são números de ciclos ANTIGOS
                             // (2025: 1596…2205) — não entram na sequência nova.
+// conjunto de TODOS os números já usados — inclui fretes EXCLUÍDOS (Lixeira), p/ NUNCA repetir um número.
+function numerosUsados(){
+  const s=new Set();
+  const add=obj=>{ for(const f of Object.values(obj||{})){ const n=parseInt(String(f&&f.numero||'').replace(/\D/g,''),10); if(!isNaN(n)) s.add(n); } };
+  add(lerDB());
+  if(typeof LIXEIRA!=='undefined') add(LIXEIRA);   // números de fretes excluídos também não voltam
+  return s;
+}
 function proximoNumero(){
-  // conta TODOS os fretes do ciclo atual (nº ≤ 1595), importados ou não; ignora os números antigos (≥1596).
-  const nums=Object.values(lerDB())
-    .map(f=>parseInt(String(f.numero||'').replace(/\D/g,''),10))
-    .filter(n=>!isNaN(n) && n<=SEQ_2026_TETO);
-  const base=nums.length?Math.max(...nums):0;
+  // maior número do ciclo atual (≤ 1595), incluindo excluídos; ignora números de ciclos antigos (≥1596).
+  const usados=[...numerosUsados()].filter(n=>n<=SEQ_2026_TETO);
+  const base=usados.length?Math.max(...usados):0;
   return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1532
 }
-// conjunto de TODOS os números já usados (por qualquer frete), p/ nunca repetir
-function numerosUsados(){ const s=new Set(); for(const f of Object.values(lerDB())){ const n=parseInt(String(f.numero||'').replace(/\D/g,''),10); if(!isNaN(n)) s.add(n); } return s; }
 function proximoNumeroLivre(){ const usados=numerosUsados(); let n=proximoNumero(); while(usados.has(n)) n++; return n; }
 function atualizarProxNum(){
   const numEl=form.elements['numero']; if(!numEl) return;
