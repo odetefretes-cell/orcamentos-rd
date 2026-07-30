@@ -3950,8 +3950,10 @@ function renderCRM(){
     const partes=[];
     if(atr) partes.push(chip(`${atr} atrasada${atr>1?'s':''}`, '#ef4444', '#fff'));
     if(hj)  partes.push(chip(`${hj} para hoje`, '#f59e0b', '#3a2600'));
-    av.innerHTML=`<div onclick="const s=document.getElementById('crmFiltroTarefa'); if(s){s.value='${atr?'atrasada':'hoje'}';renderCRM();}" title="Ver tarefas ${atr?'atrasadas':'de hoje'}" style="cursor:pointer;display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);border-left:4px solid #ef4444;border-radius:10px;padding:10px 14px;color:#f4d9d9;font-size:13.5px;font-weight:600">
-      <span style="font-size:16px">⏰</span><span>Você tem</span>${partes.join('<span style="opacity:.6"> e </span>')}<span>de tarefa — <u>clique para ver</u>.</span></div>`;
+    av.innerHTML=`<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);border-left:4px solid #ef4444;border-radius:10px;padding:10px 14px;color:#f4d9d9;font-size:13.5px;font-weight:600">
+      <span onclick="const s=document.getElementById('crmFiltroTarefa'); if(s){s.value='${atr?'atrasada':'hoje'}';renderCRM();}" title="Ver tarefas ${atr?'atrasadas':'de hoje'}" style="cursor:pointer;display:flex;align-items:center;gap:9px;flex-wrap:wrap;flex:1;min-width:0">
+        <span style="font-size:16px">⏰</span><span>Você tem</span>${partes.join('<span style="opacity:.6"> e </span>')}<span>de tarefa — <u>clique para ver</u>.</span></span>
+      <button onclick="crmConcluirTarefasHoje()" title="Marcar como concluídas todas as tarefas de hoje e atrasadas" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap">✅ Concluir todas</button></div>`;
   })();
 
   // atualizar select de vendedores
@@ -5990,6 +5992,33 @@ function crmConcluirTarefa(id,tid){
 function crmExcluirTarefa(id,tid){
   const l=CRM_LEADS[id]; if(!l) return; l.tarefas=(l.tarefas||[]).filter(x=>x.id!==tid);
   saveCRM(); crmRenderTarefas(id); renderCRM();
+}
+// conclui de uma vez TODAS as tarefas pendentes vencidas ou de hoje (todos os leads), gravando 1x aguardado
+async function crmConcluirTarefasHoje(){
+  if(typeof sessaoUser==='undefined' || !sessaoUser){ flash('Faça login para concluir tarefas.','erro'); return; }
+  const hoje=hojeISO();
+  const alvos=[];   // {l, t}
+  for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo) continue;
+    for(const t of (l.tarefas||[])){ if(!t.feita && t.data && t.data<=hoje) alvos.push({l, t, id}); }
+  }
+  if(!alvos.length){ flash('Nenhuma tarefa de hoje ou atrasada pendente.'); return; }
+  const ok=await uiConfirm(`Concluir ${alvos.length} tarefa(s) de hoje/atrasadas de uma vez?`, {titulo:'Concluir tarefas', ok:'Concluir todas', perigo:false});
+  if(!ok) return;
+  for(const {l, t, id} of alvos){
+    t.feita=true; t.feitoEm=hoje; l.dataUltimoContato=hoje;
+    crmAddTimeline(id,'tarefa',`Tarefa concluída (em lote): ${t.texto}`);
+  }
+  let erro=null;
+  try{
+    const gravar=saveCRM().then(()=>'ok');
+    const prazo =new Promise(res=>setTimeout(()=>res('timeout'),30000));
+    const r=await Promise.race([gravar, prazo]);
+    if(r==='timeout') erro='timeout';
+  }catch(e){ erro=e; console.error('concluir tarefas:', e); }
+  renderCRM();
+  if(erro==='timeout'){ flash(`${alvos.length} tarefa(s) concluídas — sincronizando com a nuvem…`); return; }
+  if(erro){ flash('⚠ Falha ao gravar na nuvem — tente novamente.','erro'); return; }
+  flash(`${alvos.length} tarefa(s) concluída(s) ✔`);
 }
 function crmRenderTarefas(id){
   const l=CRM_LEADS[id]; const box=$('#crmTarefas'); if(!l||!box) return;
