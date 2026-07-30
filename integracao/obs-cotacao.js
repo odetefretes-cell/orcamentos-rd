@@ -100,8 +100,8 @@
     + '<div class="obs-ok" id="obsOk" hidden><div class="obs-ok-ic">✓</div><h3>Abrindo o WhatsApp…</h3><p>Toque em <b>ENVIAR</b> na conversa que abrir para recebermos o seu pedido — nossa equipe retorna com a cotação por lá. Se não abrir, chame no WhatsApp (11) 93222-5311.</p></div>'
     + '</div>';
 
-  function mount() {
-    var host = document.getElementById('obs-cotacao');
+  function mount(host) {
+    host = host || document.getElementById('obs-cotacao');   // aceita um container específico (ex.: modal do botão flutuante)
     if (!host) return false;
     if (host.getAttribute('data-mounted')) return true;
     host.setAttribute('data-mounted', '1');
@@ -208,7 +208,10 @@
     return true;
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
+  // permite montar o formulário em QUALQUER container (ex.: o modal do botão flutuante),
+  // além do #obs-cotacao da página — assim o form pode existir na página E no botão ao mesmo tempo.
+  window.obsCotacaoMount = function (el) { return mount(el); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { mount(); });
   else mount();
   var t = 0, iv = setInterval(function () { if (mount() || ++t > 30) clearInterval(iv); }, 400);
 })();

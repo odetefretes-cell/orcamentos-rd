@@ -50,8 +50,9 @@
     tip.textContent = 'Solicite sua cotação 🚚'; document.body.appendChild(tip);
 
     var ov = document.createElement('div'); ov.id = 'obsWppOverlay';
+    // container PRÓPRIO (id distinto) — não colide com um #obs-cotacao que já exista na página
     ov.innerHTML = '<div id="obsWppCard"><button id="obsWppClose" type="button" aria-label="Fechar">&times;</button>'
-                 + '<div id="obs-cotacao"></div></div>';
+                 + '<div id="obsWppForm"></div></div>';
     document.body.appendChild(ov);
 
     function abrir() { ov.classList.add('on'); tip.style.display = 'none'; carregarForm(); }
@@ -61,11 +62,19 @@
     ov.addEventListener('click', function (e) { if (e.target === ov) fechar(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fechar(); });
 
-    // carrega o formulário (obs-cotacao.js) só na 1ª abertura — ele monta dentro de #obs-cotacao
-    var carregado = false;
+    // monta o formulário dentro do modal na 1ª abertura. Usa a função global obsCotacaoMount
+    // exposta pelo obs-cotacao.js — funciona mesmo que o formulário JÁ exista na página.
+    var montado = false;
     function carregarForm() {
-      if (carregado) return; carregado = true;
-      var s = document.createElement('script'); s.src = COTACAO_JS; s.defer = true; document.body.appendChild(s);
+      if (montado) return;
+      var alvo = document.getElementById('obsWppForm');
+      function tentar() { if (window.obsCotacaoMount) { window.obsCotacaoMount(alvo); montado = true; return true; } return false; }
+      if (tentar()) return;
+      // ainda não carregado nesta página → carrega o obs-cotacao.js e espera a função aparecer
+      if (!document.querySelector('script[src*="obs-cotacao.js"]')) {
+        var s = document.createElement('script'); s.src = COTACAO_JS; s.defer = true; document.body.appendChild(s);
+      }
+      var n = 0, iv = setInterval(function () { if (tentar() || ++n > 50) clearInterval(iv); }, 200);
     }
   }
 
