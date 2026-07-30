@@ -923,7 +923,6 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
-      <button id="crmBtnRecalcTudo" class="btn-ghost" onclick="crmRecalcularTudo()" title="Recalcular TODOS os leads com as regras atuais (rota, recebimento das 2 bases, categorias)" style="display:none">🔄 Recalcular CRM (lote)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -1678,18 +1677,20 @@ function editandoInput(container){
 }
 
 // numeração sequencial: próximo = maior número existente + 1
-const SEQ_2026_FIM=1531;   // numeração de 2026 vai de 01 a 1531; novos emitidos seguem 1532, 1533...
+const SEQ_2026_FIM=1531;    // a numeração 2026 começou depois do 1531 (importados 01…1531)
+const SEQ_2026_TETO=1595;   // o ciclo atual vai até 1595; de 1596 em diante são números de ciclos ANTIGOS
+                            // (2025: 1596…2205) — não entram na sequência nova.
 function proximoNumero(){
-  // importados (planilha) só contam até 1531 — ignora números de ciclos antigos (out/nov/dez 2025: 1799, 2138, 2205…).
-  // fretes novos emitidos aqui (não importados) contam sempre, para a sequência continuar.
+  // conta TODOS os fretes do ciclo atual (nº ≤ 1595), importados ou não; ignora os números antigos (≥1596).
   const nums=Object.values(lerDB())
-    .filter(f=> !f._importado || parseInt(String(f.numero||'').replace(/\D/g,''),10)<=SEQ_2026_FIM )
     .map(f=>parseInt(String(f.numero||'').replace(/\D/g,''),10))
-    .filter(n=>!isNaN(n));
+    .filter(n=>!isNaN(n) && n<=SEQ_2026_TETO);
   const base=nums.length?Math.max(...nums):0;
   return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1532
 }
-function proximoNumeroLivre(){ let n=proximoNumero(); while(lerDB()['n'+n]) n++; return n; }
+// conjunto de TODOS os números já usados (por qualquer frete), p/ nunca repetir
+function numerosUsados(){ const s=new Set(); for(const f of Object.values(lerDB())){ const n=parseInt(String(f.numero||'').replace(/\D/g,''),10); if(!isNaN(n)) s.add(n); } return s; }
+function proximoNumeroLivre(){ const usados=numerosUsados(); let n=proximoNumero(); while(usados.has(n)) n++; return n; }
 function atualizarProxNum(){
   const numEl=form.elements['numero']; if(!numEl) return;
   const semNum = !String(numEl.value||'').trim();
@@ -3872,7 +3873,6 @@ function crmLimparPeriodo(){
 }
 function renderCRM(){
   renderCRMMetrics();
-  { const bt=$('#crmBtnRecalcTudo'); if(bt) bt.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
@@ -4102,30 +4102,6 @@ async function crmRecalcularFunil(etapaId){
   if(t&&t.fechar) t.fechar();
   saveCRM(); renderCRM();
   flash(`✔ ${feitos} lead(s) recalculado(s)`+(semRota?` · ${semRota} sem rota automática (conferir manual)`:''),'ok');
-}
-// Recalcula TODO o CRM em lote (roda no próprio sistema — sem automação de navegador, não é barrado).
-// Aplica as regras atuais: rota, recebimento das 2 bases, categorias por veículo, seguro, etc.
-async function crmRecalcularTudo(){
-  if(!(sessaoUser && sessaoUser.papel==='admin')){ alert('Só o admin pode recalcular em lote.'); return; }
-  const ids=Object.keys(CRM_LEADS).filter(id=>{ const l=CRM_LEADS[id]; return l && !l._novo && l.origem && l.destino && l.etapa!=='perdido'; });
-  if(!ids.length){ alert('Nenhum lead com origem e destino para recalcular.'); return; }
-  const ok=await uiConfirm(`Recalcular ${ids.length} lead(s) do CRM com as regras atuais?\n\nRefaz rota, taxas e valores (recebimento das 2 bases, categorias por veículo, seguro). Edições manuais de taxas serão substituídas.\n\nRoda por dentro do sistema (sem automação) e salva o progresso. Pode levar alguns minutos.`,
-    {titulo:'Recalcular CRM em lote', ok:'Recalcular'});
-  if(!ok) return;
-  const t=flash('Recalculando 0/'+ids.length+'…','load');
-  const setTxt=s=>{ if(t){ const tx=t.querySelector&&t.querySelector('.tx'); if(tx) tx.textContent=s; } };
-  let feitos=0, semRota=0;
-  for(let i=0;i<ids.length;i++){
-    try{ (await crmRecalcularLead(ids[i])) ? feitos++ : semRota++; }catch(_){ semRota++; }
-    if(i%10===9 || i===ids.length-1){
-      setTxt('Recalculando '+(i+1)+'/'+ids.length+'…');
-      try{ saveCRM(); }catch(_){}                       // salva o progresso a cada 10 (não perde se fechar)
-      await new Promise(r=>setTimeout(r,0));             // devolve o controle p/ a tela não travar
-    }
-  }
-  if(t&&t.fechar) t.fechar();
-  saveCRM(); if(typeof renderCRM==='function') renderCRM();
-  flash('✔ '+feitos+' lead(s) recalculado(s)'+(semRota?(' · '+semRota+' sem rota automática (conferir manual)'):''),'ok');
 }
 // Auto-cálculo do lead do site/WhatsApp: quando um lead novo chega da integração
 // (formulário do site ou ChatGuru) sem cálculo, o sistema aplica a própria regra de
