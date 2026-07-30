@@ -4091,6 +4091,7 @@ function crmDrop(e, col){
 
   CRM_LEADS[id].etapa = novaEtapa;
   CRM_LEADS[id].ultimaInteracao = new Date().toISOString();
+  if(novaEtapa==='contato' || novaEtapa==='orcamento') crmAgendarFollowup(id, novaEtapa);   // follow-up D+1/D+3
   saveCRM();
   renderCRM();
   flash(`Lead movido para "${CRM_ETAPAS.find(e=>e.id===novaEtapa)?.titulo||novaEtapa}" ✔`);
@@ -4633,7 +4634,7 @@ function crmSalvarLead(id){
   delete l._novo;            // deixa de ser rascunho: agora é lead salvo
   if(crmDraftId===id) crmDraftId=null;
   // regra de funil: entrada de lead salva → avança para "Contato Feito"
-  if(l.etapa==='novo'){ l.etapa='contato'; crmAddTimeline(id,'movido','Entrada de lead salva — movido para Contato Feito.'); }
+  if(l.etapa==='novo'){ l.etapa='contato'; crmAddTimeline(id,'movido','Entrada de lead salva — movido para Contato Feito.'); crmAgendarFollowup(id,'contato'); }
   saveCRM();
   fecharCrmModal();
   renderCRM();
@@ -4704,6 +4705,7 @@ function crmEmailLead(id){
   if(!w){ const a=document.createElement('a'); a.href='mailto:'+to+'?subject='+encodeURIComponent(su)+'&body='+encodeURIComponent(msg); a.click(); }
   l.emailEnviadoEm = new Date().toISOString();   // marca o envio → destaca o card
   crmAddTimeline(id,'email','Orçamento enviado por e-mail para '+email+' (Gmail).');
+  crmAgendarFollowup(id,'email');                // follow-up D+1/D+3
   saveCRM();
   if(typeof renderCRM==='function') renderCRM();
   flash('Abrindo o Gmail para '+email+' ✔');
@@ -5968,6 +5970,25 @@ function crmProxTarefa(l){   // próxima tarefa pendente (menor data)
   return pend[0];
 }
 function crmStatusTarefa(data){ if(!data) return 'futura'; const h=hojeISO(); return data<h?'atrasada':data===h?'hoje':'futura'; }
+// AGENDAMENTO AUTOMÁTICO de follow-up: ao entrar em Contato/Orçamento ou enviar por e-mail,
+// agenda tarefas de retomada em D+1 e D+3 (baseado no guia de FollowUp). Idempotente: não
+// duplica se já houver uma tarefa automática pendente do mesmo gatilho.
+function crmAgendarFollowup(id, gatilho){
+  const l=CRM_LEADS[id]; if(!l || l._novo) return false;
+  if(!l.tarefas) l.tarefas=[];
+  if(l.tarefas.some(t=>t.autoFup===gatilho && !t.feita)) return false;   // já agendado p/ esse gatilho
+  const ctx = gatilho==='contato'  ? 'retomar o contato'
+            : gatilho==='orcamento' ? 'cobrar retorno do orçamento'
+            : 'cobrar retorno do e-mail';
+  const rot = gatilho==='contato' ? 'contato' : gatilho==='orcamento' ? 'orçamento' : 'e-mail';
+  const toques=[{d:1,n:1},{d:3,n:2}];   // D+1 e D+3
+  const base=Date.now().toString(36);
+  toques.forEach((tq,i)=>{
+    l.tarefas.push({ id:'f'+base+i, texto:`Follow-up ${tq.n} (${rot}) — ${ctx}`, data:addDiasISO(hojeISO(),tq.d), feita:false, autoFup:gatilho });
+  });
+  crmAddTimeline(id,'tarefa',`Follow-up automático agendado (${rot}): D+1 e D+3.`);
+  return true;
+}
 function crmAddTarefa(id){
   const l=CRM_LEADS[id]; if(!l) return;
   const texto=($('#crmTarefaTexto')?.value||'').trim();
@@ -6163,6 +6184,7 @@ function crmEnviarOrcamento(id){
   l.valorEstimado = String(V.totalPorta);
   if(l.etapa === 'novo' || l.etapa === 'contato') l.etapa = 'orcamento';
   crmAddTimeline(id, 'orcamento', `Orçamento emitido (PDF) — total ${M(V.totalPorta)}`);
+  crmAgendarFollowup(id,'orcamento');            // follow-up D+1/D+3
   saveCRM();
   renderCRM();
   flash('Orçamento gerado — salve como PDF e envie ao cliente ✔');
