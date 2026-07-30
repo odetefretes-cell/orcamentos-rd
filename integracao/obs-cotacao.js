@@ -18,6 +18,29 @@
   };
   // Ponte Make → RD Station (o navegador manda pro Make; o Make entrega no RD pelo servidor, sem bloqueio CORS)
   var MAKE_WEBHOOK = 'https://hook.us2.make.com/s1a9hk0iu3oyn80or2dkvdslppgt2utz';
+  // WhatsApp oficial da OBS (ChatGuru) — o formulário leva o cliente pra cá com a mensagem pronta,
+  // para a conversa nascer no ChatGuru já com as informações e a janela de 24h aberta.
+  var WPP_NUMERO = '5511932225311';
+  // monta a mensagem que o cliente envia no WhatsApp (mesma estrutura da página #orc do app)
+  function montarMsgWpp(lead) {
+    var l = [
+      '*Solicitação de orçamento — OBS Transportes*', '',
+      'Nome: ' + lead.nome,
+      'Telefone: ' + lead.telefone,
+      (lead.email ? 'E-mail: ' + lead.email : null),
+      'Tipo de cliente: ' + (lead.tipoCliente || ''),
+      'Veículo: ' + lead.veiculoDesc,
+      'Tipo de veículo: ' + (lead.categoria || ''),
+      (lead.valorVeiculo ? 'Valor do veículo: ' + lead.valorVeiculo : null),
+      'Funciona/liga: ' + (lead.funciona || ''),
+      'Blindado: ' + (lead.blindado || ''),
+      'Origem: ' + lead.origem,
+      'Destino: ' + lead.destino,
+      (lead.mensagem ? 'Observação: ' + lead.mensagem : null),
+      '', 'Gostaria de receber o valor do transporte.'
+    ].filter(Boolean);
+    return l.join('\n');
+  }
   var RD_IDENTIFICADOR = 'Cotacao Site OBS';
 
   var UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
@@ -74,7 +97,7 @@
     + '<button type="submit" class="obs-btn">Solicitar cotação</button>'
     + '<p class="obs-erro" id="obsErro" hidden></p>'
     + '</form>'
-    + '<div class="obs-ok" id="obsOk" hidden><div class="obs-ok-ic">✓</div><h3>Solicitação recebida!</h3><p>Recebemos os seus dados. Em instantes nossa equipe entra em contato pelo WhatsApp com a sua cotação.</p></div>'
+    + '<div class="obs-ok" id="obsOk" hidden><div class="obs-ok-ic">✓</div><h3>Abrindo o WhatsApp…</h3><p>Toque em <b>ENVIAR</b> na conversa que abrir para recebermos o seu pedido — nossa equipe retorna com a cotação por lá. Se não abrir, chame no WhatsApp (11) 93222-5311.</p></div>'
     + '</div>';
 
   function mount() {
@@ -134,7 +157,7 @@
         origem: lead.origem, destino: lead.destino, observacao: lead.mensagem
       };
       return fetch(MAKE_WEBHOOK, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true
       }).then(function (r) { if (!r.ok) console.warn('Make status', r.status); })
         .catch(function (e) { console.warn('Ponte Make falhou (lead segue no CRM):', e); });
     }
@@ -149,7 +172,7 @@
       if (!form.querySelector('[name="consent"]').checked) {
         erro.textContent = 'É necessário autorizar o uso dos dados para receber a cotação.'; erro.hidden = false; return;
       }
-      btn.disabled = true; btn.textContent = 'Enviando…';
+      btn.disabled = true; btn.textContent = 'Abrindo o WhatsApp…';
       var agora = new Date(), iso = agora.toISOString();
       var id = 'lead_site_' + agora.getTime() + '_' + Math.random().toString(36).slice(2, 7);
       var lead = {
@@ -167,16 +190,19 @@
         timeline: [{ data: iso, tipo: 'criacao', texto: 'Lead recebido pelo formulário do site' }],
         _origemSite: true
       };
+      // leva o cliente pro WhatsApp da OBS com tudo preenchido → a conversa nasce no ChatGuru
+      // com as informações e a janela de 24h aberta (aí a equipe responde o orçamento direto).
+      var waUrl = 'https://wa.me/' + WPP_NUMERO + '?text=' + encodeURIComponent(montarMsgWpp(lead));
+      // grava no CRM e dispara o RD (melhor esforço); o redirecionamento acontece de qualquer forma
       db().then(function (base) {
         return _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
       }).then(function () {
-        try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD em paralelo (não bloqueia)
-        form.hidden = true; host.querySelector('#obsOk').hidden = false;
-        host.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
       }).catch(function (e) {
-        console.error(e);
-        erro.textContent = 'Não foi possível enviar agora. Tente novamente ou chame no WhatsApp.'; erro.hidden = false;
-        btn.disabled = false; btn.textContent = 'Solicitar cotação';
+        console.error('CRM/RD (segue pro WhatsApp mesmo assim):', e);
+      }).then(function () {
+        form.hidden = true; host.querySelector('#obsOk').hidden = false;   // mensagem de "abrindo o WhatsApp"
+        window.location.href = waUrl;                                       // → WhatsApp / ChatGuru
       });
     });
     return true;
