@@ -4506,6 +4506,12 @@ function crmAbrirLead(id){
         </select>
       </div>
     </div>
+    <div class="grid g2">
+      <div class="field"><label>Obs. na origem / embarque <span class="hint" style="font-weight:400">— sai no orçamento</span></label>
+        <input id="crmObsOrigem" value="${escA(l.obsOrigem||'')}" placeholder="Ex.: embarque direto com o motorista em ponto de encontro"></div>
+      <div class="field"><label>Obs. no destino / desembarque <span class="hint" style="font-weight:400">— sai no orçamento</span></label>
+        <input id="crmObsDestino" value="${escA(l.obsDestino||'')}" placeholder="Ex.: desembarque direto com o motorista em ponto de encontro"></div>
+    </div>
     <div class="field"><label>Observação</label><textarea id="crmObs" style="width:100%;min-height:44px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px" placeholder="Informações extras do cliente">${esc(l.mensagem||'')}</textarea></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 8px">
       <span class="hint" style="font-size:11.5px">Categoria e quantidade ficam na seção 🚗 acima ↑</span>
@@ -4604,6 +4610,8 @@ function crmSalvarLead(id){
   l.vendedor = ($('#crmVendedor')?.value||'').trim();
   l.origem = ($('#crmOrigem')?.value||'').trim();
   l.destino = ($('#crmDestino')?.value||'').trim();
+  l.obsOrigem = ($('#crmObsOrigem')?.value||'').trim();     // ponto de encontro / embarque direto — sai no orçamento
+  l.obsDestino = ($('#crmObsDestino')?.value||'').trim();   // ponto de encontro / desembarque direto — sai no orçamento
   l.prioridade = $('#crmPrioridade')?.value||'morno';
   l.origemLead = $('#crmOrigemLead')?.value||'manual';
   l.interesse = $('#crmInteresse')?.value||'';
@@ -5195,6 +5203,8 @@ function crmSyncFormLead(id){   // salva no lead o que está no formulário (ori
   const g=(sel)=>($(sel)?.value||'').trim();
   if(g('#crmOrigem')) l.origem=g('#crmOrigem');
   if(g('#crmDestino')) l.destino=g('#crmDestino');
+  if($('#crmObsOrigem')) l.obsOrigem=g('#crmObsOrigem');     // não perde a obs de embarque ao recalcular
+  if($('#crmObsDestino')) l.obsDestino=g('#crmObsDestino');
   crmVeicSync(l);
 }
 function ufTxt(s){   // extrai UF de "Cidade/UF" ou "Cidade (UF)" ou "Cidade UF"
@@ -6024,6 +6034,8 @@ function crmEnviarOrcamento(id){
   const origem = l.origem || (l.trajetos&&l.trajetos[0]&&l.trajetos[0].de) || '—';
   const destino = l.destino || (l.trajetos&&l.trajetos.length&&l.trajetos[l.trajetos.length-1].para) || '—';
   const prazo = crmPrazoTexto(l);
+  const obsOrigem = (l.obsOrigem||'').trim();     // ex.: embarque direto com o motorista em ponto de encontro
+  const obsDestino = (l.obsDestino||'').trim();   // ex.: desembarque direto com o motorista em ponto de encontro
   const obsVeic = [l.funciona?('Funciona: '+l.funciona):'', l.blindado?('Blindado: '+l.blindado):''].filter(Boolean).join(' · ') || '—';
   const M = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
@@ -6068,7 +6080,10 @@ function crmEnviarOrcamento(id){
     <h2>2 · Transporte base a base</h2>
     <p class="desc">(Nesta modalidade o veículo deve ser entregue e retirado da transportadora nos locais de carregamento e descarregamento.)</p>
     <table><tr><th>Item</th><th>Origem</th><th>Destino</th><th>Prazo após embarque</th></tr>
-      <tr><td>1</td><td>${esc(origem)}</td><td>${esc(destino)}</td><td>${esc(prazo)}</td></tr>
+      <tr><td>1</td>
+        <td>${esc(origem)}${obsOrigem?`<br><span style="font-size:10.5px;color:#0a3d91;font-style:italic">📍 ${esc(obsOrigem)}</span>`:''}</td>
+        <td>${esc(destino)}${obsDestino?`<br><span style="font-size:10.5px;color:#0a3d91;font-style:italic">📍 ${esc(obsDestino)}</span>`:''}</td>
+        <td>${esc(prazo)}</td></tr>
     </table>
     <table>
       <tr><td>Valor do Frete</td><td class="num">${M(V.valorFrete)}</td></tr>
