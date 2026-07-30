@@ -923,6 +923,7 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
+      <button id="crmBtnPerdaLote" class="btn-ghost" onclick="crmAbrirPerdasLote()" title="Marcar vários leads como PERDIDO de uma vez (cole a lista da auditoria)" style="display:none;color:#da3633;border-color:#da3633">❌ Marcar perdas (lote)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -1057,6 +1058,22 @@
       <button class="btn-ghost" style="padding:8px 16px" onclick="document.getElementById('msgWppModal').style.display='none'">Fechar</button>
       <button class="btn-ghost" style="padding:8px 16px;color:#2563eb;border-color:#2563eb;font-weight:700" onclick="crmEmailLead(_msgWppLeadId)">📧 Enviar por e-mail</button>
       <button class="btn-ok" style="padding:8px 20px;font-weight:700" onclick="copiarMsgWpp()">📋 Copiar mensagem</button>
+    </div>
+  </div>
+</div>
+
+<div id="perdaLoteModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:20px;width:620px;max-width:96vw">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h2 style="font-size:17px;margin:0">❌ Marcar perdas (lote)</h2>
+      <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('perdaLoteModal').style.display='none'">✕ fechar</button>
+    </div>
+    <p class="hint" style="margin-top:0;line-height:1.5">Cole a lista de leads a marcar como <b>PERDIDO</b>. Um por linha, no formato <code>id | motivo</code> — ou cole o JSON da auditoria (<code>[{"id":"...","nome":"...","motivo":"..."}]</code>). O <b>nome</b> também funciona no lugar do id (se for único).</p>
+    <textarea id="perdaLoteTexto" placeholder="Exemplos:&#10;abc123 | Cliente fechou com concorrente&#10;João da Silva | Sem retorno há 15 dias&#10;&#10;— ou cole o JSON da auditoria —" style="width:100%;height:240px;resize:vertical;font-size:13px;line-height:1.5;padding:12px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg,#0e1424);color:inherit;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace"></textarea>
+    <div id="perdaLoteStatus" style="display:none;margin-top:10px;padding:10px 14px;border-radius:10px;font-size:13.5px;line-height:1.5;background:#1b2130;color:#e0e0ee;border:1px solid var(--card-border)"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
+      <button class="btn-ghost" style="padding:8px 16px" onclick="document.getElementById('perdaLoteModal').style.display='none'">Fechar</button>
+      <button id="perdaLoteBtnConfirmar" class="btn-ok" style="padding:8px 20px;font-weight:700;background:#da3633;border-color:#da3633" onclick="crmProcessarPerdasLote()">❌ Marcar como perdidos</button>
     </div>
   </div>
 </div>
@@ -1677,7 +1694,7 @@ function editandoInput(container){
 }
 
 // numeração sequencial: próximo = maior número existente + 1
-const SEQ_2026_FIM=1531;    // a numeração 2026 começou depois do 1531 (importados 01…1531)
+const SEQ_2026_FIM=1554;    // piso da sequência: nº 1554 já foi usado (lançado manual pelo financeiro) → próximo ≥ 1555
 const SEQ_2026_TETO=1595;   // o ciclo atual vai até 1595; de 1596 em diante são números de ciclos ANTIGOS
                             // (2025: 1596…2205) — não entram na sequência nova.
 // conjunto de TODOS os números já usados — inclui fretes EXCLUÍDOS (Lixeira), p/ NUNCA repetir um número.
@@ -3877,6 +3894,7 @@ function crmLimparPeriodo(){
 }
 function renderCRM(){
   renderCRMMetrics();
+  { const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
@@ -4266,6 +4284,91 @@ function crmMarcarPerda(id){
   saveCRM();
   const m=$('#crmModal'); if(m && m.style.display!=='none') fecharCrmModal(); else renderCRM();
   flash('Lead movido para Perdido ✔');
+}
+
+// ===== Marcar perdas em LOTE (admin) — cola a lista da auditoria e marca vários leads como PERDIDO =====
+function crmAbrirPerdasLote(){
+  if(!(typeof sessaoUser!=='undefined' && sessaoUser && sessaoUser.papel==='admin')){ flash('Apenas admin.','erro'); return; }
+  const ta=$('#perdaLoteTexto'); if(ta) ta.value='';
+  const st=$('#perdaLoteStatus'); if(st){ st.style.display='none'; st.innerHTML=''; }
+  const bt=$('#perdaLoteBtnConfirmar'); if(bt) bt.disabled=false;
+  const modal=$('#perdaLoteModal'); if(modal){ modal.style.display='flex'; setTimeout(()=>ta&&ta.focus(),50); }
+}
+// interpreta o texto colado → [{ref, nome, motivo}] (aceita JSON da auditoria ou linhas "id | motivo")
+function _perdaLoteParse(txt){
+  txt=(txt||'').trim();
+  if(!txt) return [];
+  if(txt[0]==='[' || txt[0]==='{'){
+    try{
+      let j=JSON.parse(txt); if(!Array.isArray(j)) j=[j];
+      return j.map(o=>({ ref:String(o.id||o.nome||o.lead||'').trim(), nome:String(o.nome||'').trim(), motivo:String(o.motivo||o.motivoPerda||'').trim() }))
+              .filter(x=>x.ref||x.nome);
+    }catch(e){ /* não era JSON válido → tenta modo linha */ }
+  }
+  return txt.split(/\r?\n/).map(l=>l.trim()).filter(l=>l && l[0]!=='#').map(l=>{
+    const p=l.split('|'); const ref=(p[0]||'').trim(); const motivo=(p.slice(1).join('|')||'').trim();
+    return { ref, nome:ref, motivo };
+  }).filter(x=>x.ref);
+}
+// resolve um item → id de lead (por id direto, depois por nome único; prefere leads ainda abertos)
+function _perdaLoteResolver(ref, nome){
+  if(ref && CRM_LEADS[ref]) return ref;
+  const alvo=normTxt(ref||nome||''); if(!alvo) return null;
+  const ids=Object.keys(CRM_LEADS);
+  const pick=lista=>{ if(lista.length===1) return lista[0]; if(lista.length>1){ const ab=lista.filter(id=>CRM_LEADS[id].etapa!=='perdido'); if(ab.length===1) return ab[0]; } return null; };
+  const exatos=ids.filter(id=>normTxt(CRM_LEADS[id].nome||'')===alvo);
+  let r=pick(exatos); if(r) return r; if(exatos.length>1) return null;
+  const contem=ids.filter(id=>normTxt(CRM_LEADS[id].nome||'').includes(alvo));
+  return pick(contem);
+}
+async function crmProcessarPerdasLote(){
+  if(!(typeof sessaoUser!=='undefined' && sessaoUser && sessaoUser.papel==='admin')){ flash('Apenas admin.','erro'); return; }
+  const st=$('#perdaLoteStatus');
+  const itens=_perdaLoteParse($('#perdaLoteTexto')?.value||'');
+  if(!itens.length){ if(st){ st.style.display=''; st.textContent='Nada para processar — cole a lista primeiro.'; } return; }
+  const resolvidos=[], naoAchou=[]; const vistos=new Set();
+  for(const it of itens){
+    const id=_perdaLoteResolver(it.ref, it.nome);
+    if(!id){ naoAchou.push(it.ref||it.nome); continue; }
+    if(vistos.has(id)) continue; vistos.add(id);
+    resolvidos.push({ id, motivo: it.motivo||'' });
+  }
+  const jaPerdidos=resolvidos.filter(r=>CRM_LEADS[r.id].etapa==='perdido');
+  const aMarcar=resolvidos.filter(r=>CRM_LEADS[r.id].etapa!=='perdido');
+  const esc=s=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  if(st){
+    st.style.display='';
+    st.innerHTML=`Encontrados: <b>${resolvidos.length}</b> · A marcar como perdido: <b>${aMarcar.length}</b>`+
+      (jaPerdidos.length?` · Já perdidos (ignorados): <b>${jaPerdidos.length}</b>`:'')+
+      (naoAchou.length?`<br><span style="color:#f0a0a0">⚠ Não encontrados (${naoAchou.length}): ${naoAchou.slice(0,25).map(esc).join(', ')}${naoAchou.length>25?'…':''}</span>`:'');
+  }
+  if(!aMarcar.length) return;
+  const ok=await uiConfirm(`Marcar ${aMarcar.length} lead(s) como PERDIDO?`, {titulo:'Marcar perdas em lote', ok:'Marcar perdidos'});
+  if(!ok) return;
+  await crmMarcarPerdaLote(aMarcar, st);
+}
+// marca a lista de leads como PERDIDO reutilizando a mesma lógica do botão individual (sem prompt), salvando em blocos
+async function crmMarcarPerdaLote(lista, st){
+  const bt=$('#perdaLoteBtnConfirmar'); if(bt) bt.disabled=true;
+  const agora=new Date().toISOString(); let feitos=0;
+  for(const item of lista){
+    const l=CRM_LEADS[item.id]; if(!l || l.etapa==='perdido') continue;
+    l.motivoPerda=item.motivo||'';
+    l.etapa='perdido';
+    l.ultimaInteracao=agora;
+    crmAddTimeline(item.id,'perda',`Lead marcado como perdido (lote): ${item.motivo||'sem motivo'}`);
+    feitos++;
+    if(feitos%10===0){
+      saveCRM();
+      if(st) st.innerHTML=`Processando… <b>${feitos}/${lista.length}</b>`;
+      await new Promise(r=>setTimeout(r,0));   // cede o thread p/ a UI respirar
+    }
+  }
+  saveCRM();
+  const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
+  if(st) st.innerHTML=`✅ Concluído — <b>${feitos}</b> lead(s) marcados como perdido.`;
+  if(bt) bt.disabled=false;
+  flash(`${feitos} lead(s) movidos para Perdido ✔`);
 }
 // cliente devolveu o formulário preenchido (link emitido) → move o lead p/ Venda Fechada
 function crmSyncFretesFechado(){
