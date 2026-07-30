@@ -922,7 +922,7 @@
     <!-- Toolbar -->
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
-      <button id="crmBtnPerdaLote" class="btn-ghost" onclick="crmAbrirPerdasLote()" title="Marcar vários leads como PERDIDO de uma vez (cole a lista da auditoria)" style="display:none;color:#da3633;border-color:#da3633">❌ Marcar perdas (lote)</button>
+      <button id="crmBtnPerdaLote" class="btn-ghost" onclick="crmAbrirPerdasLote()" title="Marcar vários leads como PERDIDO de uma vez — cole a lista da auditoria (telefone | motivo, nome ou id)" style="display:none;color:#da3633;border-color:#da3633">❌ Marcar perdas (lote)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -1067,8 +1067,8 @@
       <h2 style="font-size:17px;margin:0">❌ Marcar perdas (lote)</h2>
       <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('perdaLoteModal').style.display='none'">✕ fechar</button>
     </div>
-    <p class="hint" style="margin-top:0;line-height:1.5">Cole a lista de leads a marcar como <b>PERDIDO</b>. Um por linha, no formato <code>id | motivo</code> — ou cole o JSON da auditoria (<code>[{"id":"...","nome":"...","motivo":"..."}]</code>). O <b>nome</b> também funciona no lugar do id (se for único).</p>
-    <textarea id="perdaLoteTexto" placeholder="Exemplos:&#10;abc123 | Cliente fechou com concorrente&#10;João da Silva | Sem retorno há 15 dias&#10;&#10;— ou cole o JSON da auditoria —" style="width:100%;height:240px;resize:vertical;font-size:13px;line-height:1.5;padding:12px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg,#0e1424);color:inherit;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace"></textarea>
+    <p class="hint" style="margin-top:0;line-height:1.5">Cole a lista de leads a marcar como <b>PERDIDO</b>. Um por linha, no formato <code>telefone | motivo</code>, <code>id | motivo</code> ou <code>nome | motivo</code> — ou cole o JSON da auditoria. O <b>telefone</b> casa pelos <b>últimos 8 dígitos</b> (ignora DDI/DDD/formatação); o <b>nome</b> precisa ser único.</p>
+    <textarea id="perdaLoteTexto" placeholder="Exemplos:&#10;11987654321 | Sem retorno há 15 dias&#10;João da Silva | Cliente fechou com concorrente&#10;&#10;— ou cole o JSON da auditoria —" style="width:100%;height:240px;resize:vertical;font-size:13px;line-height:1.5;padding:12px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg,#0e1424);color:inherit;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace"></textarea>
     <div id="perdaLoteStatus" style="display:none;margin-top:10px;padding:10px 14px;border-radius:10px;font-size:13.5px;line-height:1.5;background:#1b2130;color:#e0e0ee;border:1px solid var(--card-border)"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
       <button class="btn-ghost" style="padding:8px 16px" onclick="document.getElementById('perdaLoteModal').style.display='none'">Fechar</button>
@@ -4300,7 +4300,7 @@ function _perdaLoteParse(txt){
   if(txt[0]==='[' || txt[0]==='{'){
     try{
       let j=JSON.parse(txt); if(!Array.isArray(j)) j=[j];
-      return j.map(o=>({ ref:String(o.id||o.nome||o.lead||'').trim(), nome:String(o.nome||'').trim(), motivo:String(o.motivo||o.motivoPerda||'').trim() }))
+      return j.map(o=>({ ref:String(o.id||o.telefone||o.tel||o.fone||o.whatsapp||o.nome||o.lead||'').trim(), nome:String(o.nome||'').trim(), motivo:String(o.motivo||o.motivoPerda||'').trim() }))
               .filter(x=>x.ref||x.nome);
     }catch(e){ /* não era JSON válido → tenta modo linha */ }
   }
@@ -4309,12 +4309,21 @@ function _perdaLoteParse(txt){
     return { ref, nome:ref, motivo };
   }).filter(x=>x.ref);
 }
-// resolve um item → id de lead (por id direto, depois por nome único; prefere leads ainda abertos)
+// últimos 8 dígitos de um telefone (ignora DDI/DDD/formatação) — casa mesmo com formatos diferentes
+function _perdaLoteL8(t){ return String(t||'').replace(/\D/g,'').slice(-8); }
+// resolve um item → id de lead (id direto → telefone → nome único; prefere leads ainda abertos)
 function _perdaLoteResolver(ref, nome){
   if(ref && CRM_LEADS[ref]) return ref;
-  const alvo=normTxt(ref||nome||''); if(!alvo) return null;
   const ids=Object.keys(CRM_LEADS);
   const pick=lista=>{ if(lista.length===1) return lista[0]; if(lista.length>1){ const ab=lista.filter(id=>CRM_LEADS[id].etapa!=='perdido'); if(ab.length===1) return ab[0]; } return null; };
+  // 1) por telefone (últimos 8 dígitos) — quando o ref é um número
+  const tel=_perdaLoteL8(ref);
+  if(tel.length>=8){
+    const porTel=ids.filter(id=>_perdaLoteL8(CRM_LEADS[id].telefone)===tel);
+    const rt=pick(porTel); if(rt) return rt; if(porTel.length) return null;   // achou telefone mas ambíguo → não marca
+  }
+  // 2) por nome (exato, depois contém)
+  const alvo=normTxt(ref||nome||''); if(!alvo) return null;
   const exatos=ids.filter(id=>normTxt(CRM_LEADS[id].nome||'')===alvo);
   let r=pick(exatos); if(r) return r; if(exatos.length>1) return null;
   const contem=ids.filter(id=>normTxt(CRM_LEADS[id].nome||'').includes(alvo));
