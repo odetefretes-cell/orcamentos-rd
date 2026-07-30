@@ -2616,7 +2616,7 @@ function renderFinanceiro(){
 
   // ---- AGUARDANDO LIBERAÇÃO (financeiro -> operacional) ----
   const aguard=Object.values(lerDB()).filter(emFinanceiroEtapa).sort((a,b)=>num(b.numero)-num(a.numero));
-  const podeEditarNum = !sessaoUser || !sessaoUser.papel || sessaoUser.papel==='admin';
+  const podeEditarNum = !sessaoUser || !sessaoUser.papel || sessaoUser.papel==='admin' || sessaoUser.papel==='financeiro';
   $('#finLiberar').innerHTML = aguard.length ? aguard.map(f=>{
     const ab=abertoDe(f), s=situacaoReceber(f);
     const nHtml = podeEditarNum
