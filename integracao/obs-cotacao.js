@@ -174,7 +174,11 @@
       }
       btn.disabled = true; btn.textContent = 'Abrindo o WhatsApp…';
       var agora = new Date(), iso = agora.toISOString();
-      var id = 'lead_site_' + agora.getTime() + '_' + Math.random().toString(36).slice(2, 7);
+      // chave do lead = últimos 8 dígitos do telefone (batem com o ChatGuru, ignorando 55/DDD/formatação).
+      // Assim o lead do formulário e a atualização do ChatGuru caem no MESMO documento (sem duplicar) e
+      // o rodízio do ChatGuru "encontra" este lead para gravar o vendedor.
+      var _tel8 = (g('telefone') || '').replace(/\D/g, '').slice(-8);
+      var id = _tel8 ? ('lead_wpp_' + _tel8) : ('lead_site_' + agora.getTime() + '_' + Math.random().toString(36).slice(2, 7));
       var lead = {
         id: id, nome: g('nome'), empresa: '', telefone: g('telefone'), email: g('email'), cpfCnpj: '',
         veiculoDesc: g('veiculo'), placa: '', origem: g('origemCidade') + ' ' + g('origemUF'), destino: g('destinoCidade') + ' ' + g('destinoUF'),
