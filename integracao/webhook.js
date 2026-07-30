@@ -104,6 +104,8 @@ async function gravarLead(id, dados){
 
 exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, async (req, res) => {
   try{
+    // teste rápido no navegador (GET) — confirma que a função está no ar
+    if(req.method === 'GET'){ res.json({ ok:true, servico:'obsIntegracao', dica:'use POST em /cotar e /interesse' }); return; }
     if(req.method !== 'POST'){ res.status(405).json({ ok:false, erro:'use POST' }); return; }
     // segredo simples compartilhado com o ChatGuru
     if(CG_SECRET && req.get('X-CG-Secret') !== CG_SECRET){
@@ -116,13 +118,17 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
     if(rota.endsWith('/cotar') || rota===''){
       const leadId = 'lead_wpp_' + soDigitos(b.telefone || Date.now());
       let cot = null, erroCot = '';
-      try{
-        cot = await calcularSW({
-          cepOrigem: b.cepOrigem, cepDestino: b.cepDestino,
-          valorVeiculo: b.valorVeiculo, categoria: b.categoria,
-          dataColeta: b.dataEnvio
-        });
-      }catch(e){ erroCot = e.message || String(e); }
+      // A SW Fretes é OPCIONAL: se não houver tokens configurados, pula o cálculo —
+      // o próprio app (crmAutoCalcSite) calcula o lead do WhatsApp automaticamente no CRM.
+      if(SW_APPTOKEN && SW_BEARER){
+        try{
+          cot = await calcularSW({
+            cepOrigem: b.cepOrigem, cepDestino: b.cepDestino,
+            valorVeiculo: b.valorVeiculo, categoria: b.categoria,
+            dataColeta: b.dataEnvio
+          });
+        }catch(e){ erroCot = e.message || String(e); }
+      }
 
       const lead = {
         id: leadId,
@@ -147,8 +153,9 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
         ultimaInteracao: new Date().toISOString(),
         timeline: FieldValue.arrayUnion({
           data: new Date().toISOString(), tipo:'criacao',
-          texto: cot ? `Lead do WhatsApp. Cotação SW: R$ ${cot.valor} (prazo ${cot.prazo||'?'} dias).`
-                     : `Lead do WhatsApp. Falha ao cotar na SW: ${erroCot}`
+          texto: cot ? `Lead do WhatsApp (ChatGuru). Cotação SW: R$ ${cot.valor} (prazo ${cot.prazo||'?'} dias).`
+               : erroCot ? `Lead do WhatsApp (ChatGuru). Falha ao cotar na SW: ${erroCot} — o CRM calcula sozinho.`
+                     : `Lead recebido pelo WhatsApp (ChatGuru) — cálculo automático no CRM.`
         })
       };
       await gravarLead(leadId, lead);
