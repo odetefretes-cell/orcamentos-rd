@@ -4507,10 +4507,12 @@ function crmAbrirLead(id){
       </div>
     </div>
     <div class="grid g2">
-      <div class="field"><label>Obs. na origem / embarque <span class="hint" style="font-weight:400">— sai no orçamento</span></label>
-        <input id="crmObsOrigem" value="${escA(l.obsOrigem||'')}" placeholder="Ex.: embarque direto com o motorista em ponto de encontro"></div>
-      <div class="field"><label>Obs. no destino / desembarque <span class="hint" style="font-weight:400">— sai no orçamento</span></label>
-        <input id="crmObsDestino" value="${escA(l.obsDestino||'')}" placeholder="Ex.: desembarque direto com o motorista em ponto de encontro"></div>
+      <div class="field">
+        <label class="chk" style="display:flex;align-items:center;gap:7px;font-weight:600;cursor:pointer"><input type="checkbox" id="crmPontoOrigem" ${l.pontoEncontroOrigem?'checked':''} style="width:16px;height:16px"> 📍 Embarque em ponto de encontro (direto com o motorista)</label>
+        <input id="crmObsOrigem" value="${escA(l.obsOrigem||'')}" placeholder="Detalhe do ponto de encontro na origem (opcional)" style="margin-top:5px"></div>
+      <div class="field">
+        <label class="chk" style="display:flex;align-items:center;gap:7px;font-weight:600;cursor:pointer"><input type="checkbox" id="crmPontoDestino" ${l.pontoEncontroDestino?'checked':''} style="width:16px;height:16px"> 📍 Desembarque em ponto de encontro (direto com o motorista)</label>
+        <input id="crmObsDestino" value="${escA(l.obsDestino||'')}" placeholder="Detalhe do ponto de encontro no destino (opcional)" style="margin-top:5px"></div>
     </div>
     <div class="field"><label>Observação</label><textarea id="crmObs" style="width:100%;min-height:44px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--linha);border-radius:7px" placeholder="Informações extras do cliente">${esc(l.mensagem||'')}</textarea></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 8px">
@@ -4610,8 +4612,10 @@ function crmSalvarLead(id){
   l.vendedor = ($('#crmVendedor')?.value||'').trim();
   l.origem = ($('#crmOrigem')?.value||'').trim();
   l.destino = ($('#crmDestino')?.value||'').trim();
-  l.obsOrigem = ($('#crmObsOrigem')?.value||'').trim();     // ponto de encontro / embarque direto — sai no orçamento
-  l.obsDestino = ($('#crmObsDestino')?.value||'').trim();   // ponto de encontro / desembarque direto — sai no orçamento
+  l.pontoEncontroOrigem = !!$('#crmPontoOrigem')?.checked;   // embarque direto com o motorista (ponto de encontro)
+  l.pontoEncontroDestino = !!$('#crmPontoDestino')?.checked; // desembarque direto com o motorista (ponto de encontro)
+  l.obsOrigem = ($('#crmObsOrigem')?.value||'').trim();     // detalhe do ponto de encontro na origem — sai no orçamento
+  l.obsDestino = ($('#crmObsDestino')?.value||'').trim();   // detalhe do ponto de encontro no destino — sai no orçamento
   l.prioridade = $('#crmPrioridade')?.value||'morno';
   l.origemLead = $('#crmOrigemLead')?.value||'manual';
   l.interesse = $('#crmInteresse')?.value||'';
@@ -5203,6 +5207,8 @@ function crmSyncFormLead(id){   // salva no lead o que está no formulário (ori
   const g=(sel)=>($(sel)?.value||'').trim();
   if(g('#crmOrigem')) l.origem=g('#crmOrigem');
   if(g('#crmDestino')) l.destino=g('#crmDestino');
+  if($('#crmPontoOrigem')) l.pontoEncontroOrigem=!!$('#crmPontoOrigem').checked;   // não perde a marcação ao recalcular
+  if($('#crmPontoDestino')) l.pontoEncontroDestino=!!$('#crmPontoDestino').checked;
   if($('#crmObsOrigem')) l.obsOrigem=g('#crmObsOrigem');     // não perde a obs de embarque ao recalcular
   if($('#crmObsDestino')) l.obsDestino=g('#crmObsDestino');
   crmVeicSync(l);
@@ -6034,8 +6040,9 @@ function crmEnviarOrcamento(id){
   const origem = l.origem || (l.trajetos&&l.trajetos[0]&&l.trajetos[0].de) || '—';
   const destino = l.destino || (l.trajetos&&l.trajetos.length&&l.trajetos[l.trajetos.length-1].para) || '—';
   const prazo = crmPrazoTexto(l);
-  const obsOrigem = (l.obsOrigem||'').trim();     // ex.: embarque direto com o motorista em ponto de encontro
-  const obsDestino = (l.obsDestino||'').trim();   // ex.: desembarque direto com o motorista em ponto de encontro
+  // nota de embarque/desembarque: checkbox "ponto de encontro" + detalhe opcional digitado
+  const obsOrigem = [ l.pontoEncontroOrigem?'Embarque direto com o motorista em ponto de encontro':'', (l.obsOrigem||'').trim() ].filter(Boolean).join(' — ');
+  const obsDestino = [ l.pontoEncontroDestino?'Desembarque direto com o motorista em ponto de encontro':'', (l.obsDestino||'').trim() ].filter(Boolean).join(' — ');
   const obsVeic = [l.funciona?('Funciona: '+l.funciona):'', l.blindado?('Blindado: '+l.blindado):''].filter(Boolean).join(' · ') || '—';
   const M = n => (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 
