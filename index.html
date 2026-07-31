@@ -4950,23 +4950,51 @@ async function resolverCidade(raw){
   if(!prox) return { norm:nc, uf, aproximada:false };   // sem coords, mant\u00e9m
   return { norm:normTxt(prox.nome), uf:prox.uf, aproximada:true, nome:prox.nome, dist:prox.dist, original:raw };
 }
+// Conserta no CARREGAMENTO rotas com trajetos corrompidos (o caminho não termina no destino do
+// nome da rota — ex.: Advaldo "SBC - João Pessoa/PB" com trajeto terminando em Santa Cruz de
+// Salinas/MG). Sem isso, a cidade de destino não vira "nó" e o cálculo ancora numa cidade vizinha
+// (ex.: João Pessoa → Santa Rita). Roda em QUALQUER fonte (nuvem, cache ou arquivo), então
+// se auto-corrige mesmo que a tabela da nuvem esteja desatualizada.
+function _repararRotasTabela(db){
+  if(!db || !Array.isArray(db.rotas)) return db;
+  const parseEnd = p => { const m=String(p||'').trim().match(/^(.+?)\s*\(([A-Za-z]{2})\)\s*$/); return m?{nome:m[1].trim(),uf:m[2].toUpperCase()}:null; };
+  let n=0;
+  for(const r of db.rotas){
+    const tjs=r.trajetos; if(!Array.isArray(tjs)||!tjs.length) continue;
+    const parts=String(r.rota||'').split(' - '); if(parts.length<2) continue;
+    const o=parseEnd(parts[0]), d=parseEnd(parts[parts.length-1]); if(!o||!d) continue;
+    const last=tjs[tjs.length-1];
+    const lastNorm = normTxt(last.d||'')+'|'+((last.dUF||'').toUpperCase());
+    const destNorm = normTxt(d.nome)+'|'+d.uf;
+    if(lastNorm!==destNorm){   // o trajeto não termina no destino declarado → reconstrói como 1 segmento limpo
+      r.trajetos=[{ o:normTxt(o.nome), oUF:o.uf, d:normTxt(d.nome), dUF:d.uf, oNome:o.nome, dNome:d.nome }];
+      n++;
+    }
+  }
+  if(n) try{ console.log('🔧 '+n+' rota(s) reparada(s) no carregamento (trajeto não terminava no destino).'); }catch(_){}
+  return db;
+}
 async function carregarTabelaFretes(){
   if(TABELA_FRETES) return TABELA_FRETES;
+  let db=null;
   // 1) nuvem (tabela compartilhada, atualizada pelo admin) — vence o arquivo estático
   if(CLOUD_ON && _fb && _fb.getDoc){
     try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_tabela'));
-      if(s.exists() && s.data().data){ TABELA_FRETES = JSON.parse(s.data().data); return TABELA_FRETES; }
+      if(s.exists() && s.data().data) db=JSON.parse(s.data().data);
     }catch(_){}
   }
   // 2) cópia local (caso admin tenha publicado offline)
-  try{ const ls=localStorage.getItem('obs_tabela_fretes'); if(ls){ TABELA_FRETES=JSON.parse(ls); return TABELA_FRETES; } }catch(_){}
+  if(!db){ try{ const ls=localStorage.getItem('obs_tabela_fretes'); if(ls) db=JSON.parse(ls); }catch(_){} }
   // 3) arquivo estático publicado no site
-  try{
-    const resp = await fetch('tabela-fretes.json', {cache:'no-cache'});
-    if(!resp.ok) throw new Error('HTTP '+resp.status);
-    TABELA_FRETES = await resp.json();
-    return TABELA_FRETES;
-  }catch(e){ TABELA_ERRO = e.message||String(e); return null; }
+  if(!db){
+    try{
+      const resp = await fetch('tabela-fretes.json', {cache:'no-cache'});
+      if(!resp.ok) throw new Error('HTTP '+resp.status);
+      db = await resp.json();
+    }catch(e){ TABELA_ERRO = e.message||String(e); return null; }
+  }
+  TABELA_FRETES = _repararRotasTabela(db);   // conserta rotas corrompidas de qualquer fonte
+  return TABELA_FRETES;
 }
 // ---- Admin: publicar nova tabela de fretes (lê o Excel e envia p/ a nuvem) ----
 function tabNorm(s){ if(s==null) return ''; return String(s).replace(/\u00a0/g,' ').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
