@@ -1670,6 +1670,10 @@ async function initData(){
           // 3) o lead aberto no modal sempre mantém a versão local (edições em andamento)
           const abertoId=(typeof crmModalId!=='undefined')?crmModalId:null;
           if(abertoId && CRM_LEADS[abertoId] && !CRM_LEADS[abertoId]._novo) merged[abertoId]=CRM_LEADS[abertoId];
+          // garante que todo lead tenha o campo id = chave do documento (leads gravados direto pela
+          // ponte Make/ChatGuru podem vir SEM 'id' → sem isso os botões do card, inclusive 🗑️ excluir,
+          // recebem 'undefined' e não funcionam).
+          for(const k in merged){ if(merged[k] && !merged[k].id) merged[k].id=k; }
           CRM_LEADS=merged;
           if(doServidor) CRM_LAST_IDS=new Set(Object.keys(cloud));   // só o servidor define o "conhecido na nuvem"
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
@@ -3805,7 +3809,7 @@ let CRM_LEADS = {};
 let crmDragId = null;
 
 // ---- Persistência ----
-function loadCRM(){ try{ return JSON.parse(localStorage.getItem(CRM_KEY))||{}; }catch(_){ return {}; } }
+function loadCRM(){ try{ const o=JSON.parse(localStorage.getItem(CRM_KEY))||{}; for(const k in o){ if(o[k]&&!o[k].id) o[k].id=k; } return o; }catch(_){ return {}; } }
 let CRM_LAST_IDS = new Set();   // ids que já vimos na nuvem (p/ distinguir "apagado" de "criado agora")
 let CRM_SAVED = {};             // id -> JSON (sem _ts) do que já foi gravado/confirmado na nuvem
 let CRM_DIRTY = {};             // id -> _ts local aguardando confirmação (impede o onSnapshot de reverter)
