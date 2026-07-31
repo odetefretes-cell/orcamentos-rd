@@ -155,6 +155,9 @@
   .fitem.s-andamento{border-left-color:#3b82f6}
   .fitem.s-concluido{border-left-color:var(--ok)}
   .fitem.s-cancelado{border-left-color:#ef4444}
+  /* em andamento: verde suave = atualização em dia (<24h) · vermelho suave = +24h sem atualização */
+  .fitem.atu-verde{border-left-color:#22c55e;background:rgba(34,197,94,.07)}
+  .fitem.atu-vermelho{border-left-color:#ef4444;background:rgba(239,68,68,.09)}
   .fitem.s-aguardando{border-left-color:#e6a100}
   .fitem .fhead{display:flex;gap:8px;align-items:center;padding:8px 10px;cursor:pointer;flex-wrap:wrap}
   .fitem .fhead:hover{background:rgba(255,255,255,.03)}
@@ -2156,7 +2159,8 @@ function linhaFrete(f){
     <span class="fval">${moeda(f.valorFrete)||'—'}</span>
     <span class="fchev">${aberto?'▲':'▼'}</span>
   </div>`;
-  return `<div class="fitem s-${k}${aberto?' open':''}" data-fid="${id}">${row}${aberto?cardFrete(f):''}</div>`;
+  const atu=classeAtualizacao(f);
+  return `<div class="fitem s-${k}${aberto?' open':''}${atu?' '+atu:''}" data-fid="${id}">${row}${aberto?cardFrete(f):''}</div>`;
 }
 function cardFrete(f){
   const id=f._id, st=statusDe(f), k=stKey(st);
@@ -2466,6 +2470,13 @@ function atrasado(f){
   if(!opDe(f) || statusDe(f)!=='ANDAMENTO') return false;
   const h=horasSemAtualizacao(f);
   return h!=null && h>=24;
+}
+// cor da linha por atualização: verde = em dia (<24h) · vermelho = +24h sem atualização (só em andamento)
+function classeAtualizacao(f){
+  if(!opDe(f) || statusDe(f)!=='ANDAMENTO') return '';
+  const h=horasSemAtualizacao(f);
+  if(h==null) return '';
+  return h>=24 ? 'atu-vermelho' : 'atu-verde';
 }
 function devolverFila(id){
   const db=lerDB(); if(!db[id]) return;
