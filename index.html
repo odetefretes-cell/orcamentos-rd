@@ -4995,15 +4995,17 @@ function _repararRotasTabela(db){
     const tjs=r.trajetos; if(!Array.isArray(tjs)||!tjs.length) continue;
     const parts=String(r.rota||'').split(' - '); if(parts.length<2) continue;
     const o=parseEnd(parts[0]), d=parseEnd(parts[parts.length-1]); if(!o||!d) continue;
-    const last=tjs[tjs.length-1];
-    const lastNorm = normTxt(last.d||'')+'|'+((last.dUF||'').toUpperCase());
     const destNorm = normTxt(d.nome)+'|'+d.uf;
-    if(lastNorm!==destNorm){   // o trajeto não termina no destino declarado → reconstrói como 1 segmento limpo
-      r.trajetos=[{ o:normTxt(o.nome), oUF:o.uf, d:normTxt(d.nome), dUF:d.uf, oNome:o.nome, dNome:d.nome }];
+    // NÃO apagar as cidades de entrega intermediárias (ex.: Advaldo entrega em Aracaju,
+    // Feira de Santana etc. no caminho até João Pessoa). Só garantir que o destino
+    // DECLARADO exista como trajeto direto origem→destino — anexa se estiver faltando.
+    const temDestino = tjs.some(t => (normTxt(t.d||'')+'|'+((t.dUF||'').toUpperCase()))===destNorm);
+    if(!temDestino){
+      r.trajetos.push({ o:normTxt(o.nome), oUF:o.uf, d:normTxt(d.nome), dUF:d.uf, oNome:o.nome, dNome:d.nome });
       n++;
     }
   }
-  if(n) try{ console.log('🔧 '+n+' rota(s) reparada(s) no carregamento (trajeto não terminava no destino).'); }catch(_){}
+  if(n) try{ console.log('🔧 '+n+' rota(s): destino declarado anexado aos trajetos (cidades intermediárias preservadas).'); }catch(_){}
   return db;
 }
 async function carregarTabelaFretes(){
