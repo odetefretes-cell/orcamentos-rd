@@ -3884,7 +3884,10 @@ async function _crmGravarOps(ops){
   const {fs, doc, writeBatch, setDoc, deleteDoc}=_fb;
   const refOf = id => doc(fs,'crm_leads',id);
   const gravarUm = async op => {                     // grava 1 operação isolada (nunca lança)
-    try{ if(op.tipo==='del') await deleteDoc(refOf(op.id)); else await setDoc(refOf(op.id), op.data); return true; }
+    // {merge:true}: só atualiza os campos que ESTE cliente tem — preserva na nuvem os campos
+    // que outra pessoa (ou o Make/ChatGuru) mudou ao mesmo tempo. Sem isso, um setDoc completo
+    // reescrevia o documento inteiro e revertia a edição de quem estava com uma visão mais nova.
+    try{ if(op.tipo==='del') await deleteDoc(refOf(op.id)); else await setDoc(refOf(op.id), op.data, {merge:true}); return true; }
     catch(e){ _syncErro(op.oque||'gravação CRM', e); return false; }
   };
   if(!writeBatch){                                   // sem writeBatch: um a um, isolado
@@ -3896,7 +3899,7 @@ async function _crmGravarOps(ops){
     const chunk = ops.slice(i,i+400);
     try{
       const b = writeBatch(fs);
-      for(const op of chunk){ const ref=refOf(op.id); if(op.tipo==='del') b.delete(ref); else b.set(ref, op.data); }
+      for(const op of chunk){ const ref=refOf(op.id); if(op.tipo==='del') b.delete(ref); else b.set(ref, op.data, {merge:true}); }
       await b.commit();
     }catch(e){
       // o lote falhou → grava um a um p/ NÃO perder os bons por causa de um registro ruim
@@ -4341,9 +4344,15 @@ function crmNormalizarVendedores(){
   let mudou=false;
   for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo || !(l.vendedor||'').trim()) continue;
     const novo = crmNomeCanon(l.vendedor);
-    if(novo && novo!==l.vendedor){ l.vendedor=novo; mudou=true; }
+    if(novo && novo!==l.vendedor){
+      l.vendedor=novo; mudou=true;
+      // grava SÓ o campo vendedor (merge) — NÃO reescreve o lead inteiro. Esta rotina roda em
+      // TODAS as sessões a cada sincronização; um saveCRM completo aqui reescrevia o documento
+      // e sobrescrevia edições de outra pessoa em outros campos ("edição some/reverte").
+      try{ _fb.setDoc(_fb.doc(_fb.fs,'crm_leads',id), { vendedor:novo }, {merge:true}); }catch(_){}
+    }
   }
-  if(mudou){ saveCRM(); const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
+  if(mudou){ const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
 }
 // rotina do ADMIN: distribui responsável por rodízio (lead de site/WhatsApp sem responsável)
 function crmAdminRotinas(){
