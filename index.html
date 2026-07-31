@@ -1676,7 +1676,8 @@ async function initData(){
           if(_crmResync){ _crmResync=false; try{ if(typeof crmSalvarAuto==='function') crmSalvarAuto(); }catch(_){} }  // reenvia p/ a nuvem o que estava só local
           const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
-          if(typeof crmAdminRotinas==='function') crmAdminRotinas();   // rodízio de responsável + migração Luiz→Yasmim
+          if(typeof crmNormalizarVendedores==='function') crmNormalizarVendedores();  // vendedor sempre no nome completo (todos os usuários)
+          if(typeof crmAdminRotinas==='function') crmAdminRotinas();   // rodízio de responsável (admin)
         }, ()=>{});
       }
     }catch(e){ console.error('Falha ao conectar na nuvem, usando modo local:',e); MEM=loadLocal(); CLIENTES=loadClientesLocal(); setModo('⚠ Sem nuvem — modo local'); if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · modo local'); }
@@ -4294,18 +4295,27 @@ function crmProxResponsavel(){   // próximo do rodízio (ativos; se nenhum, tod
   const i = pool.indexOf(CRM_RODIZIO && CRM_RODIZIO.last);
   return pool[(i+1) % pool.length];
 }
-// rotinas do ADMIN: migra Luiz→Yasmim e distribui responsável por rodízio
-function crmAdminRotinas(){
-  if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser || sessaoUser.papel!=='admin') return;
+// Padroniza o VENDEDOR para o nome COMPLETO (Yasmim Freitas / Thiago Lucca / Flavia Ottati) e
+// migra "Luiz Gustavo" → Yasmim. Roda para QUALQUER usuário logado (admin ou comercial), porque o
+// ChatGuru/Make pode gravar um nome parcial ("Yasmim") — assim o dado fica SEMPRE padronizado na
+// nuvem, e os filtros/metas (que usam o nome completo) reconhecem o lead. É idempotente: só grava
+// quando realmente muda (nome completo já normalizado não gera escrita).
+function crmNormalizarVendedores(){
+  if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser) return;
   const yas = crmComercial().find(n=>/yasmim|yasmin/i.test(n)) || 'Yasmim Freitas';
   let mudou=false;
+  for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo || !(l.vendedor||'').trim()) continue;
+    const novo = CRM_LUIZ_RE.test(l.vendedor) ? yas : crmNomeCanon(l.vendedor);
+    if(novo && novo!==l.vendedor){ l.vendedor=novo; mudou=true; }
+  }
+  if(mudou){ saveCRM(); const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
+}
+// rotina do ADMIN: distribui responsável por rodízio (lead de site/WhatsApp sem responsável)
+function crmAdminRotinas(){
+  if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser || sessaoUser.papel!=='admin') return;
+  let mudou=false;
   for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo) continue;
-    // 1) responsável Luiz Gustavo (automático) → Yasmim
-    if(CRM_LUIZ_RE.test(l.vendedor||'')){ l.vendedor=yas; crmAddTimeline(id,'movido',`Responsável Luiz Gustavo → ${yas} (rodízio).`); mudou=true; }
-    // 1b) unifica nomes duplicados (Yasmin/Yasmim = mesma pessoa)
-    else if(l.vendedor && crmNomeCanon(l.vendedor)!==l.vendedor){ l.vendedor=crmNomeCanon(l.vendedor); mudou=true; }
-    // 2) lead de site/WhatsApp sem responsável → próximo do rodízio
-    else if(!((l.vendedor||'').trim()) && (l.origemLead==='site'||l.origemLead==='whatsapp')){
+    if(!((l.vendedor||'').trim()) && (l.origemLead==='site'||l.origemLead==='whatsapp')){
       const prox=crmProxResponsavel();
       if(prox){ l.vendedor=prox; CRM_RODIZIO.last=prox; crmAddTimeline(id,'movido',`Responsável por rodízio: ${prox}`);
         try{ _fb.setDoc(_fb.doc(_fb.fs,'fretes','_rodizio'), {last:prox}); }catch(_){}
