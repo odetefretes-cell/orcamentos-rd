@@ -3616,16 +3616,15 @@ const CRM_META_INDIVIDUAL=['Yasmim Freitas','Thiago Lucca','Flavia Ottati'];
 // calcula o levantamento mensal AO VIVO, a partir dos fretes do sistema (MEM)
 function calcResumoMensal(){
   const MN=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-  // De AGOSTO/2026 em diante, operadoras (NATALY, YASMIN…) são OPERACIONAL e NÃO contam como vendedor
-  // comercial (sem isto, o padronizador confundia a operadora "YASMIN" com N com a vendedora "Yasmim
-  // Freitas" com M e inflava a meta). Os MESES ANTERIORES ficam como sempre foram: pelo que está
-  // preenchido no campo "atendente" do formulário (não reescreve o histórico). As operadoras seguem
-  // contando no total DA EMPRESA (m.total) em qualquer mês.
-  const META_CORTE = '2026-08';   // 1º mês contado pela regra nova (exclui operadora do comercial)
+  // As operadoras (NATALY, YASMIN…) são OPERACIONAL e NUNCA contam como vendedor comercial — em NENHUM
+  // mês. Sem isto, o padronizador confundia a operadora "YASMIN" (com N) com a vendedora "Yasmim Freitas"
+  // (com M) e jogava TUDO em cima da Yasmim. Agora cada uma aparece no seu lugar: NATALY/YASMIN na tabela
+  // do Operacional (pelos números reais) e os 3 do Comercial só com o que é deles. As operadoras seguem
+  // contando no total DA EMPRESA (m.total).
   const opsSet = new Set((typeof lerOperadoras==='function'?lerOperadoras():['NATALY','YASMIN']).map(o=>normTxt(o)));
   const canon=(v,ym)=>{ const raw=(v||'').toString().trim(); if(!raw) return '(sem vendedor)';
-    if(ym>=META_CORTE && opsSet.has(normTxt(raw))) return '(operadora)';   // só a partir de ago/2026
-    return crmNomeCanon(raw); };  // unifica os 3 do comercial (comportamento antigo nos meses passados)
+    if(opsSet.has(normTxt(raw))) return '(operadora)';   // operadora nunca é vendedor comercial
+    return crmNomeCanon(raw); };  // unifica os 3 do comercial
   const meses={};
   for(const id in MEM){ const f=MEM[id]; if(!f) continue;
     if(!(f.cadastrado || (f.numero && String(f.numero).trim()))) continue;   // só contratos emitidos/numerados
