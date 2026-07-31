@@ -5099,21 +5099,22 @@ async function crmInitCidadeSel(id){
   crmAbertoId=id;
   await carregarTabelaFretes();
   await carregarCoords();   // p/ listar todos os municípios do estado
-  const cid=crmBuildCidades(); const ufs=cid?Object.keys(cid):[];
+  const ufs=[...UFS].sort();   // TODOS os 27 estados do Brasil, mesmo sem rota direta (o cálculo ancora na base mais próxima)
   ['Origem','Destino'].forEach(q=>{
     const selUF=$('#crm'+q+'UF'); if(!selUF) return;
     selUF.innerHTML='<option value="">UF</option>'+ufs.map(u=>`<option value="${u}">${u}</option>`).join('');
     const l=CRM_LEADS[id]; if(!l) return;
     const atual=(q==='Origem'?l.origem:l.destino)||'';
     const uf=ufTxt(atual).toUpperCase();
-    if(uf && cid && cid[uf]){
+    if(uf){
       selUF.value=uf; crmFillCidades(q);
       const selC=$('#crm'+q+'Cidade');
       // remove a UF do fim em qualquer formato: "Cidade UF", "Cidade/UF", "Cidade - UF", "Cidade (UF)"
       const cidade=atual.replace(new RegExp('[\\s/,()\\-]+'+uf+'\\)?\\s*$','i'),'').replace(/[\/,\-\s(]+$/,'').trim();
       const ncid=normTxt(cidade);
-      const match=cid[uf].find(c=>normTxt(c)===ncid) || cid[uf].find(c=>normTxt(c).split('/')[0]===ncid);
-      if(match) selC.value=match;
+      const lista=crmCidadesUF(uf);
+      const m=lista.find(c=>normTxt(c.value)===ncid) || lista.find(c=>normTxt(c.value).split('/')[0]===ncid);
+      if(m) selC.value=m.value;
       else if(cidade){ const o=document.createElement('option'); o.value=atual; o.textContent=cidade+' (fora da tabela)'; selC.insertBefore(o, selC.lastChild); selC.value=atual; }
     }
   });
