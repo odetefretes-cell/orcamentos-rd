@@ -4295,17 +4295,16 @@ function crmProxResponsavel(){   // próximo do rodízio (ativos; se nenhum, tod
   const i = pool.indexOf(CRM_RODIZIO && CRM_RODIZIO.last);
   return pool[(i+1) % pool.length];
 }
-// Padroniza o VENDEDOR para o nome COMPLETO (Yasmim Freitas / Thiago Lucca / Flavia Ottati) e
-// migra "Luiz Gustavo" → Yasmim. Roda para QUALQUER usuário logado (admin ou comercial), porque o
-// ChatGuru/Make pode gravar um nome parcial ("Yasmim") — assim o dado fica SEMPRE padronizado na
-// nuvem, e os filtros/metas (que usam o nome completo) reconhecem o lead. É idempotente: só grava
-// quando realmente muda (nome completo já normalizado não gera escrita).
+// Padroniza o VENDEDOR para o nome COMPLETO (Yasmim Freitas / Thiago Lucca / Flavia Ottati).
+// Roda para QUALQUER usuário logado (admin ou comercial), porque o ChatGuru/Make pode gravar um nome
+// parcial ("Yasmim") — assim o dado fica SEMPRE padronizado na nuvem, e os filtros/metas (que usam o
+// nome completo) reconhecem o lead. É idempotente: só grava quando realmente muda.
+// OBS: "Luiz Gustavo" é preservado como está (crmNomeCanon não o altera).
 function crmNormalizarVendedores(){
   if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser) return;
-  const yas = crmComercial().find(n=>/yasmim|yasmin/i.test(n)) || 'Yasmim Freitas';
   let mudou=false;
   for(const id in CRM_LEADS){ const l=CRM_LEADS[id]; if(!l || l._novo || !(l.vendedor||'').trim()) continue;
-    const novo = CRM_LUIZ_RE.test(l.vendedor) ? yas : crmNomeCanon(l.vendedor);
+    const novo = crmNomeCanon(l.vendedor);
     if(novo && novo!==l.vendedor){ l.vendedor=novo; mudou=true; }
   }
   if(mudou){ saveCRM(); const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
