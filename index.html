@@ -3613,7 +3613,13 @@ const CRM_META_INDIVIDUAL=['Yasmim Freitas','Thiago Lucca','Flavia Ottati'];
 // calcula o levantamento mensal AO VIVO, a partir dos fretes do sistema (MEM)
 function calcResumoMensal(){
   const MN=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-  const canon=v=>{ const raw=(v||'').toString().trim(); if(!raw) return '(sem vendedor)'; return crmNomeCanon(raw); };  // unifica os 3 do comercial
+  // operadoras (NATALY, YASMIN…) são OPERACIONAL — não contam como vendedor comercial. Sem isto, o
+  // padronizador confundia a operadora "YASMIN" (com N) com a vendedora "Yasmim Freitas" (com M) e
+  // inflava a meta dela. As operadoras seguem contando no total DA EMPRESA (m.total), só não no comercial.
+  const opsSet = new Set((typeof lerOperadoras==='function'?lerOperadoras():['NATALY','YASMIN']).map(o=>normTxt(o)));
+  const canon=v=>{ const raw=(v||'').toString().trim(); if(!raw) return '(sem vendedor)';
+    if(opsSet.has(normTxt(raw))) return '(operadora)';   // operadora → não é vendedor comercial
+    return crmNomeCanon(raw); };  // unifica os 3 do comercial
   const meses={};
   for(const id in MEM){ const f=MEM[id]; if(!f) continue;
     if(!(f.cadastrado || (f.numero && String(f.numero).trim()))) continue;   // só contratos emitidos/numerados
