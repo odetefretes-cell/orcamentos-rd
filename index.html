@@ -3705,12 +3705,13 @@ async function renderMensal(){
   const nomes = CRM_META_INDIVIDUAL.slice();
   if(!nomes.length){ ops.innerHTML='<p class="hint">Sem dados de vendedor ainda.</p>'; }
   else{
-    const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center" colspan="2">${esc(n)}</th>`).join('')}</tr>`
-      +`<tr><th></th>${nomes.map(()=>`<th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">fechados</th><th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">bônus</th>`).join('')}</tr>`;
+    const head=`<tr><th>Mês</th>${nomes.map(n=>`<th style="text-align:center" colspan="3">${esc(n)}</th>`).join('')}</tr>`
+      +`<tr><th></th>${nomes.map(()=>`<th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">fechados</th><th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">cancelados</th><th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">bônus</th>`).join('')}</tr>`;
     const rows=dados.map(m=>`<tr><td><b>${esc(m.mes)}</b></td>${nomes.map(n=>{
-      const o=(m.vendedores||{})[n]; if(!o) return '<td style="text-align:center">—</td><td style="text-align:center">—</td>';
+      const o=(m.vendedores||{})[n]; if(!o) return '<td style="text-align:center">—</td><td style="text-align:center">—</td><td style="text-align:center">—</td>';
       const cor=NIVEL_COR[o.nivelInd]||'#9aa7b4';
       return `<td style="text-align:center"><b>${o.fechados}</b></td>`+
+        `<td style="text-align:center">${o.cancelado>0?`<b style="color:#ef4444">${o.cancelado}</b>`:'<span class="hint">0</span>'}</td>`+
         `<td style="text-align:center">${o.bonusInd?`<span style="background:${cor};color:#fff;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">${esc(o.nivelInd)}</span> <b>R$ ${o.bonusInd.toLocaleString('pt-BR')}</b>`:'<span class="hint">—</span>'}</td>`;
     }).join('')}</tr>`).join('');
     ops.innerHTML=`<table class="fin" style="min-width:680px"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
