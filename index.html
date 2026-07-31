@@ -873,6 +873,9 @@
       <div class="body">
         <p class="hint" style="margin-top:0">Quantidade de <b>contratos fechados</b> (total − cancelados), concluídos, em andamento e cancelamentos por mês. O <b>operacional</b> recebe o bônus pela <b>meta da empresa</b> (mesmo valor para todos).</p>
         <div id="mensalTabela" style="overflow-x:auto"></div>
+        <h3 style="font-size:14px;margin:22px 0 6px;color:rgba(228,228,240,.7)">Operacional — bônus pela meta da empresa (por operadora)</h3>
+        <p class="hint" style="margin:0 0 8px">Cada operadora recebe o <b>mesmo</b> bônus da <b>meta geral da empresa</b> (igual para todas). A coluna “transportes” mostra quantos fretes cada uma tocou no mês.</p>
+        <div id="mensalOper" style="overflow-x:auto"></div>
         <h3 style="font-size:14px;margin:22px 0 6px;color:rgba(228,228,240,.7)">Comercial — bônus individual por vendedor</h3>
         <p class="hint" style="margin:0 0 8px">Cada vendedor recebe pelo <b>próprio</b> número de contratos fechados (requisito: 60 = Meta · 70 = Acelerado · 80 = Turbo · 100 = Máquina).</p>
         <div id="mensalOps" style="overflow-x:auto"></div>
@@ -3613,24 +3616,31 @@ const CRM_META_INDIVIDUAL=['Yasmim Freitas','Thiago Lucca','Flavia Ottati'];
 // calcula o levantamento mensal AO VIVO, a partir dos fretes do sistema (MEM)
 function calcResumoMensal(){
   const MN=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-  // operadoras (NATALY, YASMIN…) são OPERACIONAL — não contam como vendedor comercial. Sem isto, o
-  // padronizador confundia a operadora "YASMIN" (com N) com a vendedora "Yasmim Freitas" (com M) e
-  // inflava a meta dela. As operadoras seguem contando no total DA EMPRESA (m.total), só não no comercial.
+  // De AGOSTO/2026 em diante, operadoras (NATALY, YASMIN…) são OPERACIONAL e NÃO contam como vendedor
+  // comercial (sem isto, o padronizador confundia a operadora "YASMIN" com N com a vendedora "Yasmim
+  // Freitas" com M e inflava a meta). Os MESES ANTERIORES ficam como sempre foram: pelo que está
+  // preenchido no campo "atendente" do formulário (não reescreve o histórico). As operadoras seguem
+  // contando no total DA EMPRESA (m.total) em qualquer mês.
+  const META_CORTE = '2026-08';   // 1º mês contado pela regra nova (exclui operadora do comercial)
   const opsSet = new Set((typeof lerOperadoras==='function'?lerOperadoras():['NATALY','YASMIN']).map(o=>normTxt(o)));
-  const canon=v=>{ const raw=(v||'').toString().trim(); if(!raw) return '(sem vendedor)';
-    if(opsSet.has(normTxt(raw))) return '(operadora)';   // operadora → não é vendedor comercial
-    return crmNomeCanon(raw); };  // unifica os 3 do comercial
+  const canon=(v,ym)=>{ const raw=(v||'').toString().trim(); if(!raw) return '(sem vendedor)';
+    if(ym>=META_CORTE && opsSet.has(normTxt(raw))) return '(operadora)';   // só a partir de ago/2026
+    return crmNomeCanon(raw); };  // unifica os 3 do comercial (comportamento antigo nos meses passados)
   const meses={};
   for(const id in MEM){ const f=MEM[id]; if(!f) continue;
     if(!(f.cadastrado || (f.numero && String(f.numero).trim()))) continue;   // só contratos emitidos/numerados
     const dt=(f.dataFechamento||(f._salvoEm||'').slice(0,10)||''); const ym=dt.slice(0,7);
     if(!/^\d{4}-\d{2}$/.test(ym)) continue;
     const st=statusDe(f);
-    const m=meses[ym]||(meses[ym]={total:0,concluido:0,andamento:0,cancelado:0,vendedores:{}});
-    const v=canon(f.atendente); const mv=m.vendedores[v]||(m.vendedores[v]={total:0,concluido:0,andamento:0,cancelado:0});
+    const m=meses[ym]||(meses[ym]={total:0,concluido:0,andamento:0,cancelado:0,vendedores:{},operadoras:{}});
+    const v=canon(f.atendente, ym); const mv=m.vendedores[v]||(m.vendedores[v]={total:0,concluido:0,andamento:0,cancelado:0});
     m.total++; mv.total++;
+    // operacional: quem OPEROU o frete (campo operadora) — recebe bônus pela meta GERAL da empresa
+    const op=(typeof opDe==='function'?opDe(f):(f.operadora||'').toUpperCase());
+    const mo = op ? (m.operadoras[op]||(m.operadoras[op]={total:0,cancelado:0})) : null;
+    if(mo) mo.total++;
     if(st==='CONCLUÍDO'){ m.concluido++; mv.concluido++; }
-    else if(st==='CANCELADO'){ m.cancelado++; mv.cancelado++; }
+    else if(st==='CANCELADO'){ m.cancelado++; mv.cancelado++; if(mo) mo.cancelado++; }
     else { m.andamento++; mv.andamento++; }
   }
   return Object.keys(meses).sort().map(ym=>{
@@ -3639,8 +3649,11 @@ function calcResumoMensal(){
     const vend={};
     for(const v in m.vendedores){ const o=m.vendedores[v]; const fi=o.total-o.cancelado; const ni=nivelIndividual(fi);
       vend[v]={ fechados:fi, total:o.total, concluido:o.concluido, andamento:o.andamento, cancelado:o.cancelado, nivelInd:ni.nivel, bonusInd:ni.bonus }; }
+    // operacional: cada operadora recebe o MESMO bônus da meta da empresa (ne.bonus/ne.nivel)
+    const oper={};
+    for(const op in m.operadoras){ const o=m.operadoras[op]; oper[op]={ fechados:o.total-o.cancelado, nivel:ne.nivel, bonus:ne.bonus }; }
     return { mes:MN[+mm-1]+' '+yy, total:m.total, concluido:m.concluido, andamento:m.andamento, cancelado:m.cancelado,
-             fechados, nivel:ne.nivel, bonus:ne.bonus, vendedores:vend };
+             fechados, nivel:ne.nivel, bonus:ne.bonus, vendedores:vend, operadoras:oper };
   });
 }
 async function renderMensal(){
@@ -3665,6 +3678,26 @@ async function renderMensal(){
   tab.innerHTML=`<table class="fin" style="min-width:760px">
     <thead><tr><th>Mês</th><th style="text-align:center">Contratos fechados</th><th style="text-align:center">Concluídos</th><th style="text-align:center">Em andamento</th><th style="text-align:center">Cancelados</th><th style="text-align:center">Nível empresa</th><th style="text-align:right">Bônus operacional<br><span style="font-weight:normal;font-size:11px;color:#8592a1">(igual p/ todos)</span></th></tr></thead>
     <tbody>${dados.map(linha).join('')}</tbody></table>`;
+  // por operadora (operacional) — MESMO bônus da meta da empresa (igual p/ todas)
+  const oper=$('#mensalOper');
+  if(oper){
+    // operadoras conhecidas + as que aparecerem nos dados (sem duplicar)
+    const setOp=new Set((typeof lerOperadoras==='function'?lerOperadoras():['NATALY','YASMIN']).map(o=>(o||'').toUpperCase()));
+    dados.forEach(m=>Object.keys(m.operadoras||{}).forEach(o=>setOp.add(o)));
+    const opsNomes=[...setOp].filter(Boolean).sort();
+    if(!opsNomes.length){ oper.innerHTML='<p class="hint">Sem dados de operadora ainda.</p>'; }
+    else{
+      const headO=`<tr><th>Mês</th>${opsNomes.map(n=>`<th style="text-align:center" colspan="2">${esc(n)}</th>`).join('')}</tr>`
+        +`<tr><th></th>${opsNomes.map(()=>`<th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">transportes</th><th style="text-align:center;font-weight:normal;font-size:11px;color:#8592a1">bônus (meta empresa)</th>`).join('')}</tr>`;
+      const rowsO=dados.map(m=>`<tr><td><b>${esc(m.mes)}</b></td>${opsNomes.map(n=>{
+        const o=(m.operadoras||{})[n]; if(!o) return '<td style="text-align:center">—</td><td style="text-align:center">—</td>';
+        const cor=NIVEL_COR[o.nivel]||'#9aa7b4';
+        return `<td style="text-align:center"><b>${o.fechados}</b></td>`+
+          `<td style="text-align:center">${o.bonus?`<span style="background:${cor};color:#fff;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">${esc(o.nivel)}</span> <b>R$ ${o.bonus.toLocaleString('pt-BR')}</b>`:'<span class="hint">—</span>'}</td>`;
+      }).join('')}</tr>`).join('');
+      oper.innerHTML=`<table class="fin" style="min-width:680px"><thead>${headO}</thead><tbody>${rowsO}</tbody></table>`;
+    }
+  }
   // por vendedor (comercial) — bônus INDIVIDUAL pelo próprio nº de contratos
   const ops=$('#mensalOps');
   // metas individuais valem SÓ para os 3 do comercial (Yasmim Freitas, Thiago Lucca, Flavia Ottati)
