@@ -1633,6 +1633,8 @@ async function initData(){
           // não redesenha a tela enquanto a operadora está digitando (senão apaga o texto)
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none' && !editandoInput(vr)) renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none' && !editandoInput(vf)) renderFinanceiro();
+          // Metas ao vivo: recalcula os números do mês assim que um novo fechamento entra/muda/cancela
+          const vm=$('#viewMensal'); if(vm && vm.style.display!=='none' && typeof renderMensal==='function') renderMensal();
           if(window.__sessaoPronta) window.__sessaoPronta('Sessão carregada · ☁ compartilhado');
         }, err=>{ console.error(err); setModo('⚠ Erro na nuvem — usando modo local'); if(window.__sessaoPronta) window.__sessaoPronta('⚠ Erro na nuvem — modo local','erro'); });
         // cadastro de clientes
