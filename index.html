@@ -223,7 +223,7 @@
   table.fin input[type=date],table.fin input[inputmode=decimal]{font-family:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--card-border);border-radius:6px;background:rgba(255,255,255,.07);color:#e4e4f0}
   table.fin input[inputmode=decimal]{width:100px}
   .tagv{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:bold;color:#fff}
-  .tagv.venc{background:#ef4444}.tagv.dia{background:#e6a100}.tagv.quit{background:var(--ok)}
+  .tagv.venc{background:#ef4444}.tagv.dia{background:#e6a100}.tagv.quit{background:var(--ok)}.tagv.fat{background:#3b82f6}
   .chk{display:inline-flex;gap:4px;align-items:center;cursor:pointer;font-size:12px;font-weight:600;color:rgba(228,228,240,.6)}
   .chk input{width:16px;height:16px;accent-color:var(--ok)}
   .hist-wrap{display:grid;grid-template-columns:1fr;gap:14px}
@@ -2269,7 +2269,7 @@ function cardFrete(f){
       <div class="fld fsec">💰 FINANCEIRO</div>
       <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
       <div class="fld"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
-      <div class="fld"><label>Em aberto</label><div class="ro ${abertoV>0?'saldo-neg':'saldo-pos'}">${moeda(abertoV)}</div></div>
+      <div class="fld"><label>${faturado(f)?'📄 Faturado (boleto)':'Em aberto'}</label><div class="ro ${faturado(f)?'':(abertoV>0?'saldo-neg':'saldo-pos')}" ${faturado(f)?'style="color:#3b82f6;font-weight:700"':''}>${moeda(abertoV)}</div></div>
       <div class="fld"><label>Saldo do frete</label><div class="ro ${saldo<0?'saldo-neg':'saldo-pos'}">${moeda(saldo)}</div></div>
 
       ${camposPagamentoHTML(id,f,true)}
@@ -2472,8 +2472,21 @@ function atrasado(f){
   return h!=null && h>=24;
 }
 // cor da linha por atualização: verde = em dia (<24h) · vermelho = +24h sem atualização (só em andamento)
+// Próxima etapa AGENDADA e ainda não confirmada (previsão preenchida = combinada c/ o cliente).
+function proxMarcoPrev(f){
+  const marcos=[['coletaPrev','coletaFeito'],['embarquePrev','embarqueFeito'],['chegadaPrev','chegadaFeito']];
+  for(const [p,ft] of marcos){
+    const prev=String(f[p]||'').trim(), feito=String(f[ft]||'').trim();
+    if(prev && !feito) return prev;   // primeiro marco pendente COM data prevista
+  }
+  return null;
+}
 function classeAtualizacao(f){
   if(!opDe(f) || statusDe(f)!=='ANDAMENTO') return '';
+  // Se há uma coleta/embarque/chegada com data prevista combinada, só fica vermelho
+  // DEPOIS que a data passar sem confirmação — dentro da validade fica verde (em dia).
+  const prev=proxMarcoPrev(f);
+  if(prev) return prev < hojeISO() ? 'atu-vermelho' : 'atu-verde';
   const h=horasSemAtualizacao(f);
   if(h==null) return '';
   return h>=24 ? 'atu-vermelho' : 'atu-verde';
@@ -2504,9 +2517,12 @@ function seguroDe(f){ if(f.seguro!=null && f.seguro!=='') return num(f.seguro); 
 function lucroDe(f){ return num(f.valorFrete) - somaPrest(f) - impostoDe(f) - seguroDe(f); }
 function recebidoDe(f){ return num(f.pago1)+num(f.pago2); }
 function abertoDe(f){ return num(f.valorFrete)-recebidoDe(f); }
+// FATURADO: boleto com a data de faturamento preenchida e ainda com saldo → não é "em aberto", está faturado (aguardando o boleto).
+function faturado(f){ return /boleto/i.test(f.formaPgto||'') && !!String(f.dataFaturamento||'').trim() && abertoDe(f)>0.005; }
 function hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function situacaoReceber(f){
   if(abertoDe(f)<=0.005) return {k:'quit',t:'QUITADO'};
+  if(faturado(f)) return {k:'fat',t:'FATURADO'};
   if(f.previsaoRecebimento && f.previsaoRecebimento < hojeISO()) return {k:'venc',t:'VENCIDO'};
   return {k:'dia',t:'A RECEBER'};
 }
@@ -2650,25 +2666,29 @@ function renderFinanceiro(){
         <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
         <div class="fld"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
         <div class="fld"><label>Previsão de recebimento</label><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setPag('${f._id}','previsaoRecebimento',this.value)"></div>
-        <div class="fld"><label>Em aberto</label><div class="ro ${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</div></div>
+        <div class="fld"><label>${faturado(f)?'📄 Faturado (boleto)':'Em aberto'}</label><div class="ro ${faturado(f)?'':(ab>0.005?'saldo-neg':'saldo-pos')}" ${faturado(f)?'style="color:#3b82f6;font-weight:700"':''}>${moeda(ab)}</div></div>
         ${camposPagamentoHTML(f._id,f)}
       </div>
     </div>`;
   }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum frete aguardando liberação.</p>';
 
   // ---- A RECEBER ----
-  let totFrete=0,totRec=0,totAberto=0,totVenc=0,nQuit=0,nReceber=0;
+  let totFrete=0,totRec=0,totAberto=0,totVenc=0,totFat=0,nQuit=0,nReceber=0,nFat=0;
   const comValor=fretes.filter(f=>num(f.valorFrete)>0);
-  comValor.forEach(f=>{ const s=situacaoReceber(f),ab=abertoDe(f); totFrete+=num(f.valorFrete); totRec+=recebidoDe(f); totAberto+=Math.max(0,ab); if(s.k==='venc') totVenc+=ab; if(s.k==='quit') nQuit++; else nReceber++; });
+  comValor.forEach(f=>{ const s=situacaoReceber(f),ab=abertoDe(f); totFrete+=num(f.valorFrete); totRec+=recebidoDe(f);
+    if(s.k==='fat'){ totFat+=Math.max(0,ab); nFat++; }               // faturado NÃO entra no "em aberto"
+    else { totAberto+=Math.max(0,ab); if(s.k==='venc') totVenc+=ab; }
+    if(s.k==='quit') nQuit++; else if(s.k!=='fat') nReceber++; });
   // aplica o filtro clicável
   const passaFin=f=>{ const s=situacaoReceber(f), ab=abertoDe(f);
-    if(finFiltro==='aberto') return ab>0.005;
+    if(finFiltro==='aberto') return ab>0.005 && s.k!=='fat';         // "em aberto" exclui faturado
     if(finFiltro==='recebido') return recebidoDe(f)>0.005;
     if(finFiltro==='quit') return s.k==='quit';
-    if(finFiltro==='areceber') return s.k!=='quit';
+    if(finFiltro==='faturado') return s.k==='fat';
+    if(finFiltro==='areceber') return s.k!=='quit' && s.k!=='fat';
     if(finFiltro==='venc') return s.k==='venc';
     return true; };
-  const NOMES={aberto:'Em aberto',recebido:'Recebido',quit:'Quitados',areceber:'A receber',venc:'Vencido'};
+  const NOMES={aberto:'Em aberto',recebido:'Recebido',quit:'Quitados',areceber:'A receber',venc:'Vencido',faturado:'Faturado'};
   const qf=($('#finBusca')?.value||'').trim().toLowerCase();
   const buscaFin=f=>{ if(!qf) return true; const hay=[f.numero,f.clienteEmpresa,f.cpfCnpj,f.valorFrete,moeda(f.valorFrete),up(f.operadora),f.previsaoRecebimento||'',dataBR(f.previsaoRecebimento)].join(' ').toLowerCase(); return hay.includes(qf); };
   if(!finFiltro && !qf){
@@ -2678,7 +2698,7 @@ function renderFinanceiro(){
       const s=situacaoReceber(f), ab=abertoDe(f);
       return `<tr class="${s.k==='venc'?'vencido':''}">
         <td>${esc(f.numero||'')}</td><td>${esc(up(f.clienteEmpresa))}</td><td>${esc(up(f.operadora))||'—'}</td>
-        <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${ab>0.005?'saldo-neg':'saldo-pos'}">${moeda(ab)}</td>
+        <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${s.k==='fat'?'':(ab>0.005?'saldo-neg':'saldo-pos')}"${s.k==='fat'?' style="color:#3b82f6;font-weight:700"':''}>${moeda(ab)}</td>
         <td><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setFin('${f._id}','previsaoRecebimento',this.value)"></td>
         <td><span class="tagv ${s.k}">${s.t}</span></td>
         <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="abrirNoOperacional('${f._id}')" title="Abrir no operacional p/ atualizar e registrar pagamento">▶ abrir</button></td></tr>`;
@@ -2692,6 +2712,7 @@ function renderFinanceiro(){
     boxF('Receita (fretes)',moeda(totFrete),'')+
     boxF('Recebido',moeda(totRec),'var(--ok)','recebido')+
     boxF('Em aberto',moeda(totAberto),'','aberto')+
+    boxF('📄 Faturado',moeda(totFat),'#3b82f6','faturado')+
     boxF('Vencido',moeda(totVenc),'#c0392b','venc')+
     boxF('✓ Quitados',nQuit,'var(--ok)','quit')+
     boxF('A receber',nReceber,'#e6a100','areceber');
