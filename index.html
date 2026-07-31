@@ -552,7 +552,7 @@
       <h2>1 · Dados do frete</h2>
       <div class="body grid g4">
         <div class="field"><label>Nº do frete / OS</label><input name="numero" placeholder="automático" readonly class="num-lock"><span class="hint" id="proxNumHint"></span></div>
-        <div class="field"><label>Atendente / Vendedor(a)</label><input name="atendente" placeholder="Responsável pela venda"></div>
+        <div class="field"><label>Atendente / Vendedor(a)</label><select name="atendente" onchange="render()" title="Selecione o vendedor responsável pela venda (evita erro de digitação)"><option value="">— selecione —</option></select></div>
         <div class="field"><label>Data do fechamento</label><input type="date" name="dataFechamento"></div>
         <div class="field"><label>Resp. pelo frete</label><input name="respFrete" placeholder="Ex.: BRUNO CESAR"></div>
       </div>
@@ -1788,6 +1788,7 @@ function carregarFrete(id){
 }
 function novoFrete(){
   idAtual=null; form.reset(); localStorage.removeItem(DRAFT);
+  preencherSelAtendente('');   // volta o select de vendedor para "— selecione —" (limpa valor legado)
   veiculos=[{}]; renderVeic(); prestadores=[]; renderPrest(); fichaDocs={};
   $('#hist').value=''; render(); flash('Novo frete');
 }
@@ -1823,6 +1824,27 @@ function excluirFrete(){
   novoFrete(); atualizarHist(); flash('Frete movido para a Lixeira 🗑️');
 }
 
+// ---- Vendedores (comercial) para o campo "Atendente / Vendedor(a)" — selecionável, sem erro de digitação ----
+function atendenteOpcoes(){
+  const base = (typeof CRM_META_INDIVIDUAL!=='undefined' ? CRM_META_INDIVIDUAL : ['Yasmim Freitas','Thiago Lucca','Flavia Ottati']).slice();
+  // inclui usuários comerciais cadastrados (nome canônico) + Luiz Gustavo (dono/admin que também vende)
+  try{ if(Array.isArray(USUARIOS)) USUARIOS.forEach(u=>{ if(!u) return;
+    const ehComercial = u.papel==='comercial' || /luiz\s*gustavo/i.test(u.nome||u.user||'');
+    if(!ehComercial) return; const n=(typeof crmNomeCanon==='function')?crmNomeCanon(u.nome||u.user):(u.nome||u.user);
+    if(n && !base.some(x=>normTxt(x)===normTxt(n))) base.push(n); }); }catch(_){}
+  if(!base.some(x=>/luiz\s*gustavo/i.test(x))) base.push('Luiz Gustavo');
+  return base;
+}
+// preenche o <select name="atendente"> mantendo o valor atual (mesmo que seja um nome legado fora da lista).
+function preencherSelAtendente(val){
+  const s = (typeof form!=='undefined' && form.elements) ? form.elements['atendente'] : null;
+  if(!s || s.tagName!=='SELECT') return;
+  const v=(val==null?'':val).toString().trim();
+  const opts=atendenteOpcoes();
+  if(v && !opts.some(n=>normTxt(n)===normTxt(v))) opts.push(v);   // preserva valor antigo (ex.: operadora) sem trocar
+  s.innerHTML = '<option value="">— selecione —</option>' + opts.map(n=>`<option value="${escA(n)}"${normTxt(n)===normTxt(v)?' selected':''}>${esc(n)}</option>`).join('');
+  s.value = v || '';
+}
 function aplicar(d){
   form.reset();
   Object.entries(d).forEach(([k,v])=>{
@@ -1837,6 +1859,7 @@ function aplicar(d){
   else veiculos=[{}];
   prestadores = prestDe(d).map(p=>({...p}));   // array novo ou migração do formato antigo
   fichaDocs = (d.docs && typeof d.docs==='object') ? d.docs : {};
+  preencherSelAtendente(d.atendente);          // popula o select de vendedor mantendo o valor do frete
   renderVeic(); renderPrest();
   render();
 }
@@ -6427,6 +6450,7 @@ function salvarUsuario(){
   initCRM();                  // carrega leads do CRM
   const raw=localStorage.getItem(DRAFT);
   if(raw){ try{ aplicar(JSON.parse(raw)); }catch(_){ } }
+  preencherSelAtendente(form && form.elements ? (form.elements['atendente']?.value||'') : '');  // popula o select de vendedor
   renderVeic(); renderPrest();
   atualizarHist();
   aplicarLogo();
