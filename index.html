@@ -3379,9 +3379,15 @@ function enviarOrcamentoWpp(){
   window.location.href='https://wa.me/'+WPP_NUMERO+'?text='+texto;
 }
 function rotearHash(){
-  if(location.hash.startsWith('#t=')) entrarModoCliente();
-  else if(location.hash.startsWith('#f=')) entrarModoClienteLive();
-  else if(location.hash==='#orc'||location.hash==='#orcamento') renderOrcamentoPage();
+  const h=location.hash;
+  const ehCliente = h.startsWith('#f=')||h.startsWith('#t=')||h==='#orc'||h==='#orcamento';
+  // Se navegou para um link de CLIENTE mas a página não está em modo-cliente (ex.: alguém logado
+  // colou o link na mesma aba), recarrega para entrar LIMPO no modo cliente (esconde menu, monta a
+  // leitura do doc do cliente) — em vez de ficar no app da equipe.
+  if(ehCliente && !document.body.classList.contains('modo-cliente')){ location.reload(); return; }
+  if(h.startsWith('#t=')) entrarModoCliente();
+  else if(h.startsWith('#f=')) entrarModoClienteLive();
+  else if(h==='#orc'||h==='#orcamento') renderOrcamentoPage();
 }
 window.addEventListener('hashchange', rotearHash);
 function setFrete(id,campo,valor){
