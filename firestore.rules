@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// ============================================================================
+// Regras de segurança do Firestore — OBS Transportes (projeto obs-fretes)
+//
+// MODELO: o sistema é uma ferramenta INTERNA compartilhada — toda a equipe
+// logada enxerga tudo (não é multi-cliente). Então:
+//   • Equipe logada (Firebase Authentication)  -> acesso total ao sistema.
+//   • Público (cliente com link)               -> SÓ leitura da coleção `publico`.
+//   • Ninguém sem login lê/escreve o resto.
+//
+// ⚠️ AINDA NÃO PUBLICADO. Só vai pro ar no passo final da Fase 1, depois que:
+//   1) o app estiver usando o login real (Firebase Auth);
+//   2) os links de cliente lerem a coleção `publico` (não mais `fretes`);
+//   3) a automação (Make/ChatGuru) gravar pela função na nuvem (Admin SDK,
+//      que ignora estas regras — por isso não precisa de exceção aqui).
+// ============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Acompanhamento do cliente (público, SÓ leitura) --------------------
+    // Cada link de cliente cria um doc aqui com um TOKEN aleatório longo como id
+    // e apenas os campos que o cliente pode ver (status, previsões, veículo).
+    // Sem dados de outros clientes, sem CPF de terceiros.
+    match /publico/{token} {
+      allow read:  if true;                    // o cliente abre o link dele
+      allow write: if request.auth != null;    // só a equipe logada cria/atualiza
+    }
+
+    // ---- Todo o resto: fretes, crm_leads, clientes, configs (_*) ------------
+    // Exige estar logado (equipe). Trava leitura, escrita e exclusão externas.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
