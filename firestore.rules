@@ -2,36 +2,77 @@ rules_version = '2';
 
 // ============================================================================
 // Regras de segurança do Firestore — OBS Transportes (projeto obs-fretes)
+// Fase 1 do plano de segurança. Trava o "dump" da base (leitura de todos os
+// dados) mantendo os fluxos do cliente e a automação funcionando.
 //
-// MODELO: o sistema é uma ferramenta INTERNA compartilhada — toda a equipe
-// logada enxerga tudo (não é multi-cliente). Então:
-//   • Equipe logada (Firebase Authentication)  -> acesso total ao sistema.
-//   • Público (cliente com link)               -> SÓ leitura da coleção `publico`.
-//   • Ninguém sem login lê/escreve o resto.
+// MODELO:
+//   • EQUIPE (7 e-mails oficiais, logados no Firebase) -> acesso total.
+//   • Cliente com link -> só lê a CÓPIA pública (publico/) e, no caso de
+//     PEDIDO pendente, lê o formulário e envia os próprios dados.
+//   • Automação (Make/ChatGuru) e formulário do site -> só CRIAM/ATUALIZAM
+//     leads (interim — a Fase 1b move isso p/ uma função na nuvem com segredo).
+//   • Ninguém de fora lê fretes cadastrados, clientes, tabela ou configurações.
 //
-// ⚠️ AINDA NÃO PUBLICADO. Só vai pro ar no passo final da Fase 1, depois que:
-//   1) o app estiver usando o login real (Firebase Auth);
-//   2) os links de cliente lerem a coleção `publico` (não mais `fretes`);
-//   3) a automação (Make/ChatGuru) gravar pela função na nuvem (Admin SDK,
-//      que ignora estas regras — por isso não precisa de exceção aqui).
+// REVERSÍVEL: se algo travar, é só republicar as regras antigas (abaixo).
 // ============================================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---- Acompanhamento do cliente (público, SÓ leitura) --------------------
-    // Cada link de cliente cria um doc aqui com um TOKEN aleatório longo como id
-    // e apenas os campos que o cliente pode ver (status, previsões, veículo).
-    // Sem dados de outros clientes, sem CPF de terceiros.
-    match /publico/{token} {
-      allow read:  if true;                    // o cliente abre o link dele
-      allow write: if request.auth != null;    // só a equipe logada cria/atualiza
+    // Só os 7 e-mails oficiais da OBS contam como "equipe" (mesmo que alguém
+    // crie uma conta Firebase por fora, sem estar nesta lista não acessa nada).
+    function ehEquipe() {
+      return request.auth != null && request.auth.token.email in [
+        'atendimento@obstransportes.com.br',
+        'yasminfreitas.obs@outlook.com',
+        'thiagolucca.obs@outlook.com',
+        'flavia.obs@outlook.com',
+        'nataly.obs@outlook.com',
+        'yasmindesa.obs@outlook.com',
+        'financeiro@obstransportes.com.br'
+      ];
     }
 
-    // ---- Todo o resto: fretes, crm_leads, clientes, configs (_*) ------------
-    // Exige estar logado (equipe). Trava leitura, escrita e exclusão externas.
+    // ---- Cópia pública do acompanhamento (só leitura) -----------------------
+    // O cliente abre o link e vê SÓ o subconjunto seguro do frete dele.
+    match /publico/{id} {
+      allow read:  if true;
+      allow write: if ehEquipe();
+    }
+
+    // ---- Fretes -------------------------------------------------------------
+    // Equipe: tudo. Cliente: só PEDIDO PENDENTE (pedido==false e cadastrado==false)
+    // — pode ler o formulário e enviar os próprios dados. Fretes cadastrados
+    // (com CPF/endereço) e configs (_acesso, _tabela…) ficam SÓ para a equipe:
+    // os docs de config não têm esses campos, então a regra do cliente não os pega.
+    match /fretes/{id} {
+      allow read, write:  if ehEquipe();
+      allow read, update: if resource.data.get('pedido', true) == false
+                          && resource.data.get('cadastrado', true) == false;
+    }
+
+    // ---- CRM (leads) --------------------------------------------------------
+    // Equipe: tudo. Automação/site: só criar e atualizar o lead (não leem nem
+    // apagam). INTERIM — a Fase 1b troca isso por uma função na nuvem com segredo.
+    match /crm_leads/{id} {
+      allow read, delete:   if ehEquipe();
+      allow create, update: if true;
+    }
+
+    // ---- Todo o resto: clientes, tabela de rotas, _acesso, _etapas, etc. ----
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if ehEquipe();
     }
   }
 }
+
+// ============================================================================
+// PARA REVERTER (se algo travar): republique estas regras antigas (tudo aberto):
+//
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     match /{document=**} { allow read, write: if true; }
+//   }
+// }
+// ============================================================================
