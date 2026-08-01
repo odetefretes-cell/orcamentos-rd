@@ -1591,6 +1591,25 @@ function _syncPublico(id){
     _setDocSeguro(_fb.doc(_fb.fs,'publico',id), Object.assign({cad:true}, clienteData(f)), 'publico '+id);
   }catch(_){}
 }
+// Backfill (uma vez): gera a cópia pública de acompanhamento de TODOS os fretes cadastrados, em lotes.
+// Necessário antes de trancar as regras, pra os links de cliente já enviados continuarem abrindo.
+let _pubBackfillFeito=false;
+function backfillPublico(){
+  if(_pubBackfillFeito) return;
+  if(!(CLOUD_ON && _fb && _fb.setDoc) || typeof sessaoUser==='undefined' || !sessaoUser || sessaoUser.papel!=='admin') return;
+  try{ if(localStorage.getItem('obs_pubbf_v1')) return; }catch(_){}
+  const ids=Object.keys(MEM).filter(id=>id && id[0]!=='_' && MEM[id] && MEM[id].cadastrado);
+  if(!ids.length) return;
+  _pubBackfillFeito=true;
+  let i=0;
+  const lote=()=>{
+    const fim=Math.min(i+150, ids.length);
+    for(; i<fim; i++) _syncPublico(ids[i]);
+    if(i<ids.length){ setTimeout(lote, 700); }
+    else { try{ localStorage.setItem('obs_pubbf_v1','1'); }catch(_){} try{ flash('🔐 Cópia de acompanhamento gerada p/ '+ids.length+' fretes ✔'); }catch(_){} }
+  };
+  lote();
+}
 async function initData(){
   const hash=location.hash;
   const liveId = hash.startsWith('#f=') ? decodeURIComponent(hash.slice(3)) : null;
@@ -1670,6 +1689,7 @@ async function initData(){
           if(typeof crmSyncFretesFechado==='function') crmSyncFretesFechado();   // cliente devolveu form → lead p/ Venda Fechada
           const vlx=$('#lixeiraModal'); if(vlx && vlx.style.display!=='none' && typeof renderLixeira==='function') renderLixeira();
           atualizarHist(); atualizarProxNum();
+          if(typeof backfillPublico==='function') backfillPublico();   // gera a cópia de acompanhamento (uma vez, admin)
           // não redesenha a tela enquanto a operadora está digitando (senão apaga o texto)
           const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none' && !editandoInput(vr)) renderRelatorio();
           const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none' && !editandoInput(vf)) renderFinanceiro();
