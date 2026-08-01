@@ -4039,6 +4039,14 @@ function renderCRM(){
   renderCRMMetrics();
   { const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
+  const buscaDig = busca.replace(/\D/g,'');   // só dígitos (para casar telefone com qualquer formatação)
+  // casa por texto OU por telefone (só dígitos, ignora (), - e espaços). Com 4+ dígitos, busca no telefone.
+  const crmMatchBusca = l => {
+    const hay = `${l.nome||''} ${l.empresa||''} ${l.veiculoDesc||''} ${l.origem||''} ${l.destino||''} ${l.telefone||''} ${l.email||''}`.toLowerCase();
+    if(hay.includes(busca)) return true;
+    if(buscaDig.length>=4){ const telDig=String(l.telefone||'').replace(/\D/g,''); if(telDig.includes(buscaDig)) return true; }
+    return false;
+  };
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
   const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
   const filtroTarefa = $('#crmFiltroTarefa')?.value||'';
@@ -4122,7 +4130,7 @@ function renderCRM(){
   const tbtn = 'border:none;background:none;cursor:pointer;font-size:11px;color:rgba(228,228,240,.55);padding:0 2px';
   board.innerHTML = CRM_ETAPAS.map((etapa, ci) => {
     let leads = Object.values(CRM_LEADS).filter(l => l.etapa === etapa.id && !l._novo);
-    if(busca) leads = leads.filter(l => `${l.nome} ${l.empresa} ${l.veiculoDesc} ${l.origem} ${l.destino} ${l.telefone} ${l.email}`.toLowerCase().includes(busca));
+    if(busca) leads = leads.filter(crmMatchBusca);
     if(filtroPrio) leads = leads.filter(l => l.prioridade === filtroPrio);
     if(filtroVendedor) leads = leads.filter(l => l.vendedor === filtroVendedor);
     if(filtroTarefa) leads = leads.filter(casaTarefa);
@@ -4160,7 +4168,7 @@ function renderCRM(){
   if(resumo){
     if(filtroLink || perDe || perAte){
       let all=Object.values(CRM_LEADS).filter(l=>!l._novo);
-      if(busca) all=all.filter(l=>`${l.nome} ${l.empresa} ${l.veiculoDesc} ${l.origem} ${l.destino} ${l.telefone} ${l.email}`.toLowerCase().includes(busca));
+      if(busca) all=all.filter(crmMatchBusca);
       if(filtroPrio) all=all.filter(l=>l.prioridade===filtroPrio);
       if(filtroVendedor) all=all.filter(l=>l.vendedor===filtroVendedor);
       if(filtroTarefa) all=all.filter(casaTarefa);
