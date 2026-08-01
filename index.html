@@ -1636,12 +1636,18 @@ async function initData(){
         console.log('🔐 Firebase Authentication carregado.');
       }catch(e){ console.warn('Auth indisponível (login antigo continua funcionando):',e); }
       if(liveId){
-        // CLIENTE (link ao vivo): lê SÓ o próprio documento — não baixa os demais fretes
+        // CLIENTE (link ao vivo): lê SÓ o próprio documento. Prioriza a CÓPIA PÚBLICA enxuta
+        // (publico/) — que continua legível depois que a base real for trancada. O frete real fica
+        // como reserva durante a transição e para o formulário de PEDIDO (que precisa de mais campos).
         clienteLiveId=liveId;
+        let _pubTem=false;
+        fsMod.onSnapshot(fsMod.doc(fs,'publico',liveId), snap=>{
+          if(snap.exists()){ _pubTem=true; if(typeof renderClienteView==='function') renderClienteView(snap.data()); }
+        }, ()=>{});
         fsMod.onSnapshot(fsMod.doc(fs,'fretes',liveId), snap=>{
-          if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); renderClienteLive(liveId); }
-          else renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
-        });
+          if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); if(!_pubTem) renderClienteLive(liveId); }
+          else if(!_pubTem) renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
+        }, ()=>{});
       } else if(isSnap){
         // acompanhamento por "foto" (#t=): dados vêm da URL; não precisa de leitura
       } else {
