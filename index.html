@@ -1574,9 +1574,22 @@ function _setDocSeguro(ref, data, oque){
 }
 function cloudSync(){
   const {fs,doc,deleteDoc}=_fb;
-  for(const id in MEM){ if(JSON.stringify(MEM[id])!==JSON.stringify(LAST[id])) _setDocSeguro(doc(fs,'fretes',id), MEM[id], 'frete '+((MEM[id]&&MEM[id].numero)||id)); }
-  for(const id in LAST){ if(!(id in MEM)){ try{ deleteDoc(doc(fs,'fretes',id)); }catch(_){} } }
+  for(const id in MEM){ if(JSON.stringify(MEM[id])!==JSON.stringify(LAST[id])){
+    _setDocSeguro(doc(fs,'fretes',id), MEM[id], 'frete '+((MEM[id]&&MEM[id].numero)||id));
+    _syncPublico(id);   // cópia pública enxuta p/ o link do cliente (acompanhamento)
+  } }
+  for(const id in LAST){ if(!(id in MEM)){ try{ deleteDoc(doc(fs,'fretes',id)); deleteDoc(doc(fs,'publico',id)); }catch(_){} } }
   LAST=JSON.parse(JSON.stringify(MEM));
+}
+// Grava em `publico/{id}` APENAS o subconjunto que o cliente pode ver (clienteData): nº, veículo,
+// origem/destino, status, previsão e pagamentos. NUNCA CPF de terceiros, prestadores ou notas internas.
+// É a fonte que o link de acompanhamento vai ler depois que a base real for trancada.
+function _syncPublico(id){
+  try{
+    const f=MEM[id]; if(!f || !_fb || !_fb.setDoc) return;
+    if(!f.cadastrado) return;   // pedido ainda em preenchimento não gera cópia de acompanhamento
+    _setDocSeguro(_fb.doc(_fb.fs,'publico',id), Object.assign({cad:true}, clienteData(f)), 'publico '+id);
+  }catch(_){}
 }
 async function initData(){
   const hash=location.hash;
