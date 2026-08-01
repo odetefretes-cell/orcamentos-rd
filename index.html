@@ -1611,7 +1611,8 @@ async function initData(){
         // se a sessão do Firebase ainda estiver válida, restaura o acesso sozinho (sem pedir login de novo)
         authMod.onAuthStateChanged(_fb.auth, u=>{
           if(u && u.email && !sessaoUser){
-            const info=(typeof equipeDe==='function' && equipeDe(u.email)) || {nome:u.email, papel:'comercial'};
+            const info=(typeof equipeDe==='function') ? equipeDe(u.email) : null;
+            if(!info) return;   // e-mail fora da lista oficial → não restaura sessão
             sessaoUser={user:u.email.toLowerCase(), papel:info.papel, nome:info.nome, ts:Date.now(), auth:true};
             try{ localStorage.setItem(SESSAO_KEY, JSON.stringify(sessaoUser)); }catch(_){}
             const lo=$('#loginOverlay'); if(lo) lo.style.display='none';
@@ -3834,8 +3835,9 @@ async function fazerLogin(){
   if(_fb && _fb.auth && _fb.signIn && email.includes('@')){
     if(err) err.textContent='Entrando…';
     try{
-      const cred=await _fb.signIn(_fb.auth, email, s);
-      const info=equipeDe(email) || {nome:(cred.user&&cred.user.email)||email, papel:'comercial'};
+      await _fb.signIn(_fb.auth, email, s);
+      const info=equipeDe(email);
+      if(!info){ if(err) err.textContent='E-mail sem acesso liberado. Fale com o Luiz (admin).'; try{ await _fb.signOutFn(_fb.auth); }catch(_){} return; }
       entrar(email, info.papel, info.nome, true); return;
     }catch(e){ if(err) err.textContent=''; /* conta ainda não migrada → tenta a rede de segurança */ }
   }
@@ -3850,6 +3852,10 @@ async function fazerLogin(){
 function logout(){ try{ if(_fb && _fb.auth && _fb.signOutFn) _fb.signOutFn(_fb.auth); }catch(_){} localStorage.removeItem(SESSAO_KEY); location.reload(); }
 function aplicarPermissoes(){
   if(!sessaoUser) return;
+  // FONTE DA VERDADE: se o e-mail logado está no mapa oficial, papel e nome vêm dele.
+  // Auto-corrige qualquer sessão antiga/errada (ex.: operacional que aparecia como comercial).
+  const _info = (typeof equipeDe==='function') ? equipeDe(sessaoUser.user) : null;
+  if(_info){ sessaoUser.papel=_info.papel; sessaoUser.nome=_info.nome; try{ localStorage.setItem(SESSAO_KEY, JSON.stringify(sessaoUser)); }catch(_){} }
   const perm=PERMISSOES[sessaoUser.papel]||['ficha'];
   const map={ficha:'#tabFicha',rel:'#tabRel',fin:'#tabFin',clientes:'#tabCli',mensal:'#tabMensal',crm:'#tabCrm'};
   Object.entries(map).forEach(([v,sel])=>{ const el=$(sel); if(el) el.style.display=perm.includes(v)?'':'none'; });
