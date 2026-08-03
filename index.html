@@ -2,6 +2,11 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<!-- Content-Security-Policy (Fase 2): restringe de onde o sistema pode carregar código
+     e para onde pode ENVIAR dados (connect-src) — barra exfiltração e scripts de fora.
+     script-src usa 'unsafe-inline'/'unsafe-eval' porque o app tem scripts e handlers inline;
+     mesmo assim, um script injetado não consegue vazar dados p/ um servidor não listado. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://cdn.sheetjs.com; connect-src 'self' https://*.googleapis.com https://*.gstatic.com https://firestore.googleapis.com https://viacep.com.br https://parallelum.com.br https://*.firebaseio.com https://*.cloudfunctions.net; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; frame-src 'self' https://obs-fretes.firebaseapp.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OBS Transportes · Sistema Interno + CRM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1669,7 +1674,7 @@ async function initData(){
             if(d.id.startsWith('_lix_')){ LIXEIRA[d.id.slice(5)]=d.data(); return; }   // lixeira
             if(d.id.startsWith('_')){
               // docs reservados: usuários (_acesso) e funis (_etapas) — carregam ao vivo
-              if(d.id==='_acesso'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ USUARIOS=li; try{localStorage.setItem(USUARIOS_KEY,JSON.stringify(USUARIOS));}catch(_){} } }
+              if(d.id==='_acesso'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ USUARIOS=li; } }
               else if(d.id==='_etapas'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ CRM_ETAPAS=li; try{localStorage.setItem(CRM_ETAPAS_KEY,JSON.stringify(CRM_ETAPAS));}catch(_){} } }
               else if(d.id==='_presenca'){ if(typeof CRM_PRESENCA!=='undefined') CRM_PRESENCA=d.data()||{}; }
               else if(d.id==='_rodizio'){ if(typeof CRM_RODIZIO!=='undefined') CRM_RODIZIO=d.data()||{last:''}; }
@@ -3911,11 +3916,14 @@ const EQUIPE_EMAIL = {
   'financeiro@obstransportes.com.br':  {nome:'Gabrielle Domingues', papel:'financeiro'}
 };
 function equipeDe(email){ return EQUIPE_EMAIL[(email||'').trim().toLowerCase()]||null; }
-function lerUsuarios(){ try{ const a=JSON.parse(localStorage.getItem(USUARIOS_KEY)); if(Array.isArray(a)&&a.length) return a; }catch(_){} return USUARIOS_PADRAO.slice(); }
-function gravarUsuarios(a){ USUARIOS=a; localStorage.setItem(USUARIOS_KEY, JSON.stringify(a)); if(CLOUD_ON && _fb && _fb.setDoc) _fb.setDoc(_fb.doc(_fb.fs,'fretes','_acesso'), {lista:a}); }
+// Fase 2 (LOCALSTORAGE-PII): a lista de acesso legada tem senha em texto puro.
+// Com o login por Firebase, ela NÃO fica mais gravada no disco do navegador —
+// só em memória (carregada da nuvem por sessão) para o fallback antigo.
+function lerUsuarios(){ return (Array.isArray(USUARIOS)&&USUARIOS.length)?USUARIOS.slice():USUARIOS_PADRAO.slice(); }
+function gravarUsuarios(a){ USUARIOS=a; if(CLOUD_ON && _fb && _fb.setDoc) _fb.setDoc(_fb.doc(_fb.fs,'fretes','_acesso'), {lista:a}); }
 async function carregarUsuariosNuvem(){
   if(CLOUD_ON && _fb && _fb.getDoc){
-    try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_acesso')); if(s.exists()&&Array.isArray(s.data().lista)&&s.data().lista.length){ USUARIOS=s.data().lista; localStorage.setItem(USUARIOS_KEY, JSON.stringify(USUARIOS)); } }catch(_){}
+    try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_acesso')); if(s.exists()&&Array.isArray(s.data().lista)&&s.data().lista.length){ USUARIOS=s.data().lista; } }catch(_){}
   }
 }
 async function fazerLogin(){
@@ -3965,6 +3973,7 @@ function aplicarPermissoes(){
   switchView(perm[0]||'ficha');
 }
 function iniciarAcesso(){
+  try{ localStorage.removeItem(USUARIOS_KEY); }catch(_){}   // remove senhas antigas em texto puro do disco
   USUARIOS=lerUsuarios();
   $('#loginLogo').src=logoAtual();
   let sess=null; try{ sess=JSON.parse(localStorage.getItem(SESSAO_KEY)); }catch(_){}
