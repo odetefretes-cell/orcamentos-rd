@@ -928,7 +928,7 @@
         <option value="morno">⚡ Morno</option>
         <option value="frio">❄️ Frio</option>
       </select>
-      <select id="crmFiltroVendedor" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+      <select id="crmFiltroVendedor" onchange="crmSalvarFiltroVend(this.value);renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todos vendedores</option>
       </select>
       <select id="crmFiltroTarefa" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
@@ -4120,6 +4120,7 @@ function crmLimparPeriodo(){
   ['crmFiltroDe','crmFiltroAte'].forEach(i=>{ const e=$('#'+i); if(e) e.value=''; });
   renderCRM();
 }
+function crmSalvarFiltroVend(v){ try{ v ? localStorage.setItem('obs_crm_vend',v) : localStorage.removeItem('obs_crm_vend'); }catch(_){} }
 function renderCRM(){
   renderCRMMetrics();
   { const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
@@ -4133,7 +4134,8 @@ function renderCRM(){
     return false;
   };
   const filtroPrio = $('#crmFiltroPrio')?.value||'';
-  const filtroVendedor = $('#crmFiltroVendedor')?.value||'';
+  let filtroVendedor = $('#crmFiltroVendedor')?.value||'';
+  if(!filtroVendedor){ try{ filtroVendedor = localStorage.getItem('obs_crm_vend')||''; }catch(_){} }
   const filtroTarefa = $('#crmFiltroTarefa')?.value||'';
   const filtroLink = $('#crmFiltroLink')?.value||'';
   const campoData = $('#crmFiltroCampoData')?.value||'dataEntrada';
@@ -4174,7 +4176,7 @@ function renderCRM(){
   const vendedores = [...new Set(Object.values(CRM_LEADS).map(l=>l.vendedor).filter(Boolean))].sort();
   const selV = $('#crmFiltroVendedor');
   if(selV){
-    const atual = selV.value;
+    const atual = selV.value || filtroVendedor;
     selV.innerHTML = '<option value="">Todos vendedores</option>' + vendedores.map(v=>`<option value="${escA(v)}">${esc(v)}</option>`).join('');
     selV.value = atual;
   }
