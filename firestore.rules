@@ -9,8 +9,8 @@ rules_version = '2';
 //   • EQUIPE (7 e-mails oficiais, logados no Firebase) -> acesso total.
 //   • Cliente com link -> só lê a CÓPIA pública (publico/) e, no caso de
 //     PEDIDO pendente, lê o formulário e envia os próprios dados.
-//   • Automação (Make/ChatGuru) -> só cria/atualiza leads enviando o SEGREDO
-//     combinado no campo "_porta" (Fase 1b — porteiro por segredo).
+//   • Formulário do site -> cria lead no CRM (criação aberta; ver nota em
+//     crm_leads). Fechar por FUNÇÃO NA NUVEM é o próximo passo (Fase 1b).
 //   • Ninguém de fora lê fretes cadastrados, clientes, tabela ou configurações.
 //
 // REVERSÍVEL: se algo travar, é só republicar as regras antigas (abaixo).
@@ -51,19 +51,19 @@ service cloud.firestore {
                           && resource.data.get('cadastrado', true) == false;
     }
 
-    // ---- CRM (leads) — Fase 1b: porteiro por SEGREDO ------------------------
-    // Equipe logada (Firebase Auth): acesso total. A automação ChatGuru/Make
-    // (server-side) cria/atualiza leads enviando o SEGREDO combinado no campo
-    // "_porta". Sem o segredo, ninguém de fora cria nem altera lead.
-    //
-    // IMPORTANTE: este repositório é PÚBLICO. O valor real do segredo NÃO fica
-    // aqui — o texto abaixo é só um marcador. Cole o segredo verdadeiro apenas:
-    //   (1) nas Regras publicadas no Console do Firebase, e
-    //   (2) na configuração do módulo do Firestore no Make (campo "_porta").
-    // O app da equipe NÃO precisa do segredo (escreve autenticado via ehEquipe).
+    // ---- CRM (leads) --------------------------------------------------------
+    // LEITURA e EXCLUSÃO: só a equipe logada (o "dump" da base fica bloqueado —
+    // esta era a falha crítica e continua fechada).
+    // CRIAÇÃO/ATUALIZAÇÃO: aberta, porque o LEAD entra direto pelo FORMULÁRIO DO
+    // SITE (roda no navegador do cliente, sem login). Não dá para usar segredo
+    // aqui: o site é público e o segredo apareceria no navegador de qualquer um.
+    // Risco residual: MÉDIO (alguém pode injetar lead falso — spam, apagável).
+    // FECHAR DO JEITO CERTO (próximo passo): mover a criação do formulário do
+    // site para uma FUNÇÃO NA NUVEM, que recebe o formulário e grava com o
+    // segredo escondido no servidor. Aí esta regra volta a exigir autenticação.
     match /crm_leads/{id} {
-      allow read, write:    if ehEquipe();
-      allow create, update: if request.resource.data.get('_porta', '') == 'COLE_O_SEGREDO_DO_MAKE_AQUI';
+      allow read, delete:   if ehEquipe();
+      allow create, update: if true;
     }
 
     // ---- Todo o resto: clientes, tabela de rotas, _acesso, _etapas, etc. ----
