@@ -51,12 +51,19 @@ service cloud.firestore {
                           && resource.data.get('cadastrado', true) == false;
     }
 
-    // ---- CRM (leads) --------------------------------------------------------
-    // Equipe: tudo. Automação/site: só criar e atualizar o lead (não leem nem
-    // apagam). INTERIM — a Fase 1b troca isso por uma função na nuvem com segredo.
+    // ---- CRM (leads) — Fase 1b: porteiro por SEGREDO ------------------------
+    // Equipe logada (Firebase Auth): acesso total. A automação ChatGuru/Make
+    // (server-side) cria/atualiza leads enviando o SEGREDO combinado no campo
+    // "_porta". Sem o segredo, ninguém de fora cria nem altera lead.
+    //
+    // IMPORTANTE: este repositório é PÚBLICO. O valor real do segredo NÃO fica
+    // aqui — o texto abaixo é só um marcador. Cole o segredo verdadeiro apenas:
+    //   (1) nas Regras publicadas no Console do Firebase, e
+    //   (2) na configuração do módulo do Firestore no Make (campo "_porta").
+    // O app da equipe NÃO precisa do segredo (escreve autenticado via ehEquipe).
     match /crm_leads/{id} {
-      allow read, delete:   if ehEquipe();
-      allow create, update: if true;
+      allow read, write:    if ehEquipe();
+      allow create, update: if request.resource.data.get('_porta', '') == 'COLE_O_SEGREDO_DO_MAKE_AQUI';
     }
 
     // ---- Todo o resto: clientes, tabela de rotas, _acesso, _etapas, etc. ----

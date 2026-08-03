@@ -1707,6 +1707,8 @@ async function initData(){
           if(typeof CRM_LEADS==='undefined') return;
           const doServidor = !snap.metadata.hasPendingWrites;   // true = confirmado pelo servidor
           const cloud={}; snap.forEach(d=>cloud[d.id]=d.data());
+          // Segredo do porteiro (Make/ChatGuru) nunca fica no cache do navegador da equipe.
+          for(const _id in cloud){ if(cloud[_id] && ('_porta' in cloud[_id])) delete cloud[_id]._porta; }
           const merged={};
           // 1) parte da nuvem, mas respeita edições locais ainda não confirmadas (dirty)
           for(const id in cloud){
