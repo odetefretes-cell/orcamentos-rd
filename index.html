@@ -3846,9 +3846,9 @@ const EQUIPE_EMAIL = {
   'yasminfreitas.obs@outlook.com':     {nome:'Yasmim Freitas', papel:'comercial'},
   'thiagolucca.obs@outlook.com':       {nome:'Thiago Lucca',   papel:'comercial'},
   'flavia.obs@outlook.com':            {nome:'Flavia Ottati',  papel:'comercial'},
-  'nataly.obs@outlook.com':            {nome:'Nataly',         papel:'operacional'},
-  'yasmindesa.obs@outlook.com':        {nome:'Yasmin Sá',      papel:'operacional'},
-  'financeiro@obstransportes.com.br':  {nome:'Financeiro',     papel:'financeiro'}
+  'nataly.obs@outlook.com':            {nome:'Nataly Birk',    papel:'operacional'},
+  'yasmindesa.obs@outlook.com':        {nome:'Yasmin de Sá',   papel:'operacional'},
+  'financeiro@obstransportes.com.br':  {nome:'Gabrielle Domingues', papel:'financeiro'}
 };
 function equipeDe(email){ return EQUIPE_EMAIL[(email||'').trim().toLowerCase()]||null; }
 function lerUsuarios(){ try{ const a=JSON.parse(localStorage.getItem(USUARIOS_KEY)); if(Array.isArray(a)&&a.length) return a; }catch(_){} return USUARIOS_PADRAO.slice(); }
