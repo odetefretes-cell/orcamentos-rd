@@ -468,19 +468,11 @@
       <h2 style="font-size:17px;margin:0">👤 Usuários e acessos</h2>
       <button class="btn-ghost" style="padding:5px 12px" onclick="document.getElementById('usuariosModal').style.display='none'">✕ fechar</button>
     </div>
-    <p class="hint" style="margin-top:0">Cadastre login, senha e o papel de cada colaborador. O papel define quais abas a pessoa vê.</p>
+    <p class="hint" style="margin-top:0">Quem tem acesso ao sistema e o papel de cada um. O login é por <b>e-mail (Firebase Authentication)</b>; o papel define quais abas a pessoa vê.</p>
     <div id="usuariosLista"></div>
     <div style="border-top:1px solid var(--card-border);margin-top:12px;padding-top:12px">
-      <b style="font-size:13px">Adicionar / atualizar usuário</b>
-      <div class="grid g2" style="margin-top:8px">
-        <div class="field"><label>Nome</label><input id="nuNome" placeholder="Ex.: Nataly"></div>
-        <div class="field"><label>Login (usuário)</label><input id="nuUser" placeholder="ex.: nataly"></div>
-        <div class="field"><label>Senha</label><input id="nuSenha" placeholder="senha"></div>
-        <div class="field"><label>Papel</label><select id="nuPapel">
-          <option value="operacional">Operacional</option><option value="comercial">Comercial</option>
-          <option value="financeiro">Financeiro</option><option value="admin">Administrador</option></select></div>
-      </div>
-      <button class="btn-primary" style="margin-top:6px" onclick="salvarUsuario()">Salvar usuário</button>
+      <b style="font-size:13px">➕ Incluir / remover pessoa</b>
+      <p class="hint" style="margin:6px 0 0;line-height:1.55">As contas e senhas ficam no <b>Firebase Authentication</b> (senhas criptografadas — mais seguro). Para <b>incluir</b> alguém: crie a conta no painel do Firebase (e-mail + senha) e me avise o <b>e-mail</b> e o <b>papel</b>, que eu libero o acesso. Para <b>remover</b>: apague a conta no Firebase e me avise. <i>(São 2 passos de propósito — evita que um clique sozinho dê acesso total à base.)</i></p>
     </div>
     <div style="border-top:1px solid var(--card-border);margin-top:16px;padding-top:12px">
       <b style="font-size:13px">📊 Tabela de fretes (base de cálculo)</b>
@@ -6558,10 +6550,11 @@ function crmConverterEmFrete(id){
 
 function renderUsuariosLista(){
   const el=$('#usuariosLista'); if(!el) return;
-  el.innerHTML=`<div style="overflow-x:auto"><table class="fin"><thead><tr><th>Nome</th><th>Login</th><th>Papel</th><th>Senha</th><th></th></tr></thead><tbody>`+
-    USUARIOS.map((u,i)=>`<tr><td>${esc(u.nome||'')}</td><td>${esc(u.user)}</td><td>${esc(PAPEL_NOME[u.papel]||u.papel)}</td><td>${esc(u.senha)}</td>
-      <td><button class="mc-x" style="color:#2563eb" onclick="editarUsuario(${i})" title="editar">✏️</button>${(u.papel==='admin'&&USUARIOS.filter(x=>x.papel==='admin').length<=1)?'':` <button class="mc-x" style="color:#ef4444" onclick="removerUsuario(${i})" title="remover">🗑</button>`}</td></tr>`).join('')+
-    `</tbody></table></div>`;
+  // Lista oficial de acesso = e-mails do Firebase (fonte da verdade dos papéis). Sem senha exposta.
+  const mapa = (typeof EQUIPE_EMAIL!=='undefined') ? EQUIPE_EMAIL : {};
+  const linhas = Object.keys(mapa).map(email=>{ const u=mapa[email];
+    return `<tr><td>${esc(u.nome||'')}</td><td style="font-family:ui-monospace,monospace;font-size:12px">${esc(email)}</td><td>${esc(PAPEL_NOME[u.papel]||u.papel)}</td></tr>`; }).join('');
+  el.innerHTML=`<div style="overflow-x:auto"><table class="fin"><thead><tr><th>Nome</th><th>E-mail (login)</th><th>Papel</th></tr></thead><tbody>${linhas||'<tr><td colspan="3" class="hint">Sem pessoas na lista.</td></tr>'}</tbody></table></div>`;
 }
 function editarUsuario(i){ const u=USUARIOS[i]; if(!u)return; $('#nuNome').value=u.nome||''; $('#nuUser').value=u.user; $('#nuSenha').value=u.senha; $('#nuPapel').value=u.papel; }
 function salvarUsuario(){
