@@ -433,7 +433,7 @@
   </div>
 </div>
 
-<script>try{var _h=location.hash;if(_h.indexOf('#f=')===0||_h.indexOf('#t=')===0||_h==='#orc'||_h==='#orcamento')document.body.classList.add('modo-cliente');}catch(e){}</script>
+<script>try{var _h=location.hash;if(_h.indexOf('#f=')===0||_h.indexOf('#t=')===0||_h==='#orc'||_h==='#orcamento'||_h==='#privacidade')document.body.classList.add('modo-cliente');}catch(e){}</script>
 <div class="topbar no-print">
   <img id="topLogo" alt="OBS" style="height:36px;object-fit:contain;filter:brightness(1.3)">
   <span style="font-weight:800;font-size:18px;color:#fff;letter-spacing:-.02em">OBS Transportes</span>
@@ -3026,7 +3026,7 @@ function renderClienteView(data){
       <h2>📦 Andamento do transporte</h2>
       ${tl}
     </div>
-    <p class="hint" style="text-align:center;margin:16px 0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
+    <p class="hint" style="text-align:center;margin:16px 0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103<br><a href="#privacidade" target="_blank" rel="noopener" style="color:var(--azul)">Política de Privacidade</a></p>
   </div>`;
   window.scrollTo(0,0);
 }
@@ -3055,7 +3055,7 @@ function renderPedidoPage(id,f){
       <h1>Pedido de Frete</h1>
       <p style="opacity:.9;font-size:14px;margin:0">Preencha seus dados para solicitarmos o seu transporte</p>
     </div>
-    <p class="hint" style="text-align:center;margin:0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
+    <p class="hint" style="text-align:center;margin:0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103<br><a href="#privacidade" target="_blank" rel="noopener" style="color:var(--azul)">Política de Privacidade</a></p>
   </div>`;
   injetarFormPedido(id,f);
   window.scrollTo(0,0);
@@ -3106,6 +3106,7 @@ function pedDelVeic(i){ pedVeics.splice(i,1); if(!pedVeics.length)pedVeics=[{}];
 const PEDIDO_CAMPOS=['origem','destino','clienteEmpresa','cpfCnpj','rgIe','telefone','email','cep','endereco','bairro','cidade','uf',
   'coletaNome','coletaCpf','coletaTel','coletaCep','coletaEndereco','coletaBairro','coletaCidade','coletaUf',
   'entregaNome','entregaCpf','entregaTel','entregaCep','entregaEndereco','entregaBairro','entregaCidade','entregaUf','observacoes'];
+const LGPD_VERSAO='1.0';   // versão da Política de Privacidade aceita no formulário do cliente
 function injetarFormPedido(id,f){
   pedVeics = (Array.isArray(f.veiculos)&&f.veiculos.length)?f.veiculos.map(v=>({...v})):[{}];
   const page=document.querySelector('#viewCliente .cli-page'); if(!page) return;
@@ -3181,6 +3182,13 @@ function injetarFormPedido(id,f){
     ${docUpload(id,f,'comprovante','Comprovante de residência')}
 
     <div class="field" style="margin-top:12px"><label>Observações</label><input id="pc_observacoes" value="${escA(f.observacoes)}" placeholder="Alguma informação adicional"></div>
+
+    <div class="sec-cli">🔒 PRIVACIDADE</div>
+    <label style="display:flex;gap:9px;align-items:flex-start;font-size:13.5px;line-height:1.5;cursor:pointer;background:var(--fundo,#f6f7f9);border:1px solid var(--linha);border-radius:10px;padding:12px 14px">
+      <input type="checkbox" id="pc_lgpd" style="margin-top:3px;flex-shrink:0;width:17px;height:17px" ${f.lgpdConsent&&f.lgpdConsent.aceito?'checked':''}>
+      <span>Autorizo a <b>OBS Transportes</b> a coletar e usar os meus dados (nome, contato, endereço e documentos) para <b>emitir e executar o meu frete</b>, conforme a <a href="#privacidade" target="_blank" rel="noopener" style="color:var(--azul)">Política de Privacidade</a>. Meus dados não são vendidos e posso pedir acesso ou exclusão quando quiser.</span>
+    </label>
+
     <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
       <button class="btn-ok" style="padding:11px 20px;font-size:15px" onclick="salvarPedidoCliente('${id}')">📨 Enviar meus dados</button>
       <span class="status" id="pedMsg"></span>
@@ -3268,12 +3276,63 @@ function salvarPedidoCliente(id){
     document.getElementById('pc_clienteEmpresa')?.scrollIntoView({behavior:'smooth',block:'center'});
     return;
   }
+  if(!document.getElementById('pc_lgpd')?.checked){
+    const m=$('#pedMsg'); if(m){ m.style.color='#c0392b'; m.textContent='Para enviar, marque o aceite da Política de Privacidade.'; }
+    document.getElementById('pc_lgpd')?.scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
   PEDIDO_CAMPOS.forEach(k=>f[k]=g(k));
   f.veiculos = pedVeics.map(v=>({...v}));
+  f.lgpdConsent = { aceito:true, em:new Date().toISOString(), versao:LGPD_VERSAO };
   f.pedido=true; f._salvoEm=new Date().toISOString(); if(!f.pedidoEm) f.pedidoEm=f._salvoEm;
   MEM[id]=f; gravarDB();
   pedidoEnviadoId=id;
   telaConclusaoPedido();       // mensagem de conclusão
+}
+// ---- Política de Privacidade (LGPD) — página pública, sem login ----
+function renderPrivacidade(){
+  document.body.classList.add('modo-cliente');
+  const v=$('#viewCliente'); if(!v) return; v.style.display='';
+  ['viewFicha','viewRelatorio','viewFinanceiro','viewClientes','viewMensal','viewCrm']
+    .forEach(x=>{ const e=$('#'+x); if(e) e.style.display='none'; });
+  const s='margin:18px 0 6px;font-size:16px;color:var(--azul)';
+  v.innerHTML=`<div class="cli-page">
+    <div class="cli-hero"><img src="${logoAtual()}" alt="OBS Transportes"><h1>Política de Privacidade</h1></div>
+    <div class="cli-info">
+      <p class="hint" style="margin-top:0">Versão ${LGPD_VERSAO} · atualizada em agosto/2026. Esta política explica como a OBS Transportes trata os seus dados pessoais, conforme a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).</p>
+
+      <h2 style="${s}">1. Quem é o responsável</h2>
+      <p>O responsável (controlador) pelos seus dados é a <b>Odete Barbosa Santos Transportes</b> (“OBS Transportes”). Contato para assuntos de privacidade: <a href="mailto:atendimento@obstransportes.com.br">atendimento@obstransportes.com.br</a> ou WhatsApp (11) 4352-4103.</p>
+
+      <h2 style="${s}">2. Quais dados coletamos</h2>
+      <p>Coletamos apenas o necessário para orçar e executar o seu transporte:</p>
+      <ul style="margin:4px 0 0;padding-left:20px">
+        <li><b>Identificação e contato:</b> nome/empresa, CPF ou CNPJ, RG/IE, telefone e e-mail.</li>
+        <li><b>Endereços:</b> de faturamento, de coleta (remetente) e de entrega (destinatário).</li>
+        <li><b>Dados do frete:</b> origem, destino, veículos e observações.</li>
+        <li><b>Documentos:</b> fotos de CRLV, CNH/RG e comprovante de residência que você anexar.</li>
+      </ul>
+
+      <h2 style="${s}">3. Para que usamos e com qual base legal</h2>
+      <p>Usamos seus dados para <b>emitir o orçamento, contratar e executar o frete</b>, cumprir obrigações fiscais e nos comunicar com você. As bases legais são a <b>execução do contrato</b> de transporte, o <b>cumprimento de obrigação legal/fiscal</b> e o seu <b>consentimento</b> (marcado no formulário). <b>Não vendemos</b> os seus dados e não os usamos para outra finalidade sem avisar.</p>
+
+      <h2 style="${s}">4. Com quem compartilhamos</h2>
+      <p>Compartilhamos apenas com quem é necessário para o serviço funcionar: o <b>prestador que realiza o transporte</b> (motorista/transportadora parceira), e os <b>serviços de tecnologia</b> que operam o sistema — Google Firebase (banco de dados e arquivos), e as ferramentas de atendimento e automação (ChatGuru/Make). Esses parceiros podem armazenar dados em servidores <b>fora do Brasil</b>, com as devidas garantias de proteção. Também podemos compartilhar quando exigido por <b>autoridade legal</b>.</p>
+
+      <h2 style="${s}">5. Por quanto tempo guardamos</h2>
+      <p>Guardamos os dados enquanto durar a relação de serviço e, depois, pelo prazo legal — em geral <b>5 anos</b> para documentos fiscais e de transporte. Encerrado o prazo, os dados são excluídos ou anonimizados.</p>
+
+      <h2 style="${s}">6. Seus direitos</h2>
+      <p>Você pode, a qualquer momento, pedir: <b>acesso</b> aos seus dados, <b>correção</b>, <b>exclusão</b>, informação sobre com quem compartilhamos, e <b>revogar o consentimento</b>. Basta falar com a gente pelos contatos acima; respondemos em até <b>15 dias</b>.</p>
+
+      <h2 style="${s}">7. Segurança</h2>
+      <p>Adotamos medidas para proteger os seus dados: transmissão criptografada (HTTPS), acesso ao sistema <b>restrito por login individual</b> da equipe, e o banco de dados <b>trancado</b> — cada cliente só enxerga o próprio frete pelo link recebido.</p>
+
+      <p class="hint" style="margin-top:18px">Dúvidas sobre esta política? Fale com a OBS Transportes: <a href="mailto:atendimento@obstransportes.com.br">atendimento@obstransportes.com.br</a> · (11) 4352-4103.</p>
+    </div>
+    <p class="hint" style="text-align:center;margin:14px 0">OBS Transportes · Odete Barbosa Santos Transportes · (11) 4352-4103</p>
+  </div>`;
+  window.scrollTo(0,0);
 }
 function entrarModoClienteLive(){
   clienteLiveId = decodeURIComponent(location.hash.slice(3));
@@ -3372,7 +3431,7 @@ function enviarOrcamentoWpp(){
 }
 function rotearHash(){
   const h=location.hash;
-  const ehCliente = h.startsWith('#f=')||h.startsWith('#t=')||h==='#orc'||h==='#orcamento';
+  const ehCliente = h.startsWith('#f=')||h.startsWith('#t=')||h==='#orc'||h==='#orcamento'||h==='#privacidade';
   // Se navegou para um link de CLIENTE mas a página não está em modo-cliente (ex.: alguém logado
   // colou o link na mesma aba), recarrega para entrar LIMPO no modo cliente (esconde menu, monta a
   // leitura do doc do cliente) — em vez de ficar no app da equipe.
@@ -3380,6 +3439,7 @@ function rotearHash(){
   if(h.startsWith('#t=')) entrarModoCliente();
   else if(h.startsWith('#f=')) entrarModoClienteLive();
   else if(h==='#orc'||h==='#orcamento') renderOrcamentoPage();
+  else if(h==='#privacidade') renderPrivacidade();
 }
 window.addEventListener('hashchange', rotearHash);
 function setFrete(id,campo,valor){
@@ -6573,7 +6633,7 @@ function salvarUsuario(){
 (function init(){
   // indicador de carregamento da sessão (só no app da equipe, não na página do cliente)
   const isCliente = location.hash.startsWith('#f=') || location.hash.startsWith('#t=')
-                    || location.hash==='#orc' || location.hash==='#orcamento';
+                    || location.hash==='#orc' || location.hash==='#orcamento' || location.hash==='#privacidade';
   if(isCliente) document.body.classList.add('modo-cliente');   // esconde menu/abas: cliente só vê o form/rastreio
   if(!isCliente) iniciarAcesso();   // login/papéis (as páginas públicas não pedem login)
   const loadT = isCliente ? null : flash('Carregando sessão…','load');
