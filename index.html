@@ -1765,7 +1765,7 @@ function editandoInput(container){
 }
 
 // numeração sequencial: próximo = maior número existente + 1
-const SEQ_2026_FIM=1554;    // piso da sequência: nº 1554 já foi usado (lançado manual pelo financeiro) → próximo ≥ 1555
+const SEQ_2026_FIM=1583;    // piso da sequência: nº 1583 já foi usado → próximo ≥ 1584
 const SEQ_2026_TETO=1595;   // o ciclo atual vai até 1595; de 1596 em diante são números de ciclos ANTIGOS
                             // (2025: 1596…2205) — não entram na sequência nova.
 // conjunto de TODOS os números já usados — inclui fretes EXCLUÍDOS (Lixeira), p/ NUNCA repetir um número.
@@ -1780,7 +1780,7 @@ function proximoNumero(){
   // maior número do ciclo atual (≤ 1595), incluindo excluídos; ignora números de ciclos antigos (≥1596).
   const usados=[...numerosUsados()].filter(n=>n<=SEQ_2026_TETO);
   const base=usados.length?Math.max(...usados):0;
-  return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1532
+  return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1584
 }
 function proximoNumeroLivre(){ const usados=numerosUsados(); let n=proximoNumero(); while(usados.has(n)) n++; return n; }
 function atualizarProxNum(){
