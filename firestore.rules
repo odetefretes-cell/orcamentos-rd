@@ -9,8 +9,8 @@ rules_version = '2';
 //   • EQUIPE (7 e-mails oficiais, logados no Firebase) -> acesso total.
 //   • Cliente com link -> só lê a CÓPIA pública (publico/) e, no caso de
 //     PEDIDO pendente, lê o formulário e envia os próprios dados.
-//   • Automação (Make/ChatGuru) e formulário do site -> só CRIAM/ATUALIZAM
-//     leads (interim — a Fase 1b move isso p/ uma função na nuvem com segredo).
+//   • Automação (Make/ChatGuru) -> só cria/atualiza leads enviando o SEGREDO
+//     combinado no campo "_porta" (Fase 1b — porteiro por segredo).
 //   • Ninguém de fora lê fretes cadastrados, clientes, tabela ou configurações.
 //
 // REVERSÍVEL: se algo travar, é só republicar as regras antigas (abaixo).
