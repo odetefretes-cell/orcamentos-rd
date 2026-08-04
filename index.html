@@ -4233,7 +4233,13 @@ function renderCRM(){
   const perAte = $('#crmFiltroAte')?.value||'';
   const temLink = l => !!(l.linkEmitidoEm || l.freteId);
   const casaLink = l => !filtroLink || (filtroLink==='sim'?temLink(l):!temLink(l));
-  const dataDoLead = l => { const v = campoData==='linkEmitidoEm' ? (l.linkEmitidoEm||'') : (l[campoData]||''); return (v||'').slice(0,10); };
+  const dataDoLead = l => {
+    let v;
+    if(campoData==='linkEmitidoEm') v = l.linkEmitidoEm||'';
+    else if(campoData==='dataFechamento') v = l.dataFechamento || (l.etapa==='fechado' ? (l.ultimaInteracao||'') : '');   // venda sem data explícita → usa a última interação
+    else v = l[campoData]||'';
+    return (v||'').slice(0,10);
+  };
   const casaPeriodo = l => { if(!perDe && !perAte) return true; const d=dataDoLead(l); if(!d) return false; if(perDe && d<perDe) return false; if(perAte && d>perAte) return false; return true; };
   const casaTarefa = l => {
     if(!filtroTarefa) return true;
@@ -4387,6 +4393,7 @@ function crmMoverEtapa(id, novaEtapa, motivo){
     if(motivo != null) CRM_LEADS[id].motivoPerda = motivo;
     crmAddTimeline(id, 'perda', `Lead marcado como perdido: ${CRM_LEADS[id].motivoPerda||'sem motivo'}`);
   } else if(novaEtapa === 'fechado'){
+    if(!CRM_LEADS[id].dataFechamento) CRM_LEADS[id].dataFechamento = hojeISO();   // registra a DATA da venda (p/ o filtro Fechamento)
     crmAddTimeline(id, 'convertido', 'Venda fechada! Lead convertido.');
   } else {
     crmAddTimeline(id, 'movido', `Movido para: ${crmEtapaTitulo(novaEtapa)}`);
