@@ -4356,30 +4356,40 @@ function crmDragEnd(e){
   e.target.classList.remove('dragging');
   document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('drag-over'));
 }
-function crmDrop(e, col){
-  col.closest('.kanban-col').classList.remove('drag-over');
-  const id = e.dataTransfer.getData('text/plain') || crmDragId;
-  if(!id || !CRM_LEADS[id]) return;
-  const novaEtapa = col.closest('.kanban-col').dataset.etapa;
+// Move um lead de etapa POR ID, direto nos dados, com a MESMA persistência do arrasto
+// (saveCRM marca CRM_DIRTY p/ não reverter). NÃO depende do card estar renderizado —
+// a rotina consegue mover mesmo com filtro de vendedor ativo no kanban (fim do NOFIND).
+// Retorna true se moveu (ou já estava na etapa), false se o lead não existe.
+function crmMoverEtapa(id, novaEtapa, motivo){
+  if(!id || !CRM_LEADS[id]) return false;
   const etapaAnterior = CRM_LEADS[id].etapa;
-  if(novaEtapa === etapaAnterior) return;
-
-  // se moveu para "perdido", pedir motivo
+  if(novaEtapa === etapaAnterior) return true;   // já está lá
   if(novaEtapa === 'perdido'){
-    const motivo = prompt('Motivo da perda:');
-    if(motivo === null) return; // cancelou
-    CRM_LEADS[id].motivoPerda = motivo;
-    crmAddTimeline(id, 'perda', `Lead marcado como perdido: ${motivo||'sem motivo'}`);
+    if(motivo != null) CRM_LEADS[id].motivoPerda = motivo;
+    crmAddTimeline(id, 'perda', `Lead marcado como perdido: ${CRM_LEADS[id].motivoPerda||'sem motivo'}`);
   } else if(novaEtapa === 'fechado'){
     crmAddTimeline(id, 'convertido', 'Venda fechada! Lead convertido.');
   } else {
     crmAddTimeline(id, 'movido', `Movido para: ${crmEtapaTitulo(novaEtapa)}`);
   }
-
   CRM_LEADS[id].etapa = novaEtapa;
   CRM_LEADS[id].ultimaInteracao = new Date().toISOString();
   if(novaEtapa==='contato' || novaEtapa==='orcamento') crmAgendarFollowup(id, novaEtapa);   // follow-up D+1/D+3
   saveCRM();
+  return true;
+}
+function crmDrop(e, col){
+  col.closest('.kanban-col').classList.remove('drag-over');
+  const id = e.dataTransfer.getData('text/plain') || crmDragId;
+  if(!id || !CRM_LEADS[id]) return;
+  const novaEtapa = col.closest('.kanban-col').dataset.etapa;
+  if(novaEtapa === CRM_LEADS[id].etapa) return;
+  let motivo;
+  if(novaEtapa === 'perdido'){                    // só o arrasto pede o motivo (interativo)
+    motivo = prompt('Motivo da perda:');
+    if(motivo === null) return;                   // cancelou
+  }
+  crmMoverEtapa(id, novaEtapa, motivo);           // move + persiste (mesma lógica p/ rotina e arrasto)
   renderCRM();
   flash(`Lead movido para "${CRM_ETAPAS.find(e=>e.id===novaEtapa)?.titulo||novaEtapa}" ✔`);
 }
