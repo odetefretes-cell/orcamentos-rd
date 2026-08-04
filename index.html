@@ -2265,6 +2265,7 @@ function cardFrete(f){
           ${f.pedido?'<span class="badge" style="background:#6a1b9a">📥 PEDIDO DO CLIENTE</span>':''}
           <span class="badge s-aguardando">🕓 AGUARDANDO</span>
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px;color:#ef4444;border-color:rgba(239,68,68,.5)" onclick="cancelarFrete('${id}')">❌ Cancelar frete</button>
         </div>
       </div>
       <div class="body2">
@@ -2298,6 +2299,7 @@ function cardFrete(f){
         ${atrasado(f)?`<span class="badge atraso">⚠ ${horasSemAtualizacao(f)}h sem atualização</span>`:''}
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="devolverFila('${id}')" title="Voltar para a fila">↩ Fila</button>
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${id}')">Abrir ficha</button>
+        ${st!=='CANCELADO'?`<button class="btn-ghost" style="padding:4px 10px;font-size:12px;color:#ef4444;border-color:rgba(239,68,68,.5)" onclick="cancelarFrete('${id}')">❌ Cancelar frete</button>`:''}
       </div>
     </div>
     <div class="body2">
@@ -2373,6 +2375,23 @@ function cardFrete(f){
       </div>
     </div>
   </div>`;
+}
+// Cancela um frete pela fila do operacional: pede o motivo, marca CANCELADO e registra.
+function cancelarFrete(id){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  if(statusDe(f)==='CANCELADO'){ flash('Este frete já está cancelado.'); return; }
+  let motivo=prompt('Motivo do cancelamento deste frete:');
+  if(motivo===null) return;                     // cancelou o prompt
+  motivo=(motivo||'').trim();
+  if(!motivo){ flash('Cancelamento não registrado — informe o motivo.'); return; }
+  f.status='CANCELADO';
+  f.motivoCancelamento=motivo;
+  f.canceladoEm=new Date().toISOString();
+  if(!Array.isArray(f.histInterno)) f.histInterno=histOf(f,'interno');
+  f.histInterno.push({ts:new Date().toISOString(), texto:`❌ Frete CANCELADO. Motivo: ${motivo}`});
+  f._salvoEm=new Date().toISOString();
+  db[id]=f; gravarDB(db);
+  renderRelatorio(); atualizarHist(); flash('❌ Frete '+(f.numero||'')+' cancelado.');
 }
 function puxarFrete(id,op){
   const db=lerDB(); if(!db[id]) return;
