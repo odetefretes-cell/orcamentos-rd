@@ -5284,13 +5284,32 @@ function _repararRotasTabela(db){
   if(n) try{ console.log('🔧 '+n+' rota(s): destino declarado anexado aos trajetos (cidades intermediárias preservadas).'); }catch(_){}
   return db;
 }
+// ---- Compressão da tabela (cabe no limite de 1 MB/doc do Firestore) ----
+function _bufB64(buf){ const b=new Uint8Array(buf); let s=''; const CH=0x8000; for(let i=0;i<b.length;i+=CH) s+=String.fromCharCode.apply(null,b.subarray(i,i+CH)); return btoa(s); }
+async function _gzB64(str){                     // string -> base64(gzip); null se o navegador não suportar
+  if(typeof CompressionStream==='undefined') return null;
+  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+  return _bufB64(await new Response(stream).arrayBuffer());
+}
+async function _ungzB64(b64){                    // base64(gzip) -> string
+  const bin=atob(b64), bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
 async function carregarTabelaFretes(){
   if(TABELA_FRETES) return TABELA_FRETES;
   let db=null;
   // 1) nuvem (tabela compartilhada, atualizada pelo admin) — vence o arquivo estático
   if(CLOUD_ON && _fb && _fb.getDoc){
     try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_tabela'));
-      if(s.exists() && s.data().data) db=JSON.parse(s.data().data);
+      if(s.exists() && s.data().data){
+        const d=s.data(); let raw=d.data; const partes=d.partes||1;
+        // reassembla os pedaços extras (_tabela_p1, _tabela_p2, …) se a tabela foi quebrada
+        for(let i=1;i<partes;i++){ const sp=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_tabela_p'+i)); if(sp.exists()&&sp.data().data) raw+=sp.data().data; }
+        if(d.comp==='gz'){ try{ raw=await _ungzB64(raw); }catch(_){ raw=null; } }
+        if(raw) db=JSON.parse(raw);
+      }
     }catch(_){}
   }
   // 2) cópia local (caso admin tenha publicado offline)
@@ -5352,9 +5371,16 @@ async function atualizarTabelaFretes(){
     const tabela = tabParseWorkbook(wb, XLSX);
     if(!tabela.rotas.length){ if(st){ st.style.color='#dc2626'; st.textContent='Não encontrei rotas na planilha. Confira o formato (abas por transportadora + Configurações).'; } return; }
     const str = JSON.stringify(tabela);
-    if(str.length > 950000){ if(st){ st.style.color='#dc2626'; st.textContent=`Tabela grande demais p/ a nuvem (${Math.round(str.length/1024)} KB, limite ~950 KB). Envie o arquivo para a OBS.`; } return; }
+    const meta = { em:new Date().toISOString(), rotas:tabela.rotas.length, cidades:Object.keys(tabela.cidades).length };
     if(CLOUD_ON && _fb && _fb.setDoc){
-      await _fb.setDoc(_fb.doc(_fb.fs,'fretes','_tabela'), { data:str, em:new Date().toISOString(), rotas:tabela.rotas.length, cidades:Object.keys(tabela.cidades).length });
+      let b64=null; try{ b64=await _gzB64(str); }catch(_){}
+      if(b64 && b64.length < 950000){                 // comprimida cabe num doc só
+        await _fb.setDoc(_fb.doc(_fb.fs,'fretes','_tabela'), Object.assign({ data:b64, comp:'gz', partes:1 }, meta));
+      } else {                                          // fallback: quebra o JSON cru em pedaços de ~700 KB
+        const CH=700000, partes=Math.ceil(str.length/CH);
+        for(let i=1;i<partes;i++){ await _fb.setDoc(_fb.doc(_fb.fs,'fretes','_tabela_p'+i), { data:str.slice(i*CH,(i+1)*CH) }); }
+        await _fb.setDoc(_fb.doc(_fb.fs,'fretes','_tabela'), Object.assign({ data:str.slice(0,CH), comp:'', partes }, meta));
+      }
     }
     try{ localStorage.setItem('obs_tabela_fretes', str); }catch(_){}
     TABELA_FRETES = tabela;   // aplica na hora (sem adjacências em cache)
