@@ -195,3 +195,10 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
     res.status(500).json({ ok:false, erro: e.message || String(e) });
   }
 });
+
+/* ----------------------------------------------------------------------------
+   Webhook de ENTRADA de leads do ChatGuru (Etapa 1+2 da automação).
+   Fica num arquivo separado (chatguru-webhook.js) pra não misturar com a ponte
+   de cotação acima. O require vem DEPOIS do initializeApp() de propósito.
+   ---------------------------------------------------------------------------- */
+exports.chatguruWebhook = require('./chatguru-webhook').chatguruWebhook;
