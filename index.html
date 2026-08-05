@@ -1768,21 +1768,29 @@ function editandoInput(container){
 const SEQ_2026_FIM=1554;    // piso da sequência: nº 1554 já foi usado (lançado manual pelo financeiro) → próximo ≥ 1555
 const SEQ_2026_TETO=1595;   // o ciclo atual vai até 1595; de 1596 em diante são números de ciclos ANTIGOS
                             // (2025: 1596…2205) — não entram na sequência nova.
-// conjunto de TODOS os números já usados — inclui fretes EXCLUÍDOS (Lixeira), p/ NUNCA repetir um número.
-function numerosUsados(){
+// Números do CICLO SEQUENCIAL ATUAL (2026). A sequência continua 1596, 1597…
+// mesmo que 1596..2205 já existam como fretes do ciclo ANTIGO (2025) — esses ficam
+// guardados com id próprio (n1596…) e NÃO são sobrescritos.
+// Um número entra no ciclo atual se: for da faixa 1555..1595, OU o frete tiver a marca _seqNovo
+// (fretes emitidos pela numeração nova de 2026, inclusive os ≥1596).
+function numerosCiclo(){
   const s=new Set();
-  const add=obj=>{ for(const f of Object.values(obj||{})){ const n=parseInt(String(f&&f.numero||'').replace(/\D/g,''),10); if(!isNaN(n)) s.add(n); } };
+  const add=obj=>{ for(const f of Object.values(obj||{})){
+    const n=parseInt(String(f&&f.numero||'').replace(/\D/g,''),10);
+    if(isNaN(n)) continue;
+    if(n<=SEQ_2026_TETO || (f && f._seqNovo)) s.add(n);
+  } };
   add(lerDB());
-  if(typeof LIXEIRA!=='undefined') add(LIXEIRA);   // números de fretes excluídos também não voltam
+  if(typeof LIXEIRA!=='undefined') add(LIXEIRA);   // números do ciclo atual excluídos também não voltam
   return s;
 }
 function proximoNumero(){
-  // maior número do ciclo atual (≤ 1595), incluindo excluídos; ignora números de ciclos antigos (≥1596).
-  const usados=[...numerosUsados()].filter(n=>n<=SEQ_2026_TETO);
-  const base=usados.length?Math.max(...usados):0;
-  return Math.max(base, SEQ_2026_FIM)+1;   // nunca começa antes de 1532
+  // maior número JÁ EMITIDO no ciclo atual + 1 (piso 1555). Ignora os números do ciclo antigo (2025).
+  const c=[...numerosCiclo()];
+  const base=c.length?Math.max(...c):0;
+  return Math.max(base, SEQ_2026_FIM)+1;
 }
-function proximoNumeroLivre(){ const usados=numerosUsados(); let n=proximoNumero(); while(usados.has(n)) n++; return n; }
+function proximoNumeroLivre(){ const c=numerosCiclo(); let n=proximoNumero(); while(c.has(n)) n++; return n; }
 function atualizarProxNum(){
   const numEl=form.elements['numero']; if(!numEl) return;
   const semNum = !String(numEl.value||'').trim();
@@ -1795,16 +1803,21 @@ function atualizarProxNum(){
 }
 function salvar(){
   const d=dados();
-  // frete novo -> numeração automática sequencial; se estiver vazio OU já usado, pega o próximo livre
+  // frete novo -> numeração automática sequencial; se estiver vazio pega o próximo livre do ciclo atual
   if(!idAtual){
     const num=String(d.numero||'').trim();
-    if(!num || lerDB()['n'+num]){
+    const ciclo=numerosCiclo();
+    if(!num || ciclo.has(parseInt(num,10))){
       d.numero=String(proximoNumeroLivre());
       if(form.elements['numero']) form.elements['numero'].value=d.numero;
     }
+    d._seqNovo=true;   // marca do ciclo sequencial 2026 (permite reusar 1596+ sem apagar os de 2025)
   }
-  const id = idAtual || (d.numero ? 'n'+d.numero : 'id'+Date.now());
-  const db=lerDB(); const prev=db[id]||{};
+  // id de armazenamento: usa 'n'+número só se estiver livre; se o número já existe em outro id
+  // (ex.: 1596 é um frete de 2025 guardado em n1596), gera um id único p/ NÃO sobrescrever.
+  const db=lerDB();
+  const id = idAtual || (d.numero && !db['n'+d.numero] ? 'n'+d.numero : 'f'+d.numero+'_'+Date.now());
+  const prev=db[id]||{};
   // preserva TODOS os campos que só existem no banco (acompanhamento/financeiro/histórico)
   // — tudo que não vem do formulário fica intacto ao regravar a ficha
   Object.keys(prev).forEach(k=>{ if(d[k]===undefined) d[k]=prev[k]; });
@@ -2727,9 +2740,11 @@ function camposPagamentoHTML(id,f,defer){
 }
 function liberarOperacional(id){
   const db=lerDB(); if(!db[id]) return;
-  const num = String(db[id].numero||'').trim() || String(proximoNumeroLivre());   // nº sequencial se faltar
+  const tinha = String(db[id].numero||'').trim();
+  const num = tinha || String(proximoNumeroLivre());   // nº sequencial se faltar
   if(!confirm('Liberar o frete '+num+' para a fila do operacional?')) return;
   db[id].numero=num;
+  if(!tinha) db[id]._seqNovo=true;   // ganhou número agora → entra no ciclo sequencial 2026
   db[id].etapa='operacional'; db[id].liberadoEm=new Date().toISOString(); db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
   renderFinanceiro(); atualizarHist();
   const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
