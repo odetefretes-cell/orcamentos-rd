@@ -522,6 +522,13 @@
     <label style="font-size:13px;font-weight:600;color:rgba(228,228,240,.5)">Fretes salvos:</label>
     <input id="histBusca" oninput="atualizarHist()" placeholder="🔎 buscar nº, cliente ou placa…"
            style="width:220px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+    <label style="font-size:12px;color:rgba(228,228,240,.5)">De</label>
+    <input id="histDataDe" type="date" onchange="atualizarHist()" title="Fretes a partir desta data (data do fechamento)"
+           style="font-size:13px;padding:7px;border:1px solid var(--linha);border-radius:8px">
+    <label style="font-size:12px;color:rgba(228,228,240,.5)">até</label>
+    <input id="histDataAte" type="date" onchange="atualizarHist()" title="Fretes até esta data (data do fechamento)"
+           style="font-size:13px;padding:7px;border:1px solid var(--linha);border-radius:8px">
+    <button class="btn-ghost" onclick="limparFiltroDataHist()" title="Limpar o filtro de data" style="padding:6px 9px">✕ data</button>
     <select id="hist" onchange="carregarFrete(this.value)" style="min-width:260px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
       <option value="">— novo frete —</option>
     </select>
@@ -1841,20 +1848,36 @@ function salvar(){
   const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
   flash(foiAoFinanceiro ? ('Frete Nº '+(d.numero||'')+' emitido → enviado ao Financeiro') : ('Frete Nº '+(d.numero||'')+' salvo ✔'));
 }
+// data de referência do frete p/ filtro/ordenação: data do fechamento (fallback: data de salvamento)
+function histDataRef(f){
+  const d=(f.dataFechamento||'').slice(0,10);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  return (f._salvoEm||'').slice(0,10);
+}
+function limparFiltroDataHist(){
+  const de=$('#histDataDe'), ate=$('#histDataAte');
+  if(de) de.value=''; if(ate) ate.value=''; atualizarHist();
+}
 function atualizarHist(){
   const db=lerDB(); const sel=$('#hist');
   const q=($('#histBusca')?.value||'').trim().toLowerCase();
+  const de=($('#histDataDe')?.value||'').trim();
+  const ate=($('#histDataAte')?.value||'').trim();
   let itens=Object.values(db).sort((a,b)=>(b._salvoEm||'').localeCompare(a._salvoEm||''));
   const total=itens.length;
   if(q) itens=itens.filter(f=>[f.numero,f.clienteEmpresa,f.placa,f.origem,f.destino]
         .map(x=>(x||'').toString().toLowerCase()).join(' ').includes(q));
+  if(de||ate) itens=itens.filter(f=>{ const d=histDataRef(f); if(!d) return false; if(de&&d<de) return false; if(ate&&d>ate) return false; return true; });
+  const filtrando = !!(q||de||ate);
   sel.innerHTML='<option value="">— novo frete —</option>'+itens.map(f=>{
-    const dt=f._salvoEm?new Date(f._salvoEm).toLocaleDateString('pt-BR'):'';
+    const dref=histDataRef(f);
+    const dt=dref?dref.split('-').reverse().join('/'):'';
     const rot=`Nº ${f.numero||'s/nº'} — ${(f.clienteEmpresa||'sem cliente')}${f.placa?(' · '+f.placa):''}${dt?(' — '+dt):''}`;
     return `<option value="${f._id}"${f._id===idAtual?' selected':''}>${rot.replace(/</g,'&lt;')}</option>`;
   }).join('');
+  const periodo = (de||ate) ? ` · ${de?de.split('-').reverse().join('/'):'início'} → ${ate?ate.split('-').reverse().join('/'):'hoje'}` : '';
   $('#hstatus').textContent = total
-    ? (q ? `${itens.length} de ${total} frete(s)` : `${total} frete(s) salvo(s)`)
+    ? (filtrando ? `${itens.length} de ${total} frete(s)${periodo}` : `${total} frete(s) salvo(s)`)
     : 'nenhum frete salvo ainda';
   renderComercial();
 }
