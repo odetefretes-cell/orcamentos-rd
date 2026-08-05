@@ -5299,6 +5299,35 @@ function _repararRotasTabela(db){
   if(n) try{ console.log('🔧 '+n+' rota(s): destino declarado anexado aos trajetos (cidades intermediárias preservadas).'); }catch(_){}
   return db;
 }
+// ---- Preço do sentido inverso: quando uma rota "A - B" não tem preço p/ uma categoria
+// mas a MESMA transportadora tem a rota "B - A" com esse preço, usa o preço da volta.
+// (evita "s/ preço" quando alguém esqueceu de preencher só um dos sentidos). Marca em
+// r._precoInv[categoria-normalizada]=true p/ a tela avisar "↩ preço do sentido inverso".
+function crmPreencherInversos(db){
+  if(!db || !Array.isArray(db.rotas)) return db;
+  const cats = Array.isArray(db.categorias) ? db.categorias.slice() : [];
+  if(!cats.length) return db;
+  const partes = rota => { const s=String(rota||'').split(' - '); return s.length===2 ? [s[0].trim(), s[1].trim()] : null; };
+  const idx = {};
+  for(const r of db.rotas){ if(r && r.rota) idx[tabNorm(r.transportadora)+'||'+tabNorm(r.rota)] = r; }
+  let n=0;
+  for(const r of db.rotas){
+    const p = partes(r.rota); if(!p) continue;
+    const rev = idx[tabNorm(r.transportadora)+'||'+tabNorm(p[1]+' - '+p[0])];
+    if(!rev || !rev.valores) continue;
+    r.valores = r.valores || {};
+    for(const c of cats){
+      if(precoCat(r.valores, c) != null) continue;   // já cota (exato/grupo) → não mexe
+      const rv = precoCat(rev.valores, c);            // preço da volta p/ essa categoria
+      if(rv == null) continue;
+      r.valores[c] = rv;                              // preenche com o preço do sentido inverso
+      (r._precoInv || (r._precoInv = {}))[tabNorm(c)] = true;
+      n++;
+    }
+  }
+  if(n) try{ console.log('↩ '+n+' preço(s) preenchido(s) pelo sentido inverso.'); }catch(_){}
+  return db;
+}
 // ---- Compressão da tabela (cabe no limite de 1 MB/doc do Firestore) ----
 function _bufB64(buf){ const b=new Uint8Array(buf); let s=''; const CH=0x8000; for(let i=0;i<b.length;i+=CH) s+=String.fromCharCode.apply(null,b.subarray(i,i+CH)); return btoa(s); }
 async function _gzB64(str){                     // string -> base64(gzip); null se o navegador não suportar
@@ -5337,7 +5366,7 @@ async function carregarTabelaFretes(){
       db = await resp.json();
     }catch(e){ TABELA_ERRO = e.message||String(e); return null; }
   }
-  TABELA_FRETES = _repararRotasTabela(db);   // conserta rotas corrompidas de qualquer fonte
+  TABELA_FRETES = crmPreencherInversos(_repararRotasTabela(db));   // conserta rotas + preenche preço do sentido inverso
   return TABELA_FRETES;
 }
 // ---- Admin: publicar nova tabela de fretes (lê o Excel e envia p/ a nuvem) ----
@@ -5398,7 +5427,7 @@ async function atualizarTabelaFretes(){
       }
     }
     try{ localStorage.setItem('obs_tabela_fretes', str); }catch(_){}
-    TABELA_FRETES = tabela;   // aplica na hora (sem adjacências em cache)
+    TABELA_FRETES = crmPreencherInversos(tabela);   // aplica na hora (preenche preço do sentido inverso)
     TAB_CIDADES=null; TAB_CIDADES_TODAS={}; BASES_COORDS=null; ANCORAS_FORTES=null; HUBS_SET=null; ENDPOINTS_COORDS=null;   // recria listas/bases/hubs da nova tabela
     if(st){ st.style.color='#16a34a'; st.textContent=`✔ Publicado: ${tabela.rotas.length} rotas, ${Object.keys(tabela.cidades).length} cidades. ${CLOUD_ON?'Todos recebem ao atualizar a página.':'(sem nuvem — salvo só neste computador)'}`; }
     flash('Tabela de fretes publicada ✔');
@@ -5699,7 +5728,8 @@ function crmGerarOpcoes(db, o, d, cat){
   const isDest = k => matchKey(k, d);
   const isO = k=> matchKey(k, o);
   const preco = r => precoCat(r.valores,cat);
-  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), valores:r.valores, oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:nk(t.o,t.oUF),dN:nk(t.d,t.dUF), prazo:r.prazoDias });
+  const catInv = tabNorm(cat);
+  const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), valores:r.valores, oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:nk(t.o,t.oUF),dN:nk(t.d,t.dUF), prazo:r.prazoDias, precoInv:!!(r._precoInv && r._precoInv[catInv]) });
   const diretas=[];
   for(const r of db.rotas){
     for(const t of (r.trajetos||[])){
@@ -5709,7 +5739,7 @@ function crmGerarOpcoes(db, o, d, cat){
   for(const r of db.rotas){
     const s=crmSubTrecho(r,isO,isDest); if(!s) continue;
     const p=precoCat(s.valores,cat); if(p==null) continue;
-    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, valores:s.valores, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo }], total:p, prazo:s.prazo||0 });
+    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, valores:s.valores, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo, precoInv:!!(r._precoInv && r._precoInv[catInv]) }], total:p, prazo:s.prazo||0 });
   }
   const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
   const adj = crmAdjacencia(db);
@@ -5839,7 +5869,7 @@ async function crmCalcOpcoes(id){
   window.__crmOpcoes = opts;
   if(!opts.length){ box.innerHTML = `<p class="hint">Nenhuma opção encontrada para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b>. Preencha manualmente.</p>`; crmAbrirComposicaoManual(id); return; }
   const cardOpt = (x,i)=>{
-    const legTxt = x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
+    const legTxt = x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}${g.precoInv?' <span style="color:#c88a00;font-size:10.5px">↩ preço do sentido inverso — confira</span>':''}`).join('<br>');
     const via = [x._viaOrigem?`retirada em ${esc(x._viaOrigem.nome)}/${esc(x._viaOrigem.uf)} (${x._viaOrigem.dist} km)`:'', x._viaDestino?`entrega em ${esc(x._viaDestino.nome)}/${esc(x._viaDestino.uf)} (${x._viaDestino.dist} km)`:''].filter(Boolean).join(' · ');
     const tag = x.tipo==='direta' ? '<span style="background:#16a34a;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px">DIRETA</span>'
                                   : `<span style="background:#2563eb;color:#fff;font-size:10px;padding:1px 6px;border-radius:9px">${x.legs.length} TRECHOS</span>`;
@@ -6009,7 +6039,7 @@ async function crmCalcAuto(id, auto){
   crmAplicarOpcao(id, padrao);
   const sig = x => x.legs.map(l=>l.transportadora+'>'+normTxt(l.dNome)).join('|');
   const sB=sig(barata), sR=sig(rapida), sM=sig(menos), sP=sig(padrao);
-  const legTxt = x => x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}`).join('<br>');
+  const legTxt = x => x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}${g.precoInv?' <span style="color:#c88a00;font-size:10.5px">↩ preço do sentido inverso — confira</span>':''}`).join('<br>');
   const viaTxt = x => { const v=[]; if(x._viaOrigem) v.push(`retirada em ${esc(x._viaOrigem.nome)}/${esc(x._viaOrigem.uf)} (${x._viaOrigem.dist} km)`); if(x._viaDestino) v.push(`entrega em ${esc(x._viaDestino.nome)}/${esc(x._viaDestino.uf)} (${x._viaDestino.dist} km)`); return v.length?`<div class="hint" style="margin:2px 0 0;font-size:10.5px;color:#c88a00">📍 ${v.join(' · ')} — cidade vizinha da região</div>`:''; };
   const card = (x, icon, titulo, key, aplicada, nota) => `
     <div style="border:1px solid ${aplicada?'#16a34a':'var(--linha)'};border-radius:8px;padding:8px;margin-bottom:6px;background:${aplicada?'rgba(22,163,74,.06)':'transparent'}">
