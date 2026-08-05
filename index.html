@@ -536,6 +536,7 @@
     <button class="btn-ghost" onclick="copiarFreteSelecionado()" title="Copiar os dados do frete escolhido acima para um NOVO frete (sem número, pagamentos ou status)">📋 Copiar p/ novo</button>
     <button class="btn-ghost" onclick="excluirFrete()">🗑️ Excluir</button>
     <button class="btn-ghost" onclick="abrirLixeira()" title="Fretes excluídos (restaurar)">🗑️ Lixeira</button>
+    <button class="btn-ghost" onclick="corrigirNumeracaoCiclo()" title="Conserta números duplicados do ciclo atual e acerta o próximo número">🔢 Corrigir numeração</button>
     <span class="spacer"></span>
     <span class="status" id="hstatus"></span>
   </div>
@@ -1778,14 +1779,20 @@ const SEQ_2026_TETO=1595;   // o ciclo atual vai até 1595; de 1596 em diante s�
 // Números do CICLO SEQUENCIAL ATUAL (2026). A sequência continua 1596, 1597…
 // mesmo que 1596..2205 já existam como fretes do ciclo ANTIGO (2025) — esses ficam
 // guardados com id próprio (n1596…) e NÃO são sobrescritos.
-// Um número entra no ciclo atual se: for da faixa 1555..1595, OU o frete tiver a marca _seqNovo
-// (fretes emitidos pela numeração nova de 2026, inclusive os ≥1596).
+// Um número entra no ciclo atual (2026) se: for da faixa 1555..1595, OU o frete foi CRIADO NO APP
+// (!_importado — pedidos, emissões novas), OU tem a marca _seqNovo. Os fretes de 2025 são todos
+// _importado=true, então os números 1596..2205 deles NÃO entram (podem ser reusados em 2026).
+function ehFreteCiclo(f){
+  if(!f) return false;
+  if(f._importado) return false;             // 2025 (importado) nunca entra no ciclo novo
+  return f._seqNovo || f.cadastrado || f.pedido || f.linkCriado;  // criado no app
+}
 function numerosCiclo(){
   const s=new Set();
   const add=obj=>{ for(const f of Object.values(obj||{})){
     const n=parseInt(String(f&&f.numero||'').replace(/\D/g,''),10);
     if(isNaN(n)) continue;
-    if(n<=SEQ_2026_TETO || (f && f._seqNovo)) s.add(n);
+    if(n<=SEQ_2026_TETO || ehFreteCiclo(f)) s.add(n);
   } };
   add(lerDB());
   if(typeof LIXEIRA!=='undefined') add(LIXEIRA);   // números do ciclo atual excluídos também não voltam
@@ -1798,6 +1805,44 @@ function proximoNumero(){
   return Math.max(base, SEQ_2026_FIM)+1;
 }
 function proximoNumeroLivre(){ const c=numerosCiclo(); let n=proximoNumero(); while(c.has(n)) n++; return n; }
+// ---- Corrige a numeração do ciclo 2026: remove duplicados e marca os fretes do ciclo ----
+// O frete mais ANTIGO mantém o número; o(s) mais novo(s) com o mesmo número recebem o próximo
+// livre. NÃO mexe em fretes de 2025 (_importado) nem tira gaps (buracos de cancelados são normais).
+function corrigirNumeracaoCiclo(){
+  if(typeof sessaoUser!=='undefined' && sessaoUser && sessaoUser.papel && sessaoUser.papel!=='admin'){
+    alert('Apenas o administrador pode corrigir a numeração.'); return;
+  }
+  const db=lerDB();
+  const dtDe = f => (f.criadoEm||f._salvoEm||f.dataFechamento||'')+'';
+  const cyc = Object.keys(db).filter(id=>!id.startsWith('_'))
+    .map(id=>db[id])
+    .filter(f=> f && ehFreteCiclo(f) && String(f.numero||'').replace(/\D/g,''))
+    .sort((a,b)=> dtDe(a).localeCompare(dtDe(b)));   // mais antigo primeiro (mantém o número)
+  const ocupados = numerosCiclo();
+  const proxLivre = ()=>{ let n=Math.max(SEQ_2026_FIM, ...ocupados)+1; while(ocupados.has(n)) n++; return n; };
+  const dono={}, mudancas=[];
+  for(const f of cyc){
+    const n=parseInt(String(f.numero).replace(/\D/g,''),10); if(isNaN(n)) continue;
+    if(dono[n]==null){ dono[n]=f; }                       // 1º dono mantém
+    else { const novo=proxLivre(); ocupados.add(novo); mudancas.push({f, de:n, para:novo}); }
+  }
+  let marcados=0; for(const f of cyc){ if(!f._seqNovo){ f._seqNovo=true; marcados++; } }
+  if(!mudancas.length){
+    gravarDB(db); atualizarHist(); atualizarProxNum();
+    alert('✔ Nenhum número duplicado.\n\nMarquei '+marcados+' frete(s) do ciclo. O próximo número já está correto: '+proximoNumeroLivre()+'.');
+    return;
+  }
+  const resumo = mudancas.map(m=>`• ${(String(m.f.clienteEmpresa||'sem cliente')).toUpperCase()}: nº ${m.de} → ${m.para}`).join('\n');
+  if(!confirm('Encontrei '+mudancas.length+' número(s) duplicado(s). Vou renumerar assim (o frete mais antigo mantém o número):\n\n'+resumo+'\n\nConfirmar a correção?')){
+    gravarDB(db);   // mantém só a marcação _seqNovo (inofensiva); não renumera
+    return;
+  }
+  for(const m of mudancas){ m.f.numero=String(m.para); m.f._seqNovo=true; m.f._salvoEm=new Date().toISOString(); }
+  gravarDB(db); atualizarHist(); atualizarProxNum();
+  const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none' && typeof renderFinanceiro==='function') renderFinanceiro();
+  const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none' && typeof renderRelatorio==='function') renderRelatorio();
+  flash('Numeração corrigida: '+mudancas.length+' frete(s) renumerado(s) ✔');
+}
 function atualizarProxNum(){
   const numEl=form.elements['numero']; if(!numEl) return;
   const semNum = !String(numEl.value||'').trim();
@@ -1810,8 +1855,13 @@ function atualizarProxNum(){
 }
 function salvar(){
   const d=dados();
-  // frete novo -> numeração automática sequencial; se estiver vazio pega o próximo livre do ciclo atual
-  if(!idAtual){
+  const dbPrev=lerDB();
+  const prev0 = idAtual ? (dbPrev[idAtual]||{}) : {};
+  // numeração automática quando o frete GANHA o número agora: frete 100% novo OU pedido do
+  // cliente que ainda não tinha número. Nunca renumera frete de 2025 (_importado) nem que já
+  // tinha número. Se o número atual já existe no ciclo → pega o próximo livre (evita duplicado).
+  const jaTinhaNum = String(prev0.numero||'').trim() !== '';
+  if(!jaTinhaNum && !prev0._importado){
     const num=String(d.numero||'').trim();
     const ciclo=numerosCiclo();
     if(!num || ciclo.has(parseInt(num,10))){
