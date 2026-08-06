@@ -1913,7 +1913,10 @@ function atualizarHist(){
   const q=($('#histBusca')?.value||'').trim().toLowerCase();
   const de=($('#histDataDe')?.value||'').trim();
   const ate=($('#histDataAte')?.value||'').trim();
-  let itens=Object.values(db).sort((a,b)=>(b._salvoEm||'').localeCompare(a._salvoEm||''));
+  // só FRETES REAIS: tem número OU já foi cadastrado. Oculta os "pedidos de link" que o cliente
+  // nunca preencheu (linkCriado sem número/cadastro) — eles não são fretes, só placeholders.
+  let itens=Object.values(db).filter(f=> f && (String(f.numero||'').trim() || f.cadastrado))
+        .sort((a,b)=>(b._salvoEm||'').localeCompare(a._salvoEm||''));
   const total=itens.length;
   if(q) itens=itens.filter(f=>[f.numero,f.clienteEmpresa,f.placa,f.origem,f.destino]
         .map(x=>(x||'').toString().toLowerCase()).join(' ').includes(q));
