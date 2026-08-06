@@ -3307,7 +3307,7 @@ function injetarFormPedido(id,f){
     </label>
 
     <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
-      <button class="btn-ok" style="padding:11px 20px;font-size:15px" onclick="salvarPedidoCliente('${id}')">📨 Enviar meus dados</button>
+      <button id="pc_enviar" class="btn-ok" style="padding:11px 20px;font-size:15px" onclick="salvarPedidoCliente('${id}')">📨 Enviar meus dados</button>
       <span class="status" id="pedMsg"></span>
     </div>`;
   page.appendChild(box);
@@ -3385,7 +3385,7 @@ function capturarPedido(id){
   if(Array.isArray(pedVeics)) f.veiculos=pedVeics.map(v=>({...v}));
   MEM[id]=f;
 }
-function salvarPedidoCliente(id){
+async function salvarPedidoCliente(id){
   const f=MEM[id]; if(!f){ return; }
   const g=k=>{ const el=document.getElementById('pc_'+k); return el?el.value.trim():''; };
   if(!g('clienteEmpresa') || !g('telefone') || !g('origem') || !g('destino')){
@@ -3402,9 +3402,38 @@ function salvarPedidoCliente(id){
   f.veiculos = pedVeics.map(v=>({...v}));
   f.lgpdConsent = { aceito:true, em:new Date().toISOString(), versao:LGPD_VERSAO };
   f.pedido=true; f._salvoEm=new Date().toISOString(); if(!f.pedidoEm) f.pedidoEm=f._salvoEm;
-  MEM[id]=f; gravarDB();
+  MEM[id]=f;
+  // ENVIO CONFIRMADO: só mostra "enviado" depois que a nuvem ACEITAR de verdade. Antes o botão
+  // mostrava conclusão mesmo se a gravação falhava (sem internet, link expirado, arquivos grandes)
+  // — por isso "o cliente diz que preencheu e não chegou". Agora aguarda a confirmação do servidor.
+  const m=$('#pedMsg'), btn=document.getElementById('pc_enviar');
+  const txtOrig = btn ? btn.textContent : '';
+  if(m){ m.style.color=''; m.textContent='Enviando…'; }
+  if(btn){ btn.disabled=true; btn.textContent='Enviando…'; }
+  try{
+    if(!navigator.onLine) throw new Error('offline');
+    if(CLOUD_ON && _fb && _fb.setDoc){
+      // aguarda a confirmação do servidor, com timeout (não trava no "Enviando…" se a rede cair)
+      const grava = _fb.setDoc(_fb.doc(_fb.fs,'fretes',id), f);   // rejeita se a nuvem recusar (regra/tamanho)
+      const prazo = new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 15000));
+      await Promise.race([grava, prazo]);
+      if(typeof LAST==='object' && LAST) LAST[id]=JSON.parse(JSON.stringify(f));  // evita reenvio pelo cloudSync
+    } else {
+      gravarDB();
+    }
+  }catch(e){
+    f.pedido=false; MEM[id]=f;               // NÃO ficou enviado — permite tentar de novo
+    if(btn){ btn.disabled=false; btn.textContent=txtOrig; }
+    if(m){ m.style.color='#c0392b';
+      m.textContent = (e && e.message==='offline') || !navigator.onLine
+        ? '⚠ Sem internet no momento. Confira a conexão e toque em “Enviar meus dados” de novo.'
+        : '⚠ Não conseguimos enviar. O link pode ter expirado ou os arquivos ficaram grandes. Tente de novo ou fale com a OBS Transportes no WhatsApp (11) 4352-4103.';
+    }
+    try{ console.error('Falha ao enviar pedido do cliente:', e); }catch(_){}
+    return;
+  }
   pedidoEnviadoId=id;
-  telaConclusaoPedido();       // mensagem de conclusão
+  telaConclusaoPedido();       // só chega aqui se a nuvem confirmou
 }
 // ---- Política de Privacidade (LGPD) — página pública, sem login ----
 function renderPrivacidade(){
