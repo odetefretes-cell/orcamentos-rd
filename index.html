@@ -6118,6 +6118,58 @@ function crmPadraoDireta(barata, menos){
      && (menos.total??1e12) <= (barata.total??0) + CRM_TETO_DIRETA) return menos;
   return barata;
 }
+// PRESTADORES POSSÍVEIS (consultar preço): quando a categoria não tem preço no trecho,
+// acha as CADEIAS de transportadoras que ligam origem→destino (ignorando o preço), pro
+// operador ligar e cotar. Percurso físico pela adjacência; até 3 embarques.
+function crmChainsConsulta(db, oKey, dKey, cat, maxChains){
+  const adj = crmAdjacencia(db);
+  const isO = k => matchKey(k, oKey);
+  const isD = k => matchKey(k, dKey);
+  const CAP = maxChains||6;
+  // arestas que SAEM da origem (ou sub-trechos, se a origem não é origem de rota)
+  let saem = [];
+  for(const k in adj){ if(isO(k)){ for(const e of adj[k]) saem.push(e); } }
+  if(!saem.length) saem = crmArestasDaOrigem(db, oKey);
+  // arestas que CHEGAM ao destino: predKey -> [edges X→d]  (busca dirigida ao destino p/ não explodir)
+  const destEdges = {};
+  for(const k in adj){ for(const e of adj[k]){ if(isD(e.to)){ (destEdges[k]=destEdges[k]||[]).push(e); } } }
+  const out=[], seen=new Set();
+  const add = (edges)=>{
+    const legs = edges.map(e=>({ transportadora:e.carrier, oNome:e.oNome,oUF:e.oUF, dNome:e.dNome,dUF:e.dUF, valor:precoCat(e.valores,cat) }));
+    const sig = legs.map(l=>l.transportadora+'>'+normTxt(l.dNome)).join('|');
+    if(seen.has(sig)) return; seen.add(sig);
+    const cidades = new Set(); for(const l of legs){ cidades.add(normTxt(l.oNome)+'|'+l.oUF); cidades.add(normTxt(l.dNome)+'|'+l.dUF); }
+    if(cidades.size !== legs.length+1) return;   // sem cidade repetida (loop)
+    const faltam = legs.filter(l=>l.valor==null).length;
+    const total = faltam ? null : legs.reduce((s,l)=>s+numMoeda(l.valor),0);
+    out.push({ legs, faltam, total, hops:legs.length });
+  };
+  // 1 trecho: origem → destino direto
+  for(const e of saem){ if(isD(e.to)) add([e]); }
+  // 2 trechos: origem → X → destino
+  for(const e1 of saem){ if(isD(e1.to)) continue;
+    for(const e2 of (destEdges[e1.to]||[])) add([e1, e2]);
+  }
+  // 3 trechos: origem → X → Y → destino  (Y é predecessor do destino)
+  for(const e1 of saem){ if(isD(e1.to)) continue;
+    for(const e2 of (adj[e1.to]||[])){ if(isD(e2.to) || matchKey(e2.to, oKey)) continue;
+      for(const e3 of (destEdges[e2.to]||[])) add([e1, e2, e3]);
+    }
+  }
+  out.sort((a,b)=> a.faltam-b.faltam || a.hops-b.hops || (a.total??1e12)-(b.total??1e12));
+  return out.slice(0, CAP);
+}
+function crmRenderChainsConsulta(chains){
+  const linha = l => `${esc(l.oNome)}/${esc(l.oUF)} → ${esc(l.dNome)}/${esc(l.dUF)} · <b>${esc(l.transportadora)}</b> · ${l.valor!=null?moeda(l.valor):'<span style="color:#c88a00">consultar preço</span>'}`;
+  return `<div style="border:1px solid #c88a00;border-radius:8px;padding:9px;background:rgba(200,138,0,.06);margin-bottom:8px">
+    <div style="font-weight:700;font-size:12.5px;margin-bottom:5px">🔎 Prestadores possíveis — ligue para consultar o preço desta categoria</div>
+    ${chains.map(c=>`<div style="margin:6px 0;padding:6px 8px;border:1px solid var(--linha);border-radius:6px">
+      <div class="hint" style="font-size:11px;line-height:1.4">${c.legs.map(linha).join('<br>')}</div>
+      <div class="hint" style="font-size:10.5px;margin-top:3px">${c.hops} trecho(s) · ${c.faltam?('faltam '+c.faltam+' preço(s) — consultar com a transportadora'):('total R$ '+ (c.total))}</div>
+    </div>`).join('')}
+    <div class="hint" style="font-size:10.5px;margin-top:4px">💡 Depois de cotar, preencha o valor na composição manual abaixo.</div>
+  </div>`;
+}
 async function crmCalcAuto(id, auto){
   const box = $('#crmCalcRes'); if(!box) return;
   if(!auto) box.innerHTML = '<p class="hint">Procurando o melhor caminho…</p>';
@@ -6143,7 +6195,19 @@ async function crmCalcAuto(id, auto){
   if(oR.aproximada) avisosProx.push(`origem <b>${esc((''+oRaw).trim())}</b> não está na tabela — usando <b>${esc(oR.nome)}/${esc(oR.uf)}</b> (${oR.dist} km)`);
   if(dR.aproximada) avisosProx.push(`destino <b>${esc((''+dRaw).trim())}</b> não está na tabela — usando <b>${esc(dR.nome)}/${esc(dR.uf)}</b> (${dR.dist} km)`);
   crmGuardarAprox(id, oR, oRaw, dR, dRaw);
-  if(!opts.length){ if(!auto){ box.innerHTML = `<p class="hint">Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b>. Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`; crmAbrirComposicaoManual(id); } return; }
+  if(!opts.length){
+    // sem rota com preço p/ a categoria → mostra os PRESTADORES POSSÍVEIS (consultar preço)
+    const chains = crmChainsConsulta(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat, 6);
+    const semTxt = `Sem rota automática ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} para <b>${esc(cat)}</b> (a categoria não tem preço cadastrado no trecho).`;
+    if(chains.length){
+      box.innerHTML = `<div class="hint" style="margin-bottom:6px">${semTxt}</div>` + crmRenderChainsConsulta(chains)
+        + (auto?'':`<div class="hint" style="font-size:11px">Ou use "🔍 Ver todas as opções" / preencha as taxas manualmente abaixo.</div>`);
+    } else if(!auto){
+      box.innerHTML = `<p class="hint">${semTxt} Use "🔍 Ver todas as opções" ou preencha as taxas manualmente abaixo.</p>`;
+    }
+    if(!auto) crmAbrirComposicaoManual(id);
+    return;
+  }
   // 3 recomendações: mais barata, mais rápida, menos reembarque
   const B=opts.slice();
   const barata = B.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12) || a.legs.length-b.legs.length)[0];
