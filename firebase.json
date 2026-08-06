@@ -4,13 +4,18 @@
     "ignore": [
       "firebase.json",
       ".firebaserc",
-      "**/.*",
+      ".git/**",
+      ".github/**",
+      ".firebase/**",
+      "node_modules/**",
       "**/node_modules/**",
       "integracao/**",
       "ferramentas/**",
       "andamento.json",
       "cancelados.json",
       "concluidos.json",
+      "package.json",
+      "package-lock.json",
       "*.md"
     ]
   },
