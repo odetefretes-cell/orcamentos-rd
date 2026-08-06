@@ -32,6 +32,16 @@
   .wrap{max-width:1800px;margin:0 auto;padding:78px 14px 20px 82px}
   /* modo cliente (link público): esconde TODA a área interna, mostra só o formulário/rastreamento */
   body.modo-cliente .topbar, body.modo-cliente #appSidebar, body.modo-cliente #loginOverlay{ display:none !important; }
+  /* trava de privacidade: no link do cliente, esconde TODAS as telas internas (mesmo se a equipe
+     estiver logada e alguma view interna estiver aberta ao abrir o link). Só o #viewCliente aparece. */
+  body.modo-cliente #viewFicha,
+  body.modo-cliente #viewRelatorio,
+  body.modo-cliente #viewRelatorios,
+  body.modo-cliente #viewClientes,
+  body.modo-cliente #viewMensal,
+  body.modo-cliente #viewCrm,
+  body.modo-cliente #viewFinanceiro,
+  body.modo-cliente #comercialCard{ display:none !important; }
   body.modo-cliente .wrap{ padding:20px 14px !important; max-width:900px }
 
   /* ---------- Sidebar ---------- */
