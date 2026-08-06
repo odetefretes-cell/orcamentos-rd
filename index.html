@@ -5982,7 +5982,14 @@ async function crmCalcOpcoes(id){
   }
   const nDiretas=opts.filter(x=>x.tipo==='direta').length, nCombos=opts.length-nDiretas;
   window.__crmOpcoes = opts;
-  if(!opts.length){ box.innerHTML = `<p class="hint">Nenhuma opção encontrada para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b>. Preencha manualmente.</p>`; crmAbrirComposicaoManual(id); return; }
+  if(!opts.length){
+    const chains = crmChainsConsulta(db, o, d, cat, 6);
+    const semTxt = `Nenhuma opção com preço para ${esc($('#crmOrigem').value)} → ${esc($('#crmDestino').value)} na categoria <b>${esc(cat)}</b> (a categoria não tem preço cadastrado no trecho).`;
+    box.innerHTML = chains.length
+      ? `<div class="hint" style="margin-bottom:6px">${semTxt}</div>` + crmRenderChainsConsulta(chains)
+      : `<p class="hint">${semTxt} Preencha manualmente.</p>`;
+    crmAbrirComposicaoManual(id); return;
+  }
   const cardOpt = (x,i)=>{
     const legTxt = x.legs.map(g=>`${esc(g.oNome)}/${esc(g.oUF)} → ${esc(g.dNome)}/${esc(g.dUF)} · <b>${esc(g.transportadora)}</b> · ${g.valor!=null?moeda(g.valor):'s/ preço'}${g.precoInv?' <span style="color:#c88a00;font-size:10.5px">↩ preço do sentido inverso — confira</span>':''}`).join('<br>');
     const via = [x._viaOrigem?`retirada em ${esc(x._viaOrigem.nome)}/${esc(x._viaOrigem.uf)} (${x._viaOrigem.dist} km)`:'', x._viaDestino?`entrega em ${esc(x._viaDestino.nome)}/${esc(x._viaDestino.uf)} (${x._viaDestino.dist} km)`:''].filter(Boolean).join(' · ');
