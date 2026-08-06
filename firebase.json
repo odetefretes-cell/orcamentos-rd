@@ -1,4 +1,19 @@
 {
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/node_modules/**",
+      "integracao/**",
+      "ferramentas/**",
+      "andamento.json",
+      "cancelados.json",
+      "concluidos.json",
+      "*.md"
+    ]
+  },
   "functions": {
     "source": "integracao",
     "runtime": "nodejs20"
