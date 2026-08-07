@@ -204,3 +204,6 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
 const _chatguru = require('./chatguru-webhook');
 exports.chatguruWebhook      = _chatguru.chatguruWebhook;      // Etapa 1+2: recebe/salva
 exports.fecharLeadsCompletos = _chatguru.fecharLeadsCompletos; // Etapa 3: fecha após 60s
+
+// Etapa 4: quando o lead fica completo, o Claude extrai os campos e decide.
+exports.processarLeadCompleto = require('./claude-extrator').processarLeadCompleto;

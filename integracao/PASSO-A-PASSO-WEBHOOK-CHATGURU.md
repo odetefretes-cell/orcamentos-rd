@@ -187,6 +187,63 @@ firebase deploy --only functions
 
 ---
 
+## Etapa 4 — O Claude lê o lead e decide (automático x humano)
+
+Quando um lead vira `completo`, a função `processarLeadCompleto` dispara
+**sozinha** (é acionada pela mudança no Firestore), manda o `mensagemCompleta`
+pro Claude e grava de volta no mesmo documento:
+
+- `extraido` → objeto com os campos lidos (nome, veículo, `valorVeiculo`
+  normalizado, origem, destino, funciona, blindado, moto elétrica, decisão…)
+- `statusIntake` → vira **`automatico`** ou **`aguardando_humano`**
+- `iaProcessado: true`, `iaModelo`, `iaProcessadoEm`
+
+As regras de desvio pra humano estão em `REGRAS-DECISAO-HUMANO.md` (leilão, moto
+elétrica, não funciona, **valor acima de R$ 500.000**, carro+mudança, sem valor).
+
+> Importante: a Etapa 4 **não responde o cliente nem calcula orçamento** ainda —
+> só extrai e decide, gravando no `crm_leads_intake`. Isso deixa você conferir a
+> decisão do Claude com calma antes de deixar ele responder de verdade (Etapa 5).
+
+### Passo 1 — cadastrar a chave da Anthropic (segredo)
+```bash
+firebase functions:secrets:set ANTHROPIC_API_KEY
+# cole a chave (sk-ant-...) quando pedir. Ela fica guardada no Firebase, nunca no código.
+```
+
+### Passo 2 — subir a função
+```bash
+firebase deploy --only functions:processarLeadCompleto
+# ou tudo de uma vez:
+firebase deploy --only functions
+```
+
+### (Opcional) Escolher o modelo / economizar
+O padrão é o **`claude-opus-5`** (mais capaz). Pra **gastar menos** por lead, dá
+pra usar o **Haiku** (bem mais barato e suficiente pra esse tipo de extração):
+```bash
+firebase functions:secrets:set ANTHROPIC_MODEL   # digite: claude-haiku-4-5
+firebase deploy --only functions:processarLeadCompleto
+```
+E o limite de valor pra humano é ajustável (padrão 500000):
+```bash
+firebase functions:secrets:set LIMITE_VALOR_HUMANO   # ex.: 500000
+```
+
+### Testar
+1. Dispare um lead de teste (formulário do site) — ex.: Civic, R$ 80.000, funciona.
+2. Espere ~1–2 min (a Etapa 3 fecha o lead) e mais alguns segundos (a Etapa 4 roda).
+3. No Firestore, em `crm_leads_intake/{telefone}`:
+   - deve aparecer o campo **`extraido`** com os dados lidos,
+   - e o `statusIntake` deve virar **`automatico`** (ou `aguardando_humano` se
+     bater alguma regra — ex.: valor > 500 mil, não funciona, leilão).
+4. Confira em **Functions → Logs** a linha `[processarLeadCompleto] Lead ... -> ...`.
+
+> Se der qualquer erro na IA, por segurança o lead vai pra `aguardando_humano`
+> (com o campo `iaErro`) — nunca se perde um lead.
+
+---
+
 ## Resumo
 
 ```
@@ -197,10 +254,11 @@ Cliente manda mensagem(ns) no WhatsApp
         • chatguru_webhook_log/{auto}  (corpo cru, pra debug)
    → fecharLeadsCompletos (a cada 1 min) fecha o lead após 60s de silêncio
         • statusIntake: "completo" + mensagemCompleta
+   → processarLeadCompleto (Etapa 4) extrai os campos com o Claude e decide
+        • extraido: {...} + statusIntake: "automatico" | "aguardando_humano"
    → você confere no Firestore e nos Logs ✅
 ```
 
-Próxima etapa (Etapa 4, quando esta estiver validada): quando o lead vira
-`completo`, chamar a **API do Claude** pra extrair os campos (Nome, Veículo,
-Origem, Destino, Valor…) e **decidir** se é caso de atendimento automático ou
-humano (leilão, moto elétrica, não funciona, valor > R$ 12.000 etc.).
+Próxima etapa (Etapa 5, quando esta estiver validada): para os leads
+`automatico`, calcular o orçamento e **responder pelo ChatGuru**; para os
+`aguardando_humano`, avisar a equipe.
