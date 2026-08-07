@@ -81,6 +81,7 @@ function categoriaDeVeiculo(tipoVeiculo, orcarComo){
 }
 
 const TELEFONE_OBS = process.env.TELEFONE_OBS || '(11) 4352-4103';
+const LIMITE_VALOR_HUMANO = Number(process.env.LIMITE_VALOR_HUMANO || 500000);   // acima disso: mensagem personalizada
 
 function formatarBRL(v){
   const n = Number(v);
@@ -137,6 +138,28 @@ function montarMensagemHumano(lead){
   linhas.push('Recebemos a sua solicitação de transporte' + (veic ? ` do seu ${veic}` : '') + (origem && destino ? ` (${origem} → ${destino})` : '') + '.');
   linhas.push('');
   linhas.push('Um de nossos atendentes vai preparar o seu orçamento e retornar por aqui em instantes. 📋');
+  linhas.push('');
+  linhas.push('🏆 OBS Transportes — 20 anos no transporte de veículos.');
+  linhas.push(`📞 ${TELEFONE_OBS}`);
+  return linhas.join('\n');
+}
+
+/* Mensagem PERSONALIZADA para veículo de ALTO VALOR (acima do limite): reforça o
+   cuidado especial e o seguro adequado, e que um especialista prepara o orçamento. */
+function montarMensagemValorAlto(lead){
+  const e = lead.extraidoIA || {};
+  const nome = (e.nome || lead.nome || '').trim();
+  const veic = e.veiculo || lead.veiculoDesc || '';
+  const linhas = [];
+  linhas.push('🚚 OBS TRANSPORTES');
+  linhas.push('');
+  linhas.push(`Olá${nome ? ' ' + nome : ''}! 😊`);
+  linhas.push('');
+  linhas.push(`Recebemos a sua solicitação para o transporte${veic ? ' do seu ' + veic : ''}.`);
+  linhas.push('');
+  linhas.push('Por se tratar de um veículo de alto valor, um de nossos especialistas vai preparar um orçamento personalizado, com a cobertura de seguro adequada e todo o cuidado que ele merece. 🛡️');
+  linhas.push('');
+  linhas.push('Retornamos por aqui em instantes com todos os detalhes.');
   linhas.push('');
   linhas.push('🏆 OBS Transportes — 20 anos no transporte de veículos.');
   linhas.push(`📞 ${TELEFONE_OBS}`);
@@ -305,22 +328,27 @@ exports.prepararResposta = onDocumentUpdated(
     if(!d) return;
     if(!d._intakeTelefone) return;             // só leads da automação
 
-    // SEM rota automática: manda UMA mensagem avisando que um atendente vai preparar
-    // o orçamento (o cliente não fica sem resposta). Depois, silêncio (é caso humano).
-    if(d._semRota){
+    // ATENÇÃO HUMANA (sem rota, sem valor, valor alto, frota…): manda UMA mensagem
+    // ao cliente pra ele não ficar sem resposta. Acima do limite → texto personalizado.
+    // Depois, silêncio (a equipe assume a conversa).
+    if(d.atencaoHumano){
       if(d.avisoHumanoEnviado || d.erroEnvio) return;
       if(await envioEstaAtivo()){
+        const e = d.extraidoIA || {};
+        const valorAlto = !!e.valorInformado && Number(e.valorVeiculo) > LIMITE_VALOR_HUMANO;
+        const texto = valorAlto ? montarMensagemValorAlto(d) : montarMensagemHumano(d);
         try {
-          const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto: montarMensagemHumano(d) });
+          const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
           await event.data.after.ref.update({
             avisoHumanoEnviado: true,
+            avisoHumanoTipo: valorAlto ? 'valor_alto' : 'padrao',
             avisoHumanoMessageId: (r && r.message_id) || '',
             avisoHumanoEm: FieldValue.serverTimestamp(),
           });
-          console.log(`[prepararResposta] AVISO HUMANO enviado ${event.params.leadId}.`);
-        } catch(e){
-          await event.data.after.ref.update({ erroEnvio: String((e && e.message) || e) });
-          console.error(`[prepararResposta] ERRO ao enviar aviso humano ${event.params.leadId}:`, e);
+          console.log(`[prepararResposta] AVISO HUMANO (${valorAlto ? 'valor alto' : 'padrão'}) enviado ${event.params.leadId}.`);
+        } catch(e2){
+          await event.data.after.ref.update({ erroEnvio: String((e2 && e2.message) || e2) });
+          console.error(`[prepararResposta] ERRO ao enviar aviso humano ${event.params.leadId}:`, e2);
         }
       } else {
         console.log(`[prepararResposta] aviso humano pronto para ${event.params.leadId} (envio DESLIGADO).`);
@@ -328,7 +356,7 @@ exports.prepararResposta = onDocumentUpdated(
       return;
     }
 
-    if(d._semAutoResposta) return;             // atenção humana: nunca responde o cliente
+    if(d._semAutoResposta) return;             // segurança: outros casos humanos não respondem
     if(!formatarBRL(d.valorEstimado)) return;  // ainda sem média válida
     if(d.respostaEnviada) return;              // já enviado
     if(d.erroEnvio) return;                    // falhou antes; não fica retentando em loop
