@@ -207,3 +207,9 @@ exports.fecharLeadsCompletos = _chatguru.fecharLeadsCompletos; // Etapa 3: fecha
 
 // Etapa 4: quando o lead fica completo, o Claude extrai os campos e decide.
 exports.processarLeadCompleto = require('./claude-extrator').processarLeadCompleto;
+
+// Etapa 5 (Fase A): cria o lead no CRM p/ o sistema calcular a média e prepara
+// a resposta como RASCUNHO (ainda não envia pro cliente).
+const _orc = require('./orcamento-resposta');
+exports.criarLeadNoCrm   = _orc.criarLeadNoCrm;
+exports.prepararResposta = _orc.prepararResposta;

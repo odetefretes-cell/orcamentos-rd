@@ -256,9 +256,49 @@ Cliente manda mensagem(ns) no WhatsApp
         • statusIntake: "completo" + mensagemCompleta
    → processarLeadCompleto (Etapa 4) extrai os campos com o Claude e decide
         • extraido: {...} + statusIntake: "automatico" | "aguardando_humano"
+   → criarLeadNoCrm (Etapa 5A) cria o lead em crm_leads → o app calcula a média
+   → prepararResposta (Etapa 5A) monta a mensagem em respostaPreparada (RASCUNHO)
    → você confere no Firestore e nos Logs ✅
 ```
 
-Próxima etapa (Etapa 5, quando esta estiver validada): para os leads
-`automatico`, calcular o orçamento e **responder pelo ChatGuru**; para os
-`aguardando_humano`, avisar a equipe.
+---
+
+## Etapa 5 — Fase A: calcular a média e PREPARAR a resposta (sem enviar)
+
+Reaproveita o cálculo do seu próprio sistema (a tabela que a equipe já confia) e
+deixa a mensagem pronta como **rascunho** — ainda **não envia** pro cliente.
+
+Como funciona:
+1. `criarLeadNoCrm`: quando um lead do intake vira `automatico`, o backend cria
+   o lead na coleção **`crm_leads`** (com `origemLead: "whatsapp"`). Como o app
+   já calcula sozinho esses leads (`crmAutoCalcSite`), a **média sai pela mesma
+   tabela de sempre**. Moto elétrica entra com `categoria: "Moto até 300cc"`.
+2. `prepararResposta`: quando a média (`valorEstimado`) aparece no lead, monta a
+   mensagem e grava em **`respostaPreparada`** (com `respostaEnviada: false`).
+   Nos casos `precisaAjuste`, a mensagem já leva o aviso de "valor de referência".
+
+> ⚠️ **Depende do app aberto no navegador** (admin) pra calcular — é assim que o
+> sistema funciona hoje. Isso vira 24h na **Fase B** (portar o cálculo pro backend).
+> E de propósito: **nada é enviado ao cliente ainda** — só quando você validar.
+
+### Subir
+```bash
+firebase deploy --only functions:criarLeadNoCrm,functions:prepararResposta
+# ou tudo: firebase deploy --only functions
+```
+
+### Testar
+1. Dispare um lead de teste (Civic, R$ 80.000, funciona) e espere a Etapa 4
+   marcar `statusIntake: "automatico"`.
+2. Deixe o **sistema aberto** no navegador (logado como admin) — ele calcula a média.
+3. No Firestore, em **`crm_leads/lead_wpp_{telefone}`**:
+   - deve aparecer `valorEstimado` (a média calculada pelo app), e
+   - o campo **`respostaPreparada`** com a mensagem pronta (rascunho).
+4. **Leia o rascunho** e me diga se o texto e o valor estão bons. Só depois a
+   gente liga o envio automático pelo ChatGuru (próximo passo).
+
+---
+
+Próximas etapas: **ligar o envio** pelo ChatGuru (depois de validar os
+rascunhos), tratar os `aguardando_humano` (avisar a equipe — Etapa 6) e a
+**Fase B** (portar o cálculo pro backend, pra rodar 24h sem navegador).
