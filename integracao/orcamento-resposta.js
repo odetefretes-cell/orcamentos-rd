@@ -22,6 +22,17 @@ const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const db = getFirestore();
 
+/* Normaliza o nome do vendedor pros 3 nomes canônicos do CRM (igual crmNomeCanon
+   no index.html), pra o responsável bater no ChatGuru e no CRM. */
+function canonVendedor(nome){
+  const n = (nome || '').trim();
+  const nn = n.toLowerCase();
+  if(/yasm/.test(nn)) return 'Yasmim Freitas';
+  if(/thiago|tiago/.test(nn)) return 'Thiago Lucca';
+  if(/flavia|flávia|otatti|ottati/.test(nn)) return 'Flavia Ottati';
+  return n;
+}
+
 /* orcarComo (da Etapa 4) → categoria que o app entende (crmCategoriaSugerida). */
 function categoriaDoOrcarComo(orcarComo){
   const s = (orcarComo || '').toLowerCase();
@@ -105,6 +116,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
         origemLead: 'whatsapp',       // faz o app (crmAutoCalcSite) calcular sozinho
         // metadados da automação (o app ignora campos que não conhece):
         extraidoIA: e,
+        responsavelEmailChatguru: d.responsavelEmailChatguru || '',
         precisaAjuste: !!e.precisaAjuste,
         motivoAjuste: e.motivoAjuste || '',
         chatId: d.chatId || '',
@@ -112,6 +124,10 @@ exports.criarLeadNoCrm = onDocumentUpdated(
         ultimaInteracao: new Date().toISOString(),
       };
       if(categoria) dados.categoria = categoria; // honra "moto elétrica = 300cc"
+
+      // Responsável do CRM = responsável do ChatGuru (mesma pessoa nos dois).
+      const vendedor = canonVendedor(d.responsavelChatguru);
+      if(vendedor) dados.vendedor = vendedor;
 
       if(!snap.exists){
         // lead novo: entra na coluna Novo Lead, sem trajetos (pro app calcular)

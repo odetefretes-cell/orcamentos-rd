@@ -99,6 +99,12 @@ function extrairContato(b){
   // Id da conversa no ChatGuru — guardamos pra Etapa 5 (responder pelo ChatGuru).
   const chatId = pegar(b, 'chat_id', 'chatId') || pegar(chat, 'id', 'chat_id');
 
+  // Responsável (vendedor) da conversa no ChatGuru — pra manter igual ao do CRM.
+  const responsavel = pegar(b, 'responsavel_nome', 'responsavelNome', 'responsible_name')
+                   || pegar(chat, 'responsavel_nome', 'responsible_name');
+  const responsavelEmail = pegar(b, 'responsavel_email', 'responsavelEmail', 'responsible_email')
+                        || pegar(chat, 'responsavel_email', 'responsible_email');
+
   return {
     telefone: soDigitos(telefoneBruto),
     telefoneOriginal: String(telefoneBruto || ''),
@@ -107,6 +113,8 @@ function extrairContato(b){
     texto: String(texto || '').trim(),
     status: String(status || '').trim(),
     chatId: String(chatId || '').trim(),
+    responsavel: String(responsavel || '').trim(),
+    responsavelEmail: String(responsavelEmail || '').trim(),
   };
 }
 
@@ -191,6 +199,8 @@ exports.chatguruWebhook = onRequest(
             nome:  info.nome,
             email: info.email,
             chatId: info.chatId,          // id da conversa no ChatGuru (p/ Etapa 5)
+            responsavelChatguru: info.responsavel,             // vendedor da conversa
+            responsavelEmailChatguru: info.responsavelEmail,
             origemLead: 'chatguru',
             statusIntake: 'recebendo',   // Etapa 3 muda pra 'completo' após a janela
             janelaSegundos: JANELA_SEGUNDOS,
@@ -213,6 +223,9 @@ exports.chatguruWebhook = onRequest(
         if(info.nome   && !antigo.nome)   patch.nome   = info.nome;
         if(info.email  && !antigo.email)  patch.email  = info.email;
         if(info.chatId && !antigo.chatId) patch.chatId = info.chatId;
+        // Responsável: sempre atualiza pro mais recente (pode mudar na conversa).
+        if(info.responsavel)      patch.responsavelChatguru = info.responsavel;
+        if(info.responsavelEmail) patch.responsavelEmailChatguru = info.responsavelEmail;
         tx.update(ref, patch);
       });
 
