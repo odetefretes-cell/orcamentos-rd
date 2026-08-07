@@ -30,6 +30,8 @@ function categoriaDoOrcarComo(orcarComo){
   return ''; // sem override → o app adivinha pela descrição do veículo
 }
 
+const TELEFONE_OBS = process.env.TELEFONE_OBS || '(11) 4352-4103';
+
 function formatarBRL(v){
   const n = Number(v);
   if(!isFinite(n) || n <= 0) return null;
@@ -37,23 +39,35 @@ function formatarBRL(v){
   catch(_) { return 'R$ ' + n.toFixed(2); }
 }
 
-/* Monta o texto da resposta (rascunho). */
+/* Monta o texto da resposta (modelo oficial da OBS). */
 function montarMensagem(lead){
   const e = lead.extraidoIA || {};
-  const nome = (e.nome || lead.nome || '').split(' ')[0] || '';
-  const veic = e.veiculo || lead.veiculoDesc || 'seu veículo';
+  const nome = (e.nome || lead.nome || '').trim();
+  const veic = e.veiculo || lead.veiculoDesc || '';
   const origem = e.origem || lead.origem || '';
   const destino = e.destino || lead.destino || '';
   const media = formatarBRL(lead.valorEstimado);
+  const prazo = lead.prazoSW || lead.prazo || '';
 
   const linhas = [];
-  linhas.push(`Olá${nome ? ' ' + nome : ''}! Aqui é da OBS Transportes 🚗`);
-  linhas.push(`Sobre o transporte do ${veic}${origem && destino ? ` de ${origem} para ${destino}` : ''}:`);
-  linhas.push(`O valor médio estimado é de *${media}*.`);
-  if(lead.precisaAjuste){
-    linhas.push(`⚠️ Este é um valor médio de referência; o valor final é confirmado conforme as especificações do veículo${lead.motivoAjuste ? ' (' + lead.motivoAjuste + ')' : ''}.`);
-  }
-  linhas.push(`Podemos seguir com o orçamento? Estou à disposição! 😊`);
+  linhas.push('🚚 OBS TRANSPORTES');
+  linhas.push('');
+  linhas.push(`Olá${nome ? ' ' + nome : ''}! 😊`);
+  linhas.push('');
+  linhas.push('Segue uma estimativa média para o seu transporte:');
+  linhas.push('');
+  if(veic)             linhas.push(`📦 Veículo: ${veic}`);
+  if(origem && destino) linhas.push(`📍 ${origem} → ${destino}`);
+  linhas.push(`💰 Valor médio: ${media}`);
+  if(prazo)            linhas.push(`📅 Prazo estimado: ${prazo} dias após o embarque`);
+  linhas.push('');
+  linhas.push('Valor pode sofrer alterações (descontos ou acréscimos).');
+  linhas.push('');
+  linhas.push('Esse é um valor médio de referência. Se tiver interesse, responda SIM que preparamos o orçamento oficial com todos os detalhes; se não, responda NÃO.');
+  linhas.push('');
+  linhas.push('🛰️ Transporte monitorado por link de rastreio, com atualização diária.');
+  linhas.push('🏆 OBS Transportes — 20 anos de história no transporte de veículos.');
+  linhas.push(`📞 ${TELEFONE_OBS}`);
   return linhas.join('\n');
 }
 
