@@ -5042,6 +5042,7 @@ function crmAbrirLead(id){
     <button class="btn-ghost" onclick="crmEnviarOrcamento('${id}')" style="color:#2563eb;border-color:#2563eb">📄 Emitir orçamento (PDF)</button>`;
   if(!l._avulso){   // calculadora avulsa: só calcula e emite PDF, não cria lead
     actionsHTML += `<button class="btn-ghost" onclick="crmLinkFormulario('${id}')" style="color:#7c3aed;border-color:#7c3aed">🔗 Link do cliente</button>`;
+    actionsHTML += `<button class="btn-ghost" onclick="crmForcarAutomatico('${id}')" style="color:#0891b2;border-color:#0891b2">🤖 Enviar automático</button>`;
     if(l.etapa !== 'perdido'){
       actionsHTML += `<button class="btn-ghost" onclick="crmMarcarPerda('${id}')" style="color:#c0392b;border-color:#c0392b">❌ Perda</button>`;
     }
@@ -5073,6 +5074,65 @@ function fecharCrmModal(){
   if(typeof renderCRM==='function') renderCRM();
 }
 
+// 🤖 Empurra um lead para o FLUXO AUTOMÁTICO: o vendedor decide que este lead
+// deve receber o orçamento automático pelo WhatsApp (ex.: um lead que tinha ido
+// para "atenção humana", ou um que já tinha responsável). Limpa as marcas que
+// impedem a auto-resposta, calcula a média pela regra do sistema e SALVA — o que
+// dispara a função `prepararResposta` no backend (que envia, se o envio estiver
+// ligado em crm_config/config → envioAtivo).
+async function crmForcarAutomatico(id){
+  const l = CRM_LEADS[id];
+  if(!l) return;
+  const tel = String(l.telefone || l._intakeTelefone || '').replace(/\D/g,'');
+  if(!tel){ flash('Este lead não tem telefone — não dá para enviar pelo WhatsApp.','erro'); return; }
+  if(!l.origem || !l.destino){ flash('Preencha origem e destino para calcular a média.','erro'); return; }
+
+  // Descobre se o envio real está ligado, só para avisar o vendedor no confirm.
+  let envioOn = false;
+  try{
+    if(_fb && _fb.getDoc){
+      const s = await _fb.getDoc(_fb.doc(_fb.fs,'crm_config','config'));
+      envioOn = !!(s.exists() && s.data() && s.data().envioAtivo === true);
+    }
+  }catch(_){}
+
+  const aviso = envioOn
+    ? 'O sistema vai calcular a média e ENVIAR o orçamento automático pelo WhatsApp deste cliente.'
+    : 'O envio automático está DESLIGADO. O sistema vai preparar o rascunho, mas NÃO vai enviar.\n(Para enviar de verdade, ligue em crm_config/config → envioAtivo = true.)';
+  const ok = await uiConfirm(aviso+'\n\nDeseja continuar?', {titulo:'🤖 Enviar orçamento automático', ok:'Sim, continuar'});
+  if(!ok) return;
+
+  const t = flash('Calculando a média…','load');
+  // 1) prepara o lead p/ o fluxo automático (limpa marcas de atenção humana e envios antigos)
+  l.origemLead = 'whatsapp';       // faz o app/back tratarem como lead automático
+  l._intakeTelefone = tel;         // número usado como chat_number no envio
+  l._semAutoResposta = false;      // libera a auto-resposta (era o que barrava leads humanos)
+  l.atencaoHumano = false;
+  l.motivoHumano = '';
+  l.respostaEnviada = false;       // permite (re)enviar
+  l.erroEnvio = '';                // limpa erro anterior (senão o back não tenta de novo)
+  l.respostaPreparada = '';        // força montar a mensagem de novo com a média atual
+  l._forcadoAutomatico = true;     // auditoria: veio de decisão manual do vendedor
+
+  // 2) calcula a média com a MESMA regra do sistema
+  let calc = false;
+  try{ calc = await crmRecalcularLead(id); }catch(_){}
+  if(t && t.fechar) t.fechar();
+  if(!calc || !numMoeda(l.valorCotacaoSW || l.valorEstimado)){
+    flash('Não achei rota automática para este trajeto. Confira origem/destino ou calcule manual.','erro');
+    return;
+  }
+  l.valorEstimado = l.valorCotacaoSW || l.valorEstimado || '';
+
+  crmAddTimeline(id, 'movido', envioOn
+    ? '🤖 Enviado para o fluxo automático — orçamento será enviado pelo WhatsApp.'
+    : '🤖 Enviado para o fluxo automático — rascunho preparado (envio desligado).');
+
+  // 3) grava → o backend (prepararResposta) monta a mensagem e envia (se ligado)
+  await saveCRM();
+  renderCRM();
+  flash(envioOn ? '✔ Orçamento automático a caminho pelo WhatsApp!' : '✔ Rascunho preparado (envio desligado).','ok');
+}
 function crmSalvarLead(id){
   const l = CRM_LEADS[id];
   if(!l) return;

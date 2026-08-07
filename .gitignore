@@ -1,2 +1,17 @@
+# Dependências (baixadas com "npm install", nunca vão pro Git)
 node_modules/
+integracao/node_modules/
+
+# Segredos — NUNCA versionar. Use .env.example como modelo.
+.env
+integracao/.env
+*.env
+!*.env.example
+
+# Logs e temporários do Firebase
+*.log
 .firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.DS_Store
