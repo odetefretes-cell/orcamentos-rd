@@ -3065,7 +3065,9 @@ function clienteData(f){
 }
 function gerarLinkCliente(id){
   const f=lerDB()[id]; if(!f) return;
-  const base=location.origin+location.pathname;
+  // endereço ESTÁVEL do sistema — os links do cliente sempre apontam pra cá,
+  // não importa de qual endereço a equipe esteja usando o sistema.
+  const base='https://obs-fretes.web.app/';
   const online = location.protocol==='http:'||location.protocol==='https:';
   let link, aviso;
   if(CLOUD_ON){                                    // modo compartilhado: link AO VIVO
