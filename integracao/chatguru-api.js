@@ -63,4 +63,41 @@ async function enviarMensagem({ chatNumber, texto }){
   return json; // { code, result, message_id, message_status }
 }
 
-module.exports = { enviarMensagem };
+/* Grava/atualiza uma VARIÁVEL DE CONTEXTO do chat (action=chat_update_context).
+   Usado pra marcar `MediaEnviada=Sim` após o envio automático da média, para que os
+   diálogos de interesse (3.3/3.4) disparem também nos leads do formulário — sem mexer
+   em nenhum diálogo. `variaveis` = { MediaEnviada:'Sim' } vira var__MediaEnviada=Sim. */
+async function atualizarContexto({ chatNumber, variaveis }){
+  const key       = process.env.CHATGURU_API_KEY || '';
+  const accountId = process.env.CHATGURU_ACCOUNT_ID || '';
+  const phoneId   = process.env.CHATGURU_PHONE_ID || '';
+  if(!key || !accountId || !phoneId){
+    throw new Error('Credenciais do ChatGuru não configuradas (CHATGURU_API_KEY/ACCOUNT_ID/PHONE_ID).');
+  }
+  if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
+
+  const numero = normalizarNumeroBR(chatNumber);
+  const body = new URLSearchParams({
+    action: 'chat_update_context',
+    chat_number: numero,
+    key,
+    account_id: accountId,
+    phone_id: phoneId,
+  });
+  for(const [nome, valor] of Object.entries(variaveis || {})){
+    body.append('var__' + nome, String(valor));
+  }
+
+  const resp = await fetch(CHATGURU_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const json = await resp.json().catch(() => ({}));
+  if(!resp.ok || (json.result && json.result !== 'success')){
+    throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+  }
+  return json;
+}
+
+module.exports = { enviarMensagem, atualizarContexto, normalizarNumeroBR };

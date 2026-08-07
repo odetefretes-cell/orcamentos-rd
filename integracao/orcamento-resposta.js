@@ -19,7 +19,7 @@
 
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { enviarMensagem } = require('./chatguru-api');
+const { enviarMensagem, atualizarContexto } = require('./chatguru-api');
 const { calcularFrete } = require('./calc-fretes');   // Fase B: cálculo da média no backend (24h)
 
 const db = getFirestore();
@@ -381,6 +381,15 @@ exports.prepararResposta = onDocumentUpdated(
         patch.chatguruMessageId = (r && r.message_id) || '';
         patch.respostaEnviadaEm = FieldValue.serverTimestamp();
         console.log(`[prepararResposta] ENVIADO ${event.params.leadId} (msg ${patch.chatguruMessageId}).`);
+        // Marca MediaEnviada=Sim no ChatGuru (mesma variável de contexto que o botão
+        // grava) → habilita os diálogos de interesse (3.3/3.4) também nos leads do
+        // formulário. Melhor-esforço: se falhar, a média já foi enviada.
+        try {
+          await atualizarContexto({ chatNumber: d._intakeTelefone, variaveis: { MediaEnviada: 'Sim' } });
+          patch.mediaEnviadaMarcada = true;
+        } catch(e2){
+          console.warn(`[prepararResposta] média enviada, mas falhou marcar MediaEnviada em ${event.params.leadId}:`, (e2 && e2.message) || e2);
+        }
       } catch(e){
         patch.respostaEnviada = false;
         patch.erroEnvio = String((e && e.message) || e);
