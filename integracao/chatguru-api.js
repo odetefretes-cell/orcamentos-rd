@@ -13,6 +13,19 @@
 
 const CHATGURU_URL = process.env.CHATGURU_API_URL || 'https://s22.chatguru.app/api/v1';
 
+/* Normaliza um telefone brasileiro para o formato que o ChatGuru espera:
+   código do país (55) + DDD + número. Sem o 55, a mensagem NÃO é entregue.
+   - 12/13 dígitos começando com 55  -> já está certo, mantém.
+   - 10/11 dígitos (DDD + número)     -> acrescenta o 55.
+   - outros                           -> devolve como veio (não adivinha). */
+function normalizarNumeroBR(num){
+  const d = String(num == null ? '' : num).replace(/\D/g, '');
+  if(!d) return d;
+  if(d.length >= 12 && d.startsWith('55')) return d;
+  if(d.length === 10 || d.length === 11) return '55' + d;
+  return d;
+}
+
 /* Envia uma mensagem de texto para um chat já existente (action=message_send). */
 async function enviarMensagem({ chatNumber, texto }){
   const key       = process.env.CHATGURU_API_KEY || '';
@@ -24,10 +37,13 @@ async function enviarMensagem({ chatNumber, texto }){
   if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
   if(!texto)      throw new Error('texto da mensagem ausente.');
 
+  const numero = normalizarNumeroBR(chatNumber);   // garante o 55 (senão o ChatGuru não entrega)
+  console.log(`[chatguru-api] enviando para ${numero} (original: ${chatNumber}).`);
+
   const body = new URLSearchParams({
     action: 'message_send',
     text: texto,
-    chat_number: chatNumber,
+    chat_number: numero,
     key,
     account_id: accountId,
     phone_id: phoneId,
