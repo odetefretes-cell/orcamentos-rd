@@ -49,16 +49,19 @@ const SCHEMA = {
     funciona:      { type: 'boolean', description: 'true se o veículo funciona/liga' },
     blindado:      { type: 'boolean', description: 'true se blindado' },
     motoEletrica:  { type: 'boolean', description: 'true se for moto elétrica' },
+    leilao:        { type: 'boolean', description: 'true se for veículo de leilão (leiloeira/pátio de leilão no e-mail ou observação)' },
     origem:        { type: 'string',  description: 'Origem (cidade UF)' },
     destino:       { type: 'string',  description: 'Destino (cidade UF)' },
     observacao:    { type: 'string',  description: 'Observações extras do cliente' },
     decisao:       { type: 'string',  enum: ['automatico', 'humano'], description: 'Encaminhamento' },
     motivo:        { type: 'string',  description: 'Motivo curto da decisão (obrigatório quando humano)' },
+    precisaAjuste: { type: 'boolean', description: 'true quando a média é só uma estimativa que precisará ser ajustada depois (veículo não funciona ou leilão)' },
+    motivoAjuste:  { type: 'string',  description: 'Motivo curto do ajuste, quando precisaAjuste=true (ex.: "veículo não funciona", "leilão"). Vazio caso contrário.' },
   },
   required: [
     'nome','email','telefone','tipoCliente','veiculo','tipoVeiculo',
-    'valorVeiculo','valorInformado','funciona','blindado','motoEletrica',
-    'origem','destino','observacao','decisao','motivo',
+    'valorVeiculo','valorInformado','funciona','blindado','motoEletrica','leilao',
+    'origem','destino','observacao','decisao','motivo','precisaAjuste','motivoAjuste',
   ],
 };
 
@@ -76,17 +79,24 @@ Normalização do valor do veículo:
   use 0 e valorInformado=false.
 
 Envie para HUMANO (decisao="humano") quando QUALQUER uma for verdadeira:
-- Leilão: e-mail ou observação indicando leiloeira / pátio de leilão.
 - Moto elétrica.
-- Veículo que NÃO funciona / não liga.
 - Valor do veículo ACIMA de R$ ${LIMITE_VALOR_HUMANO} (não informado NÃO conta aqui).
 - Carro + mudança (bagagem / itens junto com o veículo).
 - Lead SEM valor do veículo informado.
 - Qualquer coisa claramente fora do padrão / valor claramente errado.
 
 Caso contrário, decisao="automatico".
+
+ATENÇÃO — dois casos continuam AUTOMÁTICOS, mas a média é apenas uma ESTIMATIVA:
+- Veículo de LEILÃO (leiloeira / pátio de leilão).
+- Veículo que NÃO funciona / não liga.
+Nesses dois casos: decisao="automatico", precisaAjuste=true e motivoAjuste com a
+razão (ex.: "leilão" ou "veículo não funciona"). A ideia é mandar a média pro
+cliente; se ele tiver interesse, a equipe ajusta o orçamento com as
+especificações. Em todos os outros casos, precisaAjuste=false e motivoAjuste="".
+
 Sempre preencha "motivo" com uma frase curta explicando a decisão (ex.:
-"Valor acima do limite", "Veículo não funciona", "Dentro do padrão").
+"Valor acima do limite", "Dentro do padrão", "Estimativa - leilão").
 Responda SOMENTE no formato estruturado pedido.`;
 
 exports.processarLeadCompleto = onDocumentUpdated(

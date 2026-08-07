@@ -8,19 +8,30 @@ mandar o texto pro Claude EXTRAIR os campos e DECIDIR o caminho:
 
 ## Desviar para HUMANO quando:
 
-1. **Leilão** — e-mail ou observação indicando leiloeira / pátio de leilão.
-2. **Moto elétrica**.
-3. **Veículo que não funciona / não liga**.
-4. **Valor do veículo acima de R$ 500.000** (meio milhão).
+1. **Moto elétrica**.
+2. **Valor do veículo acima de R$ 500.000** (meio milhão).
    > Atualizado em 2026-08-07: antes estava R$ 12.000 (valor incorreto).
    > O correto é **> R$ 500.000**.
-5. **Carro + mudança** (bagagem / itens junto com o veículo).
-6. **Lead sem o valor do veículo informado**.
-7. **Qualquer coisa fora do padrão** / valor claramente errado.
+3. **Carro + mudança** (bagagem / itens junto com o veículo).
+4. **Lead sem o valor do veículo informado**.
+5. **Qualquer coisa fora do padrão** / valor claramente errado.
+
+## Automático, mas a média é só ESTIMATIVA (precisaAjuste=true):
+
+Estes casos **continuam automáticos** (manda a média pro cliente), mas ficam
+marcados com `precisaAjuste=true` e `motivoAjuste`. A ideia: enviar a média pra
+manter o cliente engajado e, se houver interesse, a equipe ajusta o orçamento
+com as especificações reais.
+
+- **Leilão** — leiloeira / pátio de leilão.
+- **Veículo que não funciona / não liga**.
+
+  > Atualizado em 2026-08-07: antes estes dois iam pra humano; agora mandam a
+  > média como estimativa a ajustar.
 
 ## Caso contrário:
 
-Segue no **AUTOMÁTICO** (extrai campos → calcula orçamento → responde).
+Segue no **AUTOMÁTICO** normal (extrai campos → calcula orçamento → responde).
 
 ## Campos que chegam do formulário do site (numa única mensagem):
 
