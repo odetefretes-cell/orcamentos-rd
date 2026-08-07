@@ -20,6 +20,7 @@
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { enviarMensagem } = require('./chatguru-api');
+const { calcularFrete } = require('./calc-fretes');   // Fase B: cálculo da média no backend (24h)
 
 const db = getFirestore();
 
@@ -120,6 +121,28 @@ function montarMensagem(lead){
   return linhas.join('\n');
 }
 
+/* Mensagem para quando NÃO há rota automática: avisa que um atendente humano
+   vai preparar o orçamento (assim o cliente não fica sem resposta). */
+function montarMensagemHumano(lead){
+  const e = lead.extraidoIA || {};
+  const nome = (e.nome || lead.nome || '').trim();
+  const veic = e.veiculo || lead.veiculoDesc || '';
+  const origem = e.origem || lead.origem || '';
+  const destino = e.destino || lead.destino || '';
+  const linhas = [];
+  linhas.push('🚚 OBS TRANSPORTES');
+  linhas.push('');
+  linhas.push(`Olá${nome ? ' ' + nome : ''}! 😊`);
+  linhas.push('');
+  linhas.push('Recebemos a sua solicitação de transporte' + (veic ? ` do seu ${veic}` : '') + (origem && destino ? ` (${origem} → ${destino})` : '') + '.');
+  linhas.push('');
+  linhas.push('Um de nossos atendentes vai preparar o seu orçamento e retornar por aqui em instantes. 📋');
+  linhas.push('');
+  linhas.push('🏆 OBS Transportes — 20 anos no transporte de veículos.');
+  linhas.push(`📞 ${TELEFONE_OBS}`);
+  return linhas.join('\n');
+}
+
 /* ---- ETAPA 5A.1: intake 'automatico' → cria o lead no CRM (app calcula) ---- */
 exports.criarLeadNoCrm = onDocumentUpdated(
   { document: 'crm_leads_intake/{telefone}', region: 'southamerica-east1' },
@@ -203,6 +226,46 @@ exports.criarLeadNoCrm = onDocumentUpdated(
       }
     });
 
+    // ---- Fase B: calcula a MÉDIA no BACKEND (24h, sem depender do navegador) ----
+    // Só para automáticos. Lê a MESMA tabela do Firestore que o admin importa da planilha.
+    // Se a média sair, grava no lead → dispara `prepararResposta` (que envia, se ligado).
+    // Se NÃO houver rota automática, o lead vai para atenção humana (orçamento manual).
+    if(!paraHumano){
+      try {
+        const calc = await calcularFrete({
+          origem: e.origem || '',
+          destino: e.destino || '',
+          categoria: categoria || '',
+          veiculoDesc: e.veiculo || '',
+          valorVeiculo: e.valorVeiculo,
+        });
+        if(calc.ok){
+          await ref.update({
+            valorCotacaoSW: calc.valorCotacaoSW,
+            valorEstimado: calc.valorEstimado,
+            prazoSW: calc.prazoSW || '',
+            trajetos: calc.trajetos || [],
+            composicao: calc.composicao || [],
+            _calcAuto: true,          // impede o app de recalcular por cima
+            _mediaBackend: true,
+            mediaCalculadaEm: FieldValue.serverTimestamp(),
+          });
+          console.log(`[criarLeadNoCrm] média backend ${leadId}: R$ ${calc.valorEstimado} (prazo ${calc.prazoSW || '?'}d).`);
+        } else {
+          // Sem rota automática (ex.: categoria/rota sem preço) → atendente humano confecciona.
+          await ref.update({
+            atencaoHumano: true,
+            motivoHumano: 'Sem rota automática — orçamento manual pelo atendente',
+            _semAutoResposta: true,
+            _semRota: true,
+          });
+          console.log(`[criarLeadNoCrm] ${leadId} SEM rota automática (${calc.motivo}) → atenção humana.`);
+        }
+      } catch(err){
+        console.error(`[criarLeadNoCrm] erro no cálculo backend de ${leadId}:`, err);
+      }
+    }
+
     await event.data.after.ref.update({
       leadCriado: true, leadId,
       vendedorAtribuido: vendedor || '',   // pra Etapa 5 setar o mesmo no ChatGuru
@@ -241,6 +304,30 @@ exports.prepararResposta = onDocumentUpdated(
     const d = event.data && event.data.after && event.data.after.data();
     if(!d) return;
     if(!d._intakeTelefone) return;             // só leads da automação
+
+    // SEM rota automática: manda UMA mensagem avisando que um atendente vai preparar
+    // o orçamento (o cliente não fica sem resposta). Depois, silêncio (é caso humano).
+    if(d._semRota){
+      if(d.avisoHumanoEnviado || d.erroEnvio) return;
+      if(await envioEstaAtivo()){
+        try {
+          const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto: montarMensagemHumano(d) });
+          await event.data.after.ref.update({
+            avisoHumanoEnviado: true,
+            avisoHumanoMessageId: (r && r.message_id) || '',
+            avisoHumanoEm: FieldValue.serverTimestamp(),
+          });
+          console.log(`[prepararResposta] AVISO HUMANO enviado ${event.params.leadId}.`);
+        } catch(e){
+          await event.data.after.ref.update({ erroEnvio: String((e && e.message) || e) });
+          console.error(`[prepararResposta] ERRO ao enviar aviso humano ${event.params.leadId}:`, e);
+        }
+      } else {
+        console.log(`[prepararResposta] aviso humano pronto para ${event.params.leadId} (envio DESLIGADO).`);
+      }
+      return;
+    }
+
     if(d._semAutoResposta) return;             // atenção humana: nunca responde o cliente
     if(!formatarBRL(d.valorEstimado)) return;  // ainda sem média válida
     if(d.respostaEnviada) return;              // já enviado
