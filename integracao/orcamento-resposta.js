@@ -33,6 +33,30 @@ function canonVendedor(nome){
   return n;
 }
 
+/* Vendedores no rodízio (ajustável via env VENDEDORES, separados por vírgula). */
+const VENDEDORES = (process.env.VENDEDORES || 'Yasmim Freitas,Thiago Lucca,Flavia Ottati')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+/* Próximo vendedor do rodízio — contador guardado em crm_config/rodizio.
+   Como todos os leads entram sem responsável no ChatGuru, é o backend que
+   distribui de forma justa e alternada entre os vendedores. */
+async function proximoVendedor(){
+  if(!VENDEDORES.length) return '';
+  const ref = db.collection('crm_config').doc('rodizio');
+  let escolhido = VENDEDORES[0];
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const n = (snap.exists && Number(snap.data().contador)) || 0;
+    escolhido = VENDEDORES[n % VENDEDORES.length];
+    tx.set(ref, {
+      contador: n + 1,
+      ultimo: escolhido,
+      atualizadoEm: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  });
+  return escolhido;
+}
+
 /* orcarComo (da Etapa 4) → categoria que o app entende (crmCategoriaSugerida). */
 function categoriaDoOrcarComo(orcarComo){
   const s = (orcarComo || '').toLowerCase();
@@ -95,6 +119,12 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     const e = d.extraido || {};
 
     const categoria = categoriaDoOrcarComo(e.orcarComo);
+
+    // Responsável: se o ChatGuru já tiver um, respeita; senão (o normal, pois
+    // todos entram "sem responsável"), o backend distribui por rodízio.
+    let vendedor = canonVendedor(d.responsavelChatguru);
+    if(!vendedor) vendedor = await proximoVendedor();
+
     const leadId = 'lead_wpp_' + telefone;
     const ref = db.collection('crm_leads').doc(leadId);
 
@@ -124,10 +154,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
         ultimaInteracao: new Date().toISOString(),
       };
       if(categoria) dados.categoria = categoria; // honra "moto elétrica = 300cc"
-
-      // Responsável do CRM = responsável do ChatGuru (mesma pessoa nos dois).
-      const vendedor = canonVendedor(d.responsavelChatguru);
-      if(vendedor) dados.vendedor = vendedor;
+      if(vendedor)  dados.vendedor  = vendedor;  // mesmo responsável no CRM e (depois) no ChatGuru
 
       if(!snap.exists){
         // lead novo: entra na coluna Novo Lead, sem trajetos (pro app calcular)
@@ -147,8 +174,12 @@ exports.criarLeadNoCrm = onDocumentUpdated(
       }
     });
 
-    await event.data.after.ref.update({ leadCriado: true, leadId, leadCriadoEm: FieldValue.serverTimestamp() });
-    console.log(`[criarLeadNoCrm] Lead ${telefone} criado no CRM como ${leadId} (categoria: ${categoria || 'auto'}).`);
+    await event.data.after.ref.update({
+      leadCriado: true, leadId,
+      vendedorAtribuido: vendedor || '',   // pra Etapa 5 setar o mesmo no ChatGuru
+      leadCriadoEm: FieldValue.serverTimestamp(),
+    });
+    console.log(`[criarLeadNoCrm] Lead ${telefone} -> ${leadId} | vendedor: ${vendedor || '(nenhum)'} | categoria: ${categoria || 'auto'}.`);
   }
 );
 
