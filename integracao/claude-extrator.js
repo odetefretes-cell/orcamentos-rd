@@ -50,6 +50,7 @@ const SCHEMA = {
     blindado:      { type: 'boolean', description: 'true se blindado' },
     motoEletrica:  { type: 'boolean', description: 'true se for moto elétrica' },
     leilao:        { type: 'boolean', description: 'true se for veículo de leilão (leiloeira/pátio de leilão no e-mail ou observação)' },
+    carroMudanca:  { type: 'boolean', description: 'true se for carro + mudança (bagagem / itens junto com o veículo)' },
     origem:        { type: 'string',  description: 'Origem (cidade UF)' },
     destino:       { type: 'string',  description: 'Destino (cidade UF)' },
     observacao:    { type: 'string',  description: 'Observações extras do cliente' },
@@ -57,11 +58,12 @@ const SCHEMA = {
     motivo:        { type: 'string',  description: 'Motivo curto da decisão (obrigatório quando humano)' },
     precisaAjuste: { type: 'boolean', description: 'true quando a média é só uma estimativa que precisará ser ajustada depois (veículo não funciona ou leilão)' },
     motivoAjuste:  { type: 'string',  description: 'Motivo curto do ajuste, quando precisaAjuste=true (ex.: "veículo não funciona", "leilão"). Vazio caso contrário.' },
+    orcarComo:     { type: 'string',  description: 'Categoria a usar no cálculo quando diferente do padrão. Para MOTO ELÉTRICA, use "moto 300cc". Caso contrário, vazio (usa o próprio veículo/tipo).' },
   },
   required: [
     'nome','email','telefone','tipoCliente','veiculo','tipoVeiculo',
-    'valorVeiculo','valorInformado','funciona','blindado','motoEletrica','leilao',
-    'origem','destino','observacao','decisao','motivo','precisaAjuste','motivoAjuste',
+    'valorVeiculo','valorInformado','funciona','blindado','motoEletrica','leilao','carroMudanca',
+    'origem','destino','observacao','decisao','motivo','precisaAjuste','motivoAjuste','orcarComo',
   ],
 };
 
@@ -78,25 +80,29 @@ Normalização do valor do veículo:
 - Se não houver valor, ou o valor for claramente impossível de interpretar,
   use 0 e valorInformado=false.
 
-Envie para HUMANO (decisao="humano") quando QUALQUER uma for verdadeira:
-- Moto elétrica.
+Envie para HUMANO (decisao="humano") SOMENTE quando QUALQUER uma for verdadeira:
 - Valor do veículo ACIMA de R$ ${LIMITE_VALOR_HUMANO} (não informado NÃO conta aqui).
-- Carro + mudança (bagagem / itens junto com o veículo).
 - Lead SEM valor do veículo informado.
 - Qualquer coisa claramente fora do padrão / valor claramente errado.
 
-Caso contrário, decisao="automatico".
+Em todos os outros casos, decisao="automatico".
 
-ATENÇÃO — dois casos continuam AUTOMÁTICOS, mas a média é apenas uma ESTIMATIVA:
-- Veículo de LEILÃO (leiloeira / pátio de leilão).
-- Veículo que NÃO funciona / não liga.
-Nesses dois casos: decisao="automatico", precisaAjuste=true e motivoAjuste com a
-razão (ex.: "leilão" ou "veículo não funciona"). A ideia é mandar a média pro
-cliente; se ele tiver interesse, a equipe ajusta o orçamento com as
-especificações. Em todos os outros casos, precisaAjuste=false e motivoAjuste="".
+Casos especiais que continuam AUTOMÁTICOS (mandam a média), com marcação:
+- MOTO ELÉTRICA → decisao="automatico", orcarComo="moto 300cc" (orça como uma
+  moto 300cc). precisaAjuste=false, motivoAjuste="".
+- LEILÃO → decisao="automatico", precisaAjuste=true, motivoAjuste="leilão".
+- Veículo que NÃO funciona / não liga → decisao="automatico", precisaAjuste=true,
+  motivoAjuste="veículo não funciona".
+- CARRO + MUDANÇA → decisao="automatico", precisaAjuste=true,
+  motivoAjuste="carro + mudança" (manda a média do VEÍCULO; a mudança/bagagem é
+  ajustada à parte pela equipe).
+
+A ideia dos casos com precisaAjuste=true: mandar a média pro cliente pra manter
+o interesse; se ele topar, a equipe ajusta o orçamento com as especificações.
+Nos demais casos automáticos, precisaAjuste=false, motivoAjuste="" e orcarComo="".
 
 Sempre preencha "motivo" com uma frase curta explicando a decisão (ex.:
-"Valor acima do limite", "Dentro do padrão", "Estimativa - leilão").
+"Valor acima do limite", "Dentro do padrão", "Estimativa - leilão", "Moto elétrica").
 Responda SOMENTE no formato estruturado pedido.`;
 
 exports.processarLeadCompleto = onDocumentUpdated(

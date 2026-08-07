@@ -8,30 +8,33 @@ mandar o texto pro Claude EXTRAIR os campos e DECIDIR o caminho:
 
 ## Desviar para HUMANO quando:
 
-1. **Moto elétrica**.
-2. **Valor do veículo acima de R$ 500.000** (meio milhão).
+1. **Valor do veículo acima de R$ 500.000** (meio milhão).
    > Atualizado em 2026-08-07: antes estava R$ 12.000 (valor incorreto).
    > O correto é **> R$ 500.000**.
-3. **Carro + mudança** (bagagem / itens junto com o veículo).
-4. **Lead sem o valor do veículo informado**.
-5. **Qualquer coisa fora do padrão** / valor claramente errado.
+2. **Lead sem o valor do veículo informado**.
+3. **Qualquer coisa fora do padrão** / valor claramente errado.
 
-## Automático, mas a média é só ESTIMATIVA (precisaAjuste=true):
+## Automáticos com tratamento especial:
 
-Estes casos **continuam automáticos** (manda a média pro cliente), mas ficam
-marcados com `precisaAjuste=true` e `motivoAjuste`. A ideia: enviar a média pra
-manter o cliente engajado e, se houver interesse, a equipe ajusta o orçamento
-com as especificações reais.
+Estes casos **continuam automáticos** (mandam a média pro cliente), com uma
+marcação pra equipe:
 
-- **Leilão** — leiloeira / pátio de leilão.
-- **Veículo que não funciona / não liga**.
+- **Moto elétrica** → orça **como moto 300cc** (`orcarComo = "moto 300cc"`).
+  Não precisa de ajuste manual.
+- **Leilão** → `precisaAjuste = true`, `motivoAjuste = "leilão"`.
+- **Veículo que não funciona / não liga** → `precisaAjuste = true`,
+  `motivoAjuste = "veículo não funciona"`.
+- **Carro + mudança** → `precisaAjuste = true`, `motivoAjuste = "carro + mudança"`.
+  Manda a média do **veículo**; a mudança/bagagem é ajustada à parte.
 
-  > Atualizado em 2026-08-07: antes estes dois iam pra humano; agora mandam a
-  > média como estimativa a ajustar.
+  > Atualizado em 2026-08-07: leilão, "não funciona", moto elétrica e
+  > carro+mudança **saíram do humano**. A ideia é enviar a média pra manter o
+  > cliente engajado; se houver interesse, a equipe ajusta com as especificações.
 
 ## Caso contrário:
 
-Segue no **AUTOMÁTICO** normal (extrai campos → calcula orçamento → responde).
+Segue no **AUTOMÁTICO** normal (extrai campos → calcula orçamento → responde),
+com `precisaAjuste = false` e `orcarComo = ""`.
 
 ## Campos que chegam do formulário do site (numa única mensagem):
 
