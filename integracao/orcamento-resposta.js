@@ -113,9 +113,12 @@ exports.criarLeadNoCrm = onDocumentUpdated(
   async (event) => {
     const d = event.data && event.data.after && event.data.after.data();
     if(!d) return;
-    if(d.statusIntake !== 'automatico') return; // só os que a IA liberou
+    // Trata os dois desfechos da IA: 'automatico' (responde) e 'aguardando_humano'
+    // (aparece no CRM p/ a equipe assumir, SEM responder o cliente).
+    if(d.statusIntake !== 'automatico' && d.statusIntake !== 'aguardando_humano') return;
     if(d.leadCriado) return;                     // já criado (evita repetir)
 
+    const paraHumano = d.statusIntake === 'aguardando_humano';
     const telefone = event.params.telefone;
     const e = d.extraido || {};
 
@@ -157,6 +160,17 @@ exports.criarLeadNoCrm = onDocumentUpdated(
       if(categoria) dados.categoria = categoria; // honra "moto elétrica = 300cc"
       if(vendedor)  dados.vendedor  = vendedor;  // mesmo responsável no CRM e (depois) no ChatGuru
 
+      // Caso de atenção humana: marca o lead e IMPEDE a auto-resposta.
+      if(paraHumano){
+        dados.atencaoHumano = true;
+        dados.motivoHumano = (e.motivo || 'Requer atendimento humano');
+        dados._semAutoResposta = true;   // prepararResposta pula este lead
+      }
+
+      const textoTimeline = paraHumano
+        ? `🔴 ATENDIMENTO HUMANO (ChatGuru → IA): ${e.motivo || 'requer atenção'}.`
+        : 'Lead automático (ChatGuru → IA). Aguardando cálculo da média.';
+
       if(!snap.exists){
         // lead novo: entra na coluna Novo Lead, sem trajetos (pro app calcular)
         tx.set(ref, {
@@ -164,10 +178,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
           etapa: 'novo',
           prioridade: 'quente',
           dataEntrada: new Date().toISOString().slice(0,10),
-          timeline: [{
-            data: new Date().toISOString(), tipo: 'criacao',
-            texto: 'Lead automático (ChatGuru → IA). Aguardando cálculo da média.'
-          }],
+          timeline: [{ data: new Date().toISOString(), tipo: 'criacao', texto: textoTimeline }],
         });
       } else {
         // já existe: só atualiza os dados, sem mexer em etapa/vendedor/trajetos
@@ -180,7 +191,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
       vendedorAtribuido: vendedor || '',   // pra Etapa 5 setar o mesmo no ChatGuru
       leadCriadoEm: FieldValue.serverTimestamp(),
     });
-    console.log(`[criarLeadNoCrm] Lead ${telefone} -> ${leadId} | vendedor: ${vendedor || '(nenhum)'} | categoria: ${categoria || 'auto'}.`);
+    console.log(`[criarLeadNoCrm] Lead ${telefone} -> ${leadId} | ${paraHumano ? 'HUMANO (' + (e.motivo || '') + ')' : 'automático'} | vendedor: ${vendedor || '(nenhum)'} | categoria: ${categoria || 'auto'}.`);
   }
 );
 
@@ -208,6 +219,7 @@ exports.prepararResposta = onDocumentUpdated(
     const d = event.data && event.data.after && event.data.after.data();
     if(!d) return;
     if(!d._intakeTelefone) return;             // só leads da automação
+    if(d._semAutoResposta) return;             // atenção humana: nunca responde o cliente
     if(!formatarBRL(d.valorEstimado)) return;  // ainda sem média válida
     if(d.respostaEnviada) return;              // já enviado
     if(d.erroEnvio) return;                    // falhou antes; não fica retentando em loop

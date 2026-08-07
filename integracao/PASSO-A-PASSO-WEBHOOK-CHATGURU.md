@@ -333,9 +333,24 @@ na hora, sem subir código:
 
 ---
 
-Próximas etapas: tratar os `aguardando_humano` (avisar a equipe — Etapa 6),
-resolver o **responsável no ChatGuru** (ver nota abaixo) e a **Fase B** (portar o
-cálculo pro backend, pra rodar 24h sem navegador).
+## Etapa 6 — leads de atenção humana aparecem no CRM
+
+Os leads que a IA marcou como `aguardando_humano` (valor > R$ 500.000, sem valor,
+valor claramente errado) também são criados no CRM (coluna **Novo Lead**), mas:
+- marcados com `atencaoHumano: true` e `motivoHumano` (o porquê),
+- com prioridade quente e um aviso 🔴 na timeline,
+- com o vendedor do rodízio, e
+- **sem auto-resposta** (`_semAutoResposta: true` → o `prepararResposta` pula):
+  **nada é enviado ao cliente** nesses casos.
+
+Assim a equipe vê o lead na hora e assume manualmente. Deploy junto com os demais
+(`firebase deploy --only functions`).
+
+---
+
+Próximas etapas: **Fase B** (portar o cálculo pro backend, pra rodar 24h sem
+navegador). O **responsável no ChatGuru** fica só no CRM por enquanto (a API
+documentada não reatribui responsável de chat existente).
 
 > **Nota — responsável no ChatGuru:** a API documentada do ChatGuru não tem uma
 > ação pra *reatribuir* o responsável de um chat que já existe (só `chat_add`
