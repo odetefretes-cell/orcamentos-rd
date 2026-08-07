@@ -201,4 +201,6 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
    Fica num arquivo separado (chatguru-webhook.js) pra não misturar com a ponte
    de cotação acima. O require vem DEPOIS do initializeApp() de propósito.
    ---------------------------------------------------------------------------- */
-exports.chatguruWebhook = require('./chatguru-webhook').chatguruWebhook;
+const _chatguru = require('./chatguru-webhook');
+exports.chatguruWebhook      = _chatguru.chatguruWebhook;      // Etapa 1+2: recebe/salva
+exports.fecharLeadsCompletos = _chatguru.fecharLeadsCompletos; // Etapa 3: fecha após 60s

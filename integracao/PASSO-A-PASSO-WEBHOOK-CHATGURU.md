@@ -140,17 +140,67 @@ No painel do ChatGuru (`s22.chatguru.app`):
 
 ---
 
+## Etapa 3 — Fechar o lead após 60s de silêncio
+
+Na maioria dos casos a info vem completa numa mensagem só. Mas quando o cliente
+manda em **várias mensagens picadas**, precisamos esperar ele terminar. A regra:
+considerar o lead **completo** depois de `LEAD_JANELA_SEGUNDOS` (60s por padrão)
+**sem mensagem nova**.
+
+Como uma função na nuvem não pode ficar "segurando" um cronômetro, usamos uma
+**função agendada** (`fecharLeadsCompletos`) que roda **de minuto em minuto**,
+olha os leads que ainda estão `recebendo` e fecha os que ficaram quietos tempo
+suficiente. Quando fecha, o documento passa a ter:
+
+- `statusIntake: "completo"`
+- `completadoEm` (data/hora do fechamento)
+- `mensagemCompleta` (todas as mensagens juntas num texto só — é o que a Etapa 4
+  vai mandar pro Claude)
+
+### Subir a função agendada
+```bash
+firebase deploy --only functions:fecharLeadsCompletos
+# ou tudo de uma vez:
+firebase deploy --only functions
+```
+No primeiro deploy o Firebase pode pedir pra ativar o **Cloud Scheduler** — é só
+confirmar (está incluso no plano Blaze, uso baixíssimo, praticamente grátis).
+
+### Ajustar o tempo da janela
+Mude a variável `LEAD_JANELA_SEGUNDOS` (padrão 60) e faça deploy de novo:
+```bash
+firebase functions:secrets:set LEAD_JANELA_SEGUNDOS   # ex.: 90
+firebase deploy --only functions
+```
+> A varredura roda a cada 1 min (menor intervalo do Scheduler), então o lead
+> fecha entre ~60s e ~120s após a última mensagem. Pro volume da OBS isso é de
+> sobra.
+
+### Testar
+1. Mande **duas mensagens picadas** do mesmo número, com uns segundos entre elas
+   (ou dispare o `curl` de teste duas vezes com o mesmo `celular`).
+2. Veja em `crm_leads_intake/{telefone}` o array `mensagens` com as duas.
+3. Espere ~1 a 2 minutos. O `statusIntake` deve virar `completo` e aparecer o
+   campo `mensagemCompleta` com os dois textos juntos.
+4. Confira em **Functions → Logs** a linha
+   `[fecharLeadsCompletos] Lead ... COMPLETO`.
+
+---
+
 ## Resumo
 
 ```
-Cliente manda mensagem no WhatsApp
+Cliente manda mensagem(ns) no WhatsApp
    → ChatGuru dispara o webhook (POST) para chatguruWebhook
    → função salva no Firestore:
         • crm_leads_intake/{telefone}  (acumula as mensagens do contato)
         • chatguru_webhook_log/{auto}  (corpo cru, pra debug)
+   → fecharLeadsCompletos (a cada 1 min) fecha o lead após 60s de silêncio
+        • statusIntake: "completo" + mensagemCompleta
    → você confere no Firestore e nos Logs ✅
 ```
 
-Próxima etapa (quando esta estiver validada): **acumular** múltiplas mensagens
-do mesmo contato e considerar o lead **completo** após `LEAD_JANELA_SEGUNDOS`
-(60s) sem mensagem nova.
+Próxima etapa (Etapa 4, quando esta estiver validada): quando o lead vira
+`completo`, chamar a **API do Claude** pra extrair os campos (Nome, Veículo,
+Origem, Destino, Valor…) e **decidir** se é caso de atendimento automático ou
+humano (leilão, moto elétrica, não funciona, valor > R$ 12.000 etc.).

@@ -31,6 +31,7 @@
    ============================================================================ */
 
 const { onRequest } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 // firebase-admin já é inicializado em webhook.js (initializeApp()); aqui só
@@ -214,5 +215,85 @@ exports.chatguruWebhook = onRequest(
       console.error('[chatguruWebhook] ERRO:', e);
       res.status(500).json({ ok:false, erro: e.message || String(e) });
     }
+  }
+);
+
+/* ============================================================================
+   ETAPA 3 — Fechar o lead após a janela de silêncio (acumulação)
+
+   A acumulação já acontece no webhook acima (cada POST empilha a mensagem no
+   documento do contato). O que falta é decidir QUANDO o cliente terminou de
+   escrever. Como uma função serverless não pode "segurar" um cronômetro na
+   memória, usamos o padrão robusto: uma função AGENDADA que roda de minuto em
+   minuto e varre os leads ainda "recebendo". Se um lead ficou parado por mais
+   de LEAD_JANELA_SEGUNDOS (60s por padrão), marcamos como 'completo'.
+
+   Um lead 'completo' é o gatilho da ETAPA 4 (chamar o Claude p/ extrair os
+   campos e decidir humano x automático) — que ainda NÃO fazemos aqui.
+
+   Observação sobre o tempo: a janela lógica é LEAD_JANELA_SEGUNDOS (fácil de
+   ajustar). A varredura roda a cada 1 min (menor intervalo do Cloud Scheduler),
+   então um lead fecha entre ~60s e ~120s após a última mensagem. Se precisar de
+   reação mais rápida no futuro, dá pra trocar por Cloud Tasks — mas pro volume
+   da OBS, 1 min é de sobra e bem mais simples.
+   ---------------------------------------------------------------------------- */
+
+/* Converte um Timestamp do Firestore (ou ISO/Date) em milissegundos. */
+function paraMillis(v){
+  if(!v) return 0;
+  if(typeof v.toMillis === 'function') return v.toMillis(); // Firestore Timestamp
+  if(typeof v.toDate  === 'function') return v.toDate().getTime();
+  const d = new Date(v);
+  return isNaN(d) ? 0 : d.getTime();
+}
+
+/* Junta os textos das mensagens acumuladas num só bloco (útil p/ a Etapa 4). */
+function montarMensagemCompleta(mensagens){
+  return (mensagens || [])
+    .map(m => (m && m.texto ? String(m.texto).trim() : ''))
+    .filter(Boolean)
+    .join('\n');
+}
+
+exports.fecharLeadsCompletos = onSchedule(
+  { schedule: 'every 1 minutes', region: 'southamerica-east1', timeZone: 'America/Sao_Paulo' },
+  async () => {
+    const agoraMs = Date.now();
+    const limiteMs = JANELA_SEGUNDOS * 1000;
+
+    // Buscamos só os que ainda estão recebendo. O corte por tempo é feito em
+    // código (evita precisar criar índice composto no Firestore).
+    const snap = await db.collection('crm_leads_intake')
+      .where('statusIntake', '==', 'recebendo')
+      .get();
+
+    if(snap.empty){
+      console.log('[fecharLeadsCompletos] Nenhum lead em recebimento.');
+      return;
+    }
+
+    let fechados = 0;
+    for(const doc of snap.docs){
+      const d = doc.data() || {};
+      const janela = Number(d.janelaSegundos || JANELA_SEGUNDOS) * 1000;
+      const ultimaMs = paraMillis(d.ultimaMensagemEm);
+      if(!ultimaMs) continue; // sem timestamp confiável, deixa pra próxima volta
+
+      const silencioMs = agoraMs - ultimaMs;
+      if(silencioMs < (janela || limiteMs)) continue; // ainda pode vir mais mensagem
+
+      await doc.ref.update({
+        statusIntake: 'completo',
+        completadoEm: FieldValue.serverTimestamp(),
+        mensagemCompleta: montarMensagemCompleta(d.mensagens),
+      });
+      fechados++;
+      console.log(
+        `[fecharLeadsCompletos] Lead ${doc.id} COMPLETO ` +
+        `(${d.totalMensagens || 0} msg, silencio ${Math.round(silencioMs/1000)}s).`
+      );
+    }
+
+    console.log(`[fecharLeadsCompletos] Fechados nesta rodada: ${fechados}/${snap.size}.`);
   }
 );
