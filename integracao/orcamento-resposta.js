@@ -142,7 +142,11 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     let vendedor = canonVendedor(d.responsavelChatguru);
     if(!vendedor) vendedor = await proximoVendedor();
 
-    const leadId = 'lead_wpp_' + telefone;
+    // CHAVE do lead = últimos 8 dígitos do telefone — A MESMA usada pelo formulário
+    // do site (obs-cotacao.js). Assim o lead do site e a atualização do ChatGuru caem
+    // no MESMO documento (sem DUPLICAR) e ainda ignora +55/DDD/9º dígito/formatação.
+    const chave = String(telefone).replace(/\D/g,'').slice(-8) || String(telefone);
+    const leadId = 'lead_wpp_' + chave;
     const ref = db.collection('crm_leads').doc(leadId);
 
     await db.runTransaction(async (tx) => {
@@ -214,8 +218,13 @@ exports.criarLeadNoCrm = onDocumentUpdated(
 async function envioEstaAtivo(){
   try {
     const snap = await db.collection('crm_config').doc('config').get();
-    return !!(snap.exists && snap.data().envioAtivo === true);
-  } catch(_) { return false; }
+    const v = snap.exists ? snap.data().envioAtivo : undefined;
+    // Aceita booleano true, texto "true" ou número 1 — evita "não envia" só porque
+    // o campo foi salvo como texto no console do Firestore (engano comum).
+    const ativo = v === true || v === 'true' || v === 1 || v === '1';
+    if(!ativo) console.log(`[envioEstaAtivo] DESLIGADO (envioAtivo=${JSON.stringify(v)}, doc ${snap.exists?'existe':'AUSENTE'}).`);
+    return ativo;
+  } catch(e){ console.error('[envioEstaAtivo] erro lendo crm_config/config:', e); return false; }
 }
 
 /* ---- ETAPA 5A.2: média calculada → prepara a resposta e (se ativo) ENVIA ----

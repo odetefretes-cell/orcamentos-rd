@@ -5102,10 +5102,11 @@ async function crmForcarAutomatico(id){
   const ok = await uiConfirm(aviso+'\n\nDeseja continuar?', {titulo:'🤖 Enviar orçamento automático', ok:'Sim, continuar'});
   if(!ok) return;
 
-  const t = flash('Calculando a média…','load');
   // 1) prepara o lead p/ o fluxo automático (limpa marcas de atenção humana e envios antigos)
   l.origemLead = 'whatsapp';       // faz o app/back tratarem como lead automático
-  l._intakeTelefone = tel;         // número usado como chat_number no envio
+  // número usado como chat_number no envio: PRESERVA o que veio do ChatGuru (tem o 55).
+  // Só define a partir do telefone do lead se ainda não houver um.
+  if(!l._intakeTelefone) l._intakeTelefone = tel;
   l._semAutoResposta = false;      // libera a auto-resposta (era o que barrava leads humanos)
   l.atencaoHumano = false;
   l.motivoHumano = '';
@@ -5114,13 +5115,18 @@ async function crmForcarAutomatico(id){
   l.respostaPreparada = '';        // força montar a mensagem de novo com a média atual
   l._forcadoAutomatico = true;     // auditoria: veio de decisão manual do vendedor
 
-  // 2) calcula a média com a MESMA regra do sistema
-  let calc = false;
-  try{ calc = await crmRecalcularLead(id); }catch(_){}
-  if(t && t.fechar) t.fechar();
-  if(!calc || !numMoeda(l.valorCotacaoSW || l.valorEstimado)){
-    flash('Não achei rota automática para este trajeto. Confira origem/destino ou calcule manual.','erro');
-    return;
+  // 2) usa o valor que JÁ está calculado. Só recalcula se estiver SEM valor —
+  //    nunca recalcula por cima de um cálculo bom (evita apagar rota já montada,
+  //    ex.: categorias sem rota automática que foram calculadas manualmente).
+  if(!numMoeda(l.valorCotacaoSW || l.valorEstimado)){
+    const t = flash('Calculando a média…','load');
+    let calc = false;
+    try{ calc = await crmRecalcularLead(id); }catch(_){}
+    if(t && t.fechar) t.fechar();
+    if(!calc || !numMoeda(l.valorCotacaoSW || l.valorEstimado)){
+      flash('Este lead está SEM valor e não achei rota automática. Calcule o frete manualmente (botão "Calcular frete") e clique de novo.','erro');
+      return;
+    }
   }
   l.valorEstimado = l.valorCotacaoSW || l.valorEstimado || '';
 
