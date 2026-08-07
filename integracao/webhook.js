@@ -116,7 +116,8 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
 
     // ----- 1) Cotar + criar lead -----
     if(rota.endsWith('/cotar') || rota===''){
-      const leadId = 'lead_wpp_' + soDigitos(b.telefone || Date.now());
+      // chave = últimos 8 dígitos (mesma do formulário do site e do webhook do ChatGuru) → não duplica
+      const leadId = 'lead_wpp_' + (soDigitos(b.telefone).slice(-8) || soDigitos(b.telefone || Date.now()));
       let cot = null, erroCot = '';
       // A SW Fretes é OPCIONAL: se não houver tokens configurados, pula o cálculo —
       // o próprio app (crmAutoCalcSite) calcula o lead do WhatsApp automaticamente no CRM.
@@ -171,7 +172,7 @@ exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, as
 
     // ----- 2) Botão de interesse (SIM/NÃO) -----
     if(rota.endsWith('/interesse')){
-      const leadId = b.leadId || ('lead_wpp_' + soDigitos(b.telefone||''));
+      const leadId = b.leadId || ('lead_wpp_' + (soDigitos(b.telefone||'').slice(-8) || soDigitos(b.telefone||'')));
       const val = /sim|yes|1|true/i.test(String(b.interesse)) ? 'sim'
                 : /nao|não|no|0|false/i.test(String(b.interesse)) ? 'nao' : '';
       await gravarLead(leadId, {
