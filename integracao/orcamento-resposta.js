@@ -58,12 +58,25 @@ async function proximoVendedor(){
   return escolhido;
 }
 
-/* orcarComo (da Etapa 4) → categoria que o app entende (crmCategoriaSugerida). */
-function categoriaDoOrcarComo(orcarComo){
-  const s = (orcarComo || '').toLowerCase();
-  if(/moto/.test(s) && /300/.test(s)) return 'Moto até 300cc';
-  if(/moto/.test(s) && /700/.test(s)) return 'Moto até 700cc';
-  return ''; // sem override → o app adivinha pela descrição do veículo
+/* Decide a categoria que o app entende (crmCategoriaSugerida), respeitando o
+   "Tipo de veículo" do formulário e a regra da moto elétrica (orcarComo).
+   Retorna '' quando não dá pra decidir (aí o app adivinha pela descrição). */
+function categoriaDeVeiculo(tipoVeiculo, orcarComo){
+  // 1) Regra especial da Etapa 4 (moto elétrica → 300cc) tem prioridade.
+  const o = (orcarComo || '').toLowerCase();
+  if(/moto/.test(o) && /300/.test(o)) return 'Moto até 300cc';
+  if(/moto/.test(o) && /700/.test(o)) return 'Moto até 700cc';
+
+  // 2) Senão, usa o "Tipo de veículo" informado no formulário.
+  const t = (tipoVeiculo || '').toLowerCase();
+  if(/moto/.test(t)){
+    if(/700/.test(t) && /(acima|maior)/.test(t)) return 'Moto acima de 700cc';
+    if(/700/.test(t)) return 'Moto até 700cc';
+    return 'Moto até 300cc';
+  }
+  if(/(grande|suv|caminhon|pickup|picape|utilit|\bvan\b)/.test(t)) return 'Carro grande';
+  if(/(carro|passeio|sedan|hatch|autom|pequen)/.test(t)) return 'Carro passeio';
+  return '';
 }
 
 const TELEFONE_OBS = process.env.TELEFONE_OBS || '(11) 4352-4103';
@@ -122,7 +135,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     const telefone = event.params.telefone;
     const e = d.extraido || {};
 
-    const categoria = categoriaDoOrcarComo(e.orcarComo);
+    const categoria = categoriaDeVeiculo(e.tipoVeiculo, e.orcarComo);
 
     // Responsável: se o ChatGuru já tiver um, respeita; senão (o normal, pois
     // todos entram "sem responsável"), o backend distribui por rodízio.
