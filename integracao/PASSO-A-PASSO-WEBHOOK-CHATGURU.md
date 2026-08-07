@@ -299,6 +299,47 @@ firebase deploy --only functions:criarLeadNoCrm,functions:prepararResposta
 
 ---
 
-Próximas etapas: **ligar o envio** pelo ChatGuru (depois de validar os
-rascunhos), tratar os `aguardando_humano` (avisar a equipe — Etapa 6) e a
-**Fase B** (portar o cálculo pro backend, pra rodar 24h sem navegador).
+## Ligar o envio pelo ChatGuru (só quando validar os rascunhos)
+
+O envio já está no código, mas **começa DESLIGADO**. Enquanto desligado, o sistema
+só prepara o rascunho (`respostaPreparada`). Quando você ligar, ele **envia** a
+mensagem pelo ChatGuru (`message_send`) para o telefone do lead.
+
+### Passo 1 — cadastrar as credenciais do ChatGuru (segredos)
+```bash
+firebase functions:secrets:set CHATGURU_API_KEY       # sua key (MZT5UN9...)
+firebase functions:secrets:set CHATGURU_ACCOUNT_ID    # 67e2e2f7895b4e2e2ed944b0
+firebase functions:secrets:set CHATGURU_PHONE_ID      # 67ec49e82415efebeb055070
+# (opcional) endpoint, se não for s22:
+firebase functions:secrets:set CHATGURU_API_URL       # https://s22.chatguru.app/api/v1
+firebase deploy --only functions:prepararResposta
+```
+
+### Passo 2 — a chave liga/desliga (sem re-deploy)
+O envio é controlado por um documento no Firestore, então dá pra ligar/desligar
+na hora, sem subir código:
+- No Firestore, crie/edite o documento **`crm_config/config`** com o campo
+  **`envioAtivo`** (boolean).
+- `envioAtivo = false` (ou documento ausente) → **só rascunho** (padrão).
+- `envioAtivo = true` → **envia de verdade** pelo ChatGuru.
+
+> Recomendo: valide alguns rascunhos primeiro; depois ponha `envioAtivo=true` e
+> teste com **um** lead seu antes de deixar rodando pra todos.
+
+### Segurança embutida
+- Não reenvia (`respostaEnviada`) e não fica em loop se der erro (`erroEnvio`).
+- Se faltar credencial ou der erro no ChatGuru, o lead fica com `erroEnvio` e
+  **não** trava o resto.
+
+---
+
+Próximas etapas: tratar os `aguardando_humano` (avisar a equipe — Etapa 6),
+resolver o **responsável no ChatGuru** (ver nota abaixo) e a **Fase B** (portar o
+cálculo pro backend, pra rodar 24h sem navegador).
+
+> **Nota — responsável no ChatGuru:** a API documentada do ChatGuru não tem uma
+> ação pra *reatribuir* o responsável de um chat que já existe (só `chat_add`
+> delega no momento da criação). Então hoje o responsável certo fica no **CRM**
+> (rodízio). Pra refletir no ChatGuru, as opções são: (a) a equipe delega na
+> tela, ou (b) checar com o suporte do ChatGuru se existe uma ação de
+> transferência não documentada. Quando você confirmar, eu ligo isso no envio.

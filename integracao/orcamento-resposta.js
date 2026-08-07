@@ -19,6 +19,7 @@
 
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { enviarMensagem } = require('./chatguru-api');
 
 const db = getFirestore();
 
@@ -183,23 +184,63 @@ exports.criarLeadNoCrm = onDocumentUpdated(
   }
 );
 
-/* ---- ETAPA 5A.2: média calculada → prepara a resposta (RASCUNHO, sem enviar) ---- */
+/* Chave liga/desliga do envio real, guardada no Firestore (crm_config/config,
+   campo envioAtivo). Começa DESLIGADA (doc ausente = false). Assim você ativa o
+   envio SEM re-deploy: basta pôr envioAtivo=true nesse documento. */
+async function envioEstaAtivo(){
+  try {
+    const snap = await db.collection('crm_config').doc('config').get();
+    return !!(snap.exists && snap.data().envioAtivo === true);
+  } catch(_) { return false; }
+}
+
+/* ---- ETAPA 5A.2: média calculada → prepara a resposta e (se ativo) ENVIA ----
+   - Sempre prepara o rascunho (respostaPreparada).
+   - Só envia pelo ChatGuru se envioAtivo=true no crm_config/config.
+   - Guards evitam reenvio e loop de gatilho. */
 exports.prepararResposta = onDocumentUpdated(
-  { document: 'crm_leads/{leadId}', region: 'southamerica-east1' },
+  {
+    document: 'crm_leads/{leadId}',
+    region: 'southamerica-east1',
+    secrets: ['CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID'],
+  },
   async (event) => {
     const d = event.data && event.data.after && event.data.after.data();
     if(!d) return;
-    // Só age nos leads que a automação criou, com média já calculada e sem rascunho.
-    if(!d._intakeTelefone) return;
-    if(d.respostaPreparada) return;
-    if(!formatarBRL(d.valorEstimado)) return; // ainda sem média válida
+    if(!d._intakeTelefone) return;             // só leads da automação
+    if(!formatarBRL(d.valorEstimado)) return;  // ainda sem média válida
+    if(d.respostaEnviada) return;              // já enviado
+    if(d.erroEnvio) return;                    // falhou antes; não fica retentando em loop
 
-    const texto = montarMensagem(d);
-    await event.data.after.ref.update({
-      respostaPreparada: texto,
-      respostaEnviada: false,               // Fase A: NÃO envia; só deixa pronto
-      respostaPreparadaEm: FieldValue.serverTimestamp(),
-    });
-    console.log(`[prepararResposta] Rascunho pronto para ${event.params.leadId} (média ${d.valorEstimado}).`);
+    const ref = event.data.after.ref;
+    const patch = {};
+
+    // 1) Garante o rascunho (só cria se ainda não existe).
+    let texto = d.respostaPreparada;
+    if(!texto){
+      texto = montarMensagem(d);
+      patch.respostaPreparada = texto;
+      patch.respostaEnviada = false;
+      patch.respostaPreparadaEm = FieldValue.serverTimestamp();
+    }
+
+    // 2) Envia de verdade só se a chave estiver ligada.
+    if(await envioEstaAtivo()){
+      try {
+        const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
+        patch.respostaEnviada = true;
+        patch.chatguruMessageId = (r && r.message_id) || '';
+        patch.respostaEnviadaEm = FieldValue.serverTimestamp();
+        console.log(`[prepararResposta] ENVIADO ${event.params.leadId} (msg ${patch.chatguruMessageId}).`);
+      } catch(e){
+        patch.respostaEnviada = false;
+        patch.erroEnvio = String((e && e.message) || e);
+        console.error(`[prepararResposta] ERRO ao enviar ${event.params.leadId}:`, e);
+      }
+    } else {
+      console.log(`[prepararResposta] Rascunho pronto para ${event.params.leadId} (envio DESLIGADO).`);
+    }
+
+    if(Object.keys(patch).length) await ref.update(patch);
   }
 );
