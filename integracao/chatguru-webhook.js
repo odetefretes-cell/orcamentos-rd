@@ -80,9 +80,14 @@ function extrairContato(b){
             || pegar(chat, 'nome', 'name')
             || pegar(contato, 'nome', 'name');
 
-  const email = pegar(b, 'email', 'e-mail')
+  const emailBruto = pegar(b, 'email', 'e-mail')
              || pegar(contato, 'email')
              || pegar(data, 'email');
+  // ATENÇÃO: o ChatGuru às vezes coloca o TELEFONE no campo "email" (quando o
+  // contato não tem e-mail salvo). Só aceitamos se parecer e-mail de verdade
+  // (tiver "@"). O e-mail real, quando existe, vem DENTRO do texto do formulário
+  // — a Etapa 4 (Claude) extrai de lá.
+  const email = /@/.test(String(emailBruto)) ? emailBruto : '';
 
   const texto = pegar(b, 'texto_mensagem', 'mensagem', 'texto', 'message',
                          'msg', 'body', 'text', 'ultima_mensagem', 'content')
@@ -91,6 +96,9 @@ function extrairContato(b){
 
   const status = pegar(b, 'status', 'situacao', 'stage') || pegar(chat, 'status');
 
+  // Id da conversa no ChatGuru — guardamos pra Etapa 5 (responder pelo ChatGuru).
+  const chatId = pegar(b, 'chat_id', 'chatId') || pegar(chat, 'id', 'chat_id');
+
   return {
     telefone: soDigitos(telefoneBruto),
     telefoneOriginal: String(telefoneBruto || ''),
@@ -98,6 +106,7 @@ function extrairContato(b){
     email: String(email || '').trim(),
     texto: String(texto || '').trim(),
     status: String(status || '').trim(),
+    chatId: String(chatId || '').trim(),
   };
 }
 
@@ -181,6 +190,7 @@ exports.chatguruWebhook = onRequest(
             telefoneOriginal: info.telefoneOriginal,
             nome:  info.nome,
             email: info.email,
+            chatId: info.chatId,          // id da conversa no ChatGuru (p/ Etapa 5)
             origemLead: 'chatguru',
             statusIntake: 'recebendo',   // Etapa 3 muda pra 'completo' após a janela
             janelaSegundos: JANELA_SEGUNDOS,
@@ -199,9 +209,10 @@ exports.chatguruWebhook = onRequest(
           totalMensagens: (antigo.totalMensagens || 0) + 1,
           mensagens: [...(antigo.mensagens || []), mensagem],
         };
-        // Só preenche nome/email se vieram agora e ainda não tínhamos.
-        if(info.nome  && !antigo.nome)  patch.nome  = info.nome;
-        if(info.email && !antigo.email) patch.email = info.email;
+        // Só preenche nome/email/chatId se vieram agora e ainda não tínhamos.
+        if(info.nome   && !antigo.nome)   patch.nome   = info.nome;
+        if(info.email  && !antigo.email)  patch.email  = info.email;
+        if(info.chatId && !antigo.chatId) patch.chatId = info.chatId;
         tx.update(ref, patch);
       });
 
