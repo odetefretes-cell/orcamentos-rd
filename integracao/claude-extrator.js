@@ -26,11 +26,23 @@
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const Anthropic = require('@anthropic-ai/sdk');
+const { enviarMensagem } = require('./chatguru-api');   // Fase C: perguntar dados que faltam
 
 const db = getFirestore();
 
 const MODELO = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
 const LIMITE_VALOR_HUMANO = Number(process.env.LIMITE_VALOR_HUMANO || 500000);
+const MAX_PERGUNTAS = Number(process.env.MAX_PERGUNTAS || 2);   // quantas vezes pergunta antes de mandar p/ humano
+
+/* Chave liga/desliga do envio real (crm_config/config.envioAtivo). Mesma regra da
+   orcamento-resposta: aceita true, "true", 1. Sem isso ligado, não perguntamos nada. */
+async function envioEstaAtivo(){
+  try {
+    const snap = await db.collection('crm_config').doc('config').get();
+    const v = snap.exists ? snap.data().envioAtivo : undefined;
+    return v === true || v === 'true' || v === 1 || v === '1';
+  } catch(_){ return false; }
+}
 
 /* Formato exato do que o Claude deve devolver (structured output).
    Todos os campos são obrigatórios; use "" ou 0 quando não houver informação. */
@@ -59,11 +71,15 @@ const SCHEMA = {
     precisaAjuste: { type: 'boolean', description: 'true quando a média é só uma estimativa que precisará ser ajustada depois (veículo não funciona ou leilão)' },
     motivoAjuste:  { type: 'string',  description: 'Motivo curto do ajuste, quando precisaAjuste=true (ex.: "veículo não funciona", "leilão"). Vazio caso contrário.' },
     orcarComo:     { type: 'string',  description: 'Categoria a usar no cálculo quando diferente do padrão. Para MOTO ELÉTRICA, use "moto 300cc". Caso contrário, vazio (usa o próprio veículo/tipo).' },
+    faltaInfo:     { type: 'boolean', description: 'true se faltam dados ESSENCIAIS para cotar: ORIGEM, DESTINO, VEÍCULO ou VALOR do veículo. Para leads do formulário do site (vêm completos), normalmente false.' },
+    faltamCampos:  { type: 'array',   items: { type: 'string' }, description: 'Lista dos campos essenciais que faltam (ex.: ["origem","destino","veículo","valor do veículo"]). Vazio se não faltar nada.' },
+    perguntaCliente:{ type: 'string', description: 'Quando faltaInfo=true, uma pergunta curta e cordial (pt-BR) pedindo ao cliente EXATAMENTE os dados que faltam para o orçamento. Vazio caso contrário.' },
   },
   required: [
     'nome','email','telefone','tipoCliente','veiculo','tipoVeiculo',
     'valorVeiculo','valorInformado','funciona','blindado','motoEletrica','leilao','carroMudanca',
     'origem','destino','observacao','decisao','motivo','precisaAjuste','motivoAjuste','orcarComo',
+    'faltaInfo','faltamCampos','perguntaCliente',
   ],
 };
 
@@ -101,6 +117,21 @@ A ideia dos casos com precisaAjuste=true: mandar a média pro cliente pra manter
 o interesse; se ele topar, a equipe ajusta o orçamento com as especificações.
 Nos demais casos automáticos, precisaAjuste=false, motivoAjuste="" e orcarComo="".
 
+CONTATOS DIRETOS (sem formulário) — coletar o que falta:
+Às vezes o texto NÃO é o formulário completo, e sim uma conversa de WhatsApp em que
+o cliente chamou direto e deu informações PARCIAIS. Nesses casos:
+- Se faltar algum dado ESSENCIAL para cotar — ORIGEM, DESTINO, VEÍCULO ou VALOR do
+  veículo — defina faltaInfo=true, liste em faltamCampos o que falta, e escreva em
+  perguntaCliente uma pergunta curta e cordial pedindo EXATAMENTE esses dados. Ex.:
+  "Oi! Para preparar seu orçamento, me confirma por favor: 📍 cidade de origem e
+  destino, 🚗 o modelo do veículo e 💰 o valor aproximado dele? 😊"
+- Peça só o que falta (não repita o que o cliente já informou).
+- Quando ORIGEM, DESTINO, VEÍCULO e VALOR estiverem presentes, faltaInfo=false.
+- Para leads do formulário do site (todos os campos preenchidos), faltaInfo=false.
+Importante: quando faltaInfo=true, ainda preencha "decisao" normalmente (será usada
+só se não der pra perguntar). A extração dos campos que EXISTEM deve ser feita mesmo
+com faltaInfo=true (aproveita o que o cliente já disse).
+
 Sempre preencha "motivo" com uma frase curta explicando a decisão (ex.:
 "Valor acima do limite", "Dentro do padrão", "Estimativa - leilão", "Moto elétrica").
 Responda SOMENTE no formato estruturado pedido.`;
@@ -109,7 +140,7 @@ exports.processarLeadCompleto = onDocumentUpdated(
   {
     document: 'crm_leads_intake/{telefone}',
     region: 'southamerica-east1',
-    secrets: ['ANTHROPIC_API_KEY'],
+    secrets: ['ANTHROPIC_API_KEY', 'CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID'],
   },
   async (event) => {
     const depois = event.data && event.data.after && event.data.after.data();
@@ -167,6 +198,38 @@ exports.processarLeadCompleto = onDocumentUpdated(
 
       const bloco = (resp.content || []).find(b => b.type === 'text');
       const dados = JSON.parse(bloco.text);
+
+      // ---- Fase C: faltam dados essenciais? Pergunta ao cliente (até MAX_PERGUNTAS) ----
+      const perguntasFeitas = Number(depois.perguntasFeitas || 0);
+      if (dados.faltaInfo && (dados.perguntaCliente || '').trim() && perguntasFeitas < MAX_PERGUNTAS) {
+        if (await envioEstaAtivo()) {
+          try {
+            await enviarMensagem({ chatNumber: telefone, texto: dados.perguntaCliente });
+            await ref.update({
+              extraido: dados,
+              statusIntake: 'faltando_dados',
+              faltamCampos: dados.faltamCampos || [],
+              perguntaCliente: dados.perguntaCliente,
+              perguntasFeitas: perguntasFeitas + 1,
+              ultimaPerguntaEm: FieldValue.serverTimestamp(),
+              // NÃO seta iaProcessado: a próxima resposta do cliente reabre e reprocessa.
+            });
+            console.log(`[processarLeadCompleto] Lead ${telefone}: faltam [${(dados.faltamCampos||[]).join(', ')}] — perguntei ao cliente (${perguntasFeitas + 1}/${MAX_PERGUNTAS}).`);
+            return;
+          } catch (err) {
+            console.error(`[processarLeadCompleto] Lead ${telefone}: erro ao perguntar dados:`, err);
+            // cai para a decisão normal abaixo (não perde o lead)
+          }
+        } else {
+          // envio desligado: não dá pra perguntar → manda pra humano pra não perder.
+          await ref.update({
+            iaProcessado: true, extraido: dados, statusIntake: 'aguardando_humano',
+            iaErro: 'faltam_dados_envio_desligado', iaProcessadoEm: FieldValue.serverTimestamp(),
+          });
+          console.log(`[processarLeadCompleto] Lead ${telefone}: faltam dados, mas envio DESLIGADO → humano.`);
+          return;
+        }
+      }
 
       const novoStatus = dados.decisao === 'humano' ? 'aguardando_humano' : 'automatico';
 
