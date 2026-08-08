@@ -9,6 +9,12 @@ só falta o ChatGuru **encaminhar** essas mensagens.
 
 **Não precisa de deploy** — é 100% configuração no ChatGuru. O backend já está pronto.
 
+> **STATUS: MONTADO (08/08/2026).** IDs reais em produção:
+> - Encaminhador "Encaminhar Resposta (Backend OBS)": `6a776678cb274c43e5f40945`
+> - `Cotando=Sim` ligado em: 3.1 Formulário (`6a75e9a15ffa7455b9ce5033`) e Opener/Saudação (`6a76382343ec83dc260744f7`)
+> - Gatilho usado: `anything_else and $Cotando=='Sim' and $MediaEnviada!='Sim' and $MediaEnviada!='Respondido'`
+> - Falta: rodar o teste de ponta a ponta (contato direto multi-mensagem + Fase C).
+
 ---
 
 ## Dados de referência
