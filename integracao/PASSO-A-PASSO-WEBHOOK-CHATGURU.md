@@ -1,0 +1,360 @@
+# Etapa 1 + 2 — Receber o webhook do ChatGuru e salvar a mensagem
+
+Esta é a **porta de entrada** da automação. Quando um lead chega no ChatGuru com
+a conversa aberta, o ChatGuru faz um **POST** (webhook) para a nossa função na
+nuvem, mandando o texto da mensagem do cliente. A função:
+
+1. **recebe** esse POST;
+2. **salva** a mensagem no Firestore, associada ao contato (telefone);
+3. **loga** tudo que chegou, pra você conferir enquanto testa.
+
+> Ainda **não** chamamos o Claude, **não** calculamos orçamento e **não**
+> respondemos. Aqui a gente só valida que a entrada está chegando certinho.
+> As próximas etapas vêm depois, uma de cada vez.
+
+---
+
+## Onde os dados vão parar (Firestore)
+
+Duas coleções **novas** (não mexem no seu CRM atual `crm_leads`):
+
+| Coleção | O que guarda |
+|---|---|
+| `crm_leads_intake/{telefone}` | Um documento por **contato**. Acumula as mensagens daquele cliente no array `mensagens`. É daqui que a Etapa 3 vai "fechar" o lead após 60s. |
+| `chatguru_webhook_log/{auto}` | Um documento por **POST recebido**, com o corpo **cru** (`raw`) que o ChatGuru mandou. É a "caixa-preta" pra você ver o formato real dos campos. |
+
+---
+
+## Parte A — Subir a função (uma vez só)
+
+Precisa ser feito por alguém com acesso ao Firebase da OBS (projeto
+`obs-fretes`).
+
+1. Instalar as ferramentas (se ainda não tiver):
+   ```bash
+   npm install -g firebase-tools
+   firebase login
+   ```
+2. Na pasta do projeto (onde está o `firebase.json`):
+   ```bash
+   cd integracao && npm install && cd ..
+   firebase deploy --only functions:chatguruWebhook
+   ```
+3. No fim, o terminal mostra a URL da função, algo como:
+   ```
+   https://southamerica-east1-obs-fretes.cloudfunctions.net/chatguruWebhook
+   ```
+   **Guarde essa URL** — é ela que o ChatGuru vai chamar.
+
+> A função `obsIntegracao` que você já tinha continua funcionando normalmente —
+> essa é uma função **nova e separada**. Se quiser subir as duas de uma vez:
+> `firebase deploy --only functions`.
+
+### (Opcional) Proteger com um segredo
+Pra só o ChatGuru poder chamar a função:
+```bash
+firebase functions:secrets:set CG_WEBHOOK_SECRET
+# digite um segredo qualquer, ex.: obs-2026-xyz
+firebase deploy --only functions:chatguruWebhook
+```
+Depois, no ChatGuru, envie o cabeçalho `X-CG-Secret` com esse mesmo valor.
+Pra **começar testando**, pode pular isso — sem o segredo, a função aceita o POST.
+
+---
+
+## Parte B — Testar SEM o ChatGuru (recomendado antes de tudo)
+
+Antes de mexer no ChatGuru, garanta que a função está no ar e salvando.
+
+1. **No navegador:** abra a URL da função. Deve responder:
+   ```json
+   {"ok":true,"servico":"chatguruWebhook","dica":"...","janelaSegundos":60}
+   ```
+   Se apareceu isso, a função está no ar. ✅
+
+2. **Simular um lead** (POST de teste) — no terminal:
+   ```bash
+   curl -X POST \
+     -H "Content-Type: application/json" \
+     -d '{"nome":"João Teste","celular":"5511999998888","texto_mensagem":"Quero transportar meu Civic de SP pra Natal, valor 80 mil"}' \
+     https://southamerica-east1-obs-fretes.cloudfunctions.net/chatguruWebhook
+   ```
+   Deve responder `{"ok":true,"salvo":"intake","telefone":"5511999998888","temTexto":true}`.
+
+3. **Conferir no Firestore:** abra
+   [Firebase Console → Firestore](https://console.firebase.google.com/project/obs-fretes/firestore).
+   - Em `crm_leads_intake` deve aparecer o documento `5511999998888` com o array
+     `mensagens`.
+   - Em `chatguru_webhook_log` aparece o corpo cru.
+
+4. **Ver o log:** Firebase Console → **Functions → Logs** (ou
+   `firebase functions:log --only chatguruWebhook`). Você verá o bloco
+   `===== [chatguruWebhook] LEAD RECEBIDO =====` com nome, telefone e mensagem.
+
+---
+
+## Parte C — Configurar o webhook no ChatGuru
+
+No painel do ChatGuru (`s22.chatguru.app`):
+
+1. Vá em **Configurações → Webhooks** (ou dentro do **diálogo/campanha** que
+   recebe o lead, na ação de disparo — o ChatGuru chama de "Webhook" ou
+   "Requisição HTTP").
+2. Crie/edite um webhook com:
+   - **URL:** a URL da Parte A
+     (`https://southamerica-east1-obs-fretes.cloudfunctions.net/chatguruWebhook`)
+   - **Método:** `POST`
+   - **Cabeçalhos:** `Content-Type: application/json`
+     (e `X-CG-Secret: SEU_SEGREDO` **se** você ativou a proteção)
+   - **Gatilho:** quando a conversa **entra/abre** com um lead novo.
+3. **Corpo (JSON):** mapeie as variáveis do ChatGuru. Use os nomes de variável
+   do seu ChatGuru entre asteriscos. Exemplo:
+   ```json
+   {
+     "nome": "*nome*",
+     "celular": "*celular*",
+     "email": "*email*",
+     "texto_mensagem": "*mensagem*",
+     "status": "aberto"
+   }
+   ```
+
+> **Não sabe o nome exato das variáveis do ChatGuru?** Sem problema. Nossa
+> função é "esperta": ela tenta vários nomes possíveis (`celular`, `telefone`,
+> `phone`, `texto_mensagem`, `mensagem`, `texto`, `message`, etc.) **e** salva o
+> corpo cru em `chatguru_webhook_log`. Então dispare um lead de teste real,
+> abra esse log, veja **exatamente** como o ChatGuru nomeou os campos, e a
+> gente ajusta o mapeamento se precisar.
+
+---
+
+## Parte D — Teste final com um lead real
+
+1. Mande você mesmo uma mensagem pro WhatsApp da OBS (ou peça pra alguém) como
+   se fosse um cliente.
+2. Confira em `chatguru_webhook_log` o corpo cru que chegou.
+3. Confira em `crm_leads_intake/{seu_telefone}` se a mensagem foi acumulada.
+4. Me manda o conteúdo de um documento do `chatguru_webhook_log` (o `raw`). Com
+   ele eu confirmo o mapeamento dos campos e a gente segue pra **Etapa 3**
+   (acumular várias mensagens e fechar o lead após 60s).
+
+---
+
+## Etapa 3 — Fechar o lead após 60s de silêncio
+
+Na maioria dos casos a info vem completa numa mensagem só. Mas quando o cliente
+manda em **várias mensagens picadas**, precisamos esperar ele terminar. A regra:
+considerar o lead **completo** depois de `LEAD_JANELA_SEGUNDOS` (60s por padrão)
+**sem mensagem nova**.
+
+Como uma função na nuvem não pode ficar "segurando" um cronômetro, usamos uma
+**função agendada** (`fecharLeadsCompletos`) que roda **de minuto em minuto**,
+olha os leads que ainda estão `recebendo` e fecha os que ficaram quietos tempo
+suficiente. Quando fecha, o documento passa a ter:
+
+- `statusIntake: "completo"`
+- `completadoEm` (data/hora do fechamento)
+- `mensagemCompleta` (todas as mensagens juntas num texto só — é o que a Etapa 4
+  vai mandar pro Claude)
+
+### Subir a função agendada
+```bash
+firebase deploy --only functions:fecharLeadsCompletos
+# ou tudo de uma vez:
+firebase deploy --only functions
+```
+No primeiro deploy o Firebase pode pedir pra ativar o **Cloud Scheduler** — é só
+confirmar (está incluso no plano Blaze, uso baixíssimo, praticamente grátis).
+
+### Ajustar o tempo da janela
+Mude a variável `LEAD_JANELA_SEGUNDOS` (padrão 60) e faça deploy de novo:
+```bash
+firebase functions:secrets:set LEAD_JANELA_SEGUNDOS   # ex.: 90
+firebase deploy --only functions
+```
+> A varredura roda a cada 1 min (menor intervalo do Scheduler), então o lead
+> fecha entre ~60s e ~120s após a última mensagem. Pro volume da OBS isso é de
+> sobra.
+
+### Testar
+1. Mande **duas mensagens picadas** do mesmo número, com uns segundos entre elas
+   (ou dispare o `curl` de teste duas vezes com o mesmo `celular`).
+2. Veja em `crm_leads_intake/{telefone}` o array `mensagens` com as duas.
+3. Espere ~1 a 2 minutos. O `statusIntake` deve virar `completo` e aparecer o
+   campo `mensagemCompleta` com os dois textos juntos.
+4. Confira em **Functions → Logs** a linha
+   `[fecharLeadsCompletos] Lead ... COMPLETO`.
+
+---
+
+## Etapa 4 — O Claude lê o lead e decide (automático x humano)
+
+Quando um lead vira `completo`, a função `processarLeadCompleto` dispara
+**sozinha** (é acionada pela mudança no Firestore), manda o `mensagemCompleta`
+pro Claude e grava de volta no mesmo documento:
+
+- `extraido` → objeto com os campos lidos (nome, veículo, `valorVeiculo`
+  normalizado, origem, destino, funciona, blindado, moto elétrica, decisão…)
+- `statusIntake` → vira **`automatico`** ou **`aguardando_humano`**
+- `iaProcessado: true`, `iaModelo`, `iaProcessadoEm`
+
+As regras de desvio pra humano estão em `REGRAS-DECISAO-HUMANO.md` (leilão, moto
+elétrica, não funciona, **valor acima de R$ 500.000**, carro+mudança, sem valor).
+
+> Importante: a Etapa 4 **não responde o cliente nem calcula orçamento** ainda —
+> só extrai e decide, gravando no `crm_leads_intake`. Isso deixa você conferir a
+> decisão do Claude com calma antes de deixar ele responder de verdade (Etapa 5).
+
+### Passo 1 — cadastrar a chave da Anthropic (segredo)
+```bash
+firebase functions:secrets:set ANTHROPIC_API_KEY
+# cole a chave (sk-ant-...) quando pedir. Ela fica guardada no Firebase, nunca no código.
+```
+
+### Passo 2 — subir a função
+```bash
+firebase deploy --only functions:processarLeadCompleto
+# ou tudo de uma vez:
+firebase deploy --only functions
+```
+
+### (Opcional) Escolher o modelo / economizar
+O padrão é o **`claude-opus-5`** (mais capaz). Pra **gastar menos** por lead, dá
+pra usar o **Haiku** (bem mais barato e suficiente pra esse tipo de extração):
+```bash
+firebase functions:secrets:set ANTHROPIC_MODEL   # digite: claude-haiku-4-5
+firebase deploy --only functions:processarLeadCompleto
+```
+E o limite de valor pra humano é ajustável (padrão 500000):
+```bash
+firebase functions:secrets:set LIMITE_VALOR_HUMANO   # ex.: 500000
+```
+
+### Testar
+1. Dispare um lead de teste (formulário do site) — ex.: Civic, R$ 80.000, funciona.
+2. Espere ~1–2 min (a Etapa 3 fecha o lead) e mais alguns segundos (a Etapa 4 roda).
+3. No Firestore, em `crm_leads_intake/{telefone}`:
+   - deve aparecer o campo **`extraido`** com os dados lidos,
+   - e o `statusIntake` deve virar **`automatico`** (ou `aguardando_humano` se
+     bater alguma regra — ex.: valor > 500 mil, não funciona, leilão).
+4. Confira em **Functions → Logs** a linha `[processarLeadCompleto] Lead ... -> ...`.
+
+> Se der qualquer erro na IA, por segurança o lead vai pra `aguardando_humano`
+> (com o campo `iaErro`) — nunca se perde um lead.
+
+---
+
+## Resumo
+
+```
+Cliente manda mensagem(ns) no WhatsApp
+   → ChatGuru dispara o webhook (POST) para chatguruWebhook
+   → função salva no Firestore:
+        • crm_leads_intake/{telefone}  (acumula as mensagens do contato)
+        • chatguru_webhook_log/{auto}  (corpo cru, pra debug)
+   → fecharLeadsCompletos (a cada 1 min) fecha o lead após 60s de silêncio
+        • statusIntake: "completo" + mensagemCompleta
+   → processarLeadCompleto (Etapa 4) extrai os campos com o Claude e decide
+        • extraido: {...} + statusIntake: "automatico" | "aguardando_humano"
+   → criarLeadNoCrm (Etapa 5A) cria o lead em crm_leads → o app calcula a média
+   → prepararResposta (Etapa 5A) monta a mensagem em respostaPreparada (RASCUNHO)
+   → você confere no Firestore e nos Logs ✅
+```
+
+---
+
+## Etapa 5 — Fase A: calcular a média e PREPARAR a resposta (sem enviar)
+
+Reaproveita o cálculo do seu próprio sistema (a tabela que a equipe já confia) e
+deixa a mensagem pronta como **rascunho** — ainda **não envia** pro cliente.
+
+Como funciona:
+1. `criarLeadNoCrm`: quando um lead do intake vira `automatico`, o backend cria
+   o lead na coleção **`crm_leads`** (com `origemLead: "whatsapp"`). Como o app
+   já calcula sozinho esses leads (`crmAutoCalcSite`), a **média sai pela mesma
+   tabela de sempre**. Moto elétrica entra com `categoria: "Moto até 300cc"`.
+2. `prepararResposta`: quando a média (`valorEstimado`) aparece no lead, monta a
+   mensagem e grava em **`respostaPreparada`** (com `respostaEnviada: false`).
+   Nos casos `precisaAjuste`, a mensagem já leva o aviso de "valor de referência".
+
+> ⚠️ **Depende do app aberto no navegador** (admin) pra calcular — é assim que o
+> sistema funciona hoje. Isso vira 24h na **Fase B** (portar o cálculo pro backend).
+> E de propósito: **nada é enviado ao cliente ainda** — só quando você validar.
+
+### Subir
+```bash
+firebase deploy --only functions:criarLeadNoCrm,functions:prepararResposta
+# ou tudo: firebase deploy --only functions
+```
+
+### Testar
+1. Dispare um lead de teste (Civic, R$ 80.000, funciona) e espere a Etapa 4
+   marcar `statusIntake: "automatico"`.
+2. Deixe o **sistema aberto** no navegador (logado como admin) — ele calcula a média.
+3. No Firestore, em **`crm_leads/lead_wpp_{telefone}`**:
+   - deve aparecer `valorEstimado` (a média calculada pelo app), e
+   - o campo **`respostaPreparada`** com a mensagem pronta (rascunho).
+4. **Leia o rascunho** e me diga se o texto e o valor estão bons. Só depois a
+   gente liga o envio automático pelo ChatGuru (próximo passo).
+
+---
+
+## Ligar o envio pelo ChatGuru (só quando validar os rascunhos)
+
+O envio já está no código, mas **começa DESLIGADO**. Enquanto desligado, o sistema
+só prepara o rascunho (`respostaPreparada`). Quando você ligar, ele **envia** a
+mensagem pelo ChatGuru (`message_send`) para o telefone do lead.
+
+### Passo 1 — cadastrar as credenciais do ChatGuru (segredos)
+```bash
+firebase functions:secrets:set CHATGURU_API_KEY       # sua key (MZT5UN9...)
+firebase functions:secrets:set CHATGURU_ACCOUNT_ID    # 67e2e2f7895b4e2e2ed944b0
+firebase functions:secrets:set CHATGURU_PHONE_ID      # 67ec49e82415efebeb055070
+# (opcional) endpoint, se não for s22:
+firebase functions:secrets:set CHATGURU_API_URL       # https://s22.chatguru.app/api/v1
+firebase deploy --only functions:prepararResposta
+```
+
+### Passo 2 — a chave liga/desliga (sem re-deploy)
+O envio é controlado por um documento no Firestore, então dá pra ligar/desligar
+na hora, sem subir código:
+- No Firestore, crie/edite o documento **`crm_config/config`** com o campo
+  **`envioAtivo`** (boolean).
+- `envioAtivo = false` (ou documento ausente) → **só rascunho** (padrão).
+- `envioAtivo = true` → **envia de verdade** pelo ChatGuru.
+
+> Recomendo: valide alguns rascunhos primeiro; depois ponha `envioAtivo=true` e
+> teste com **um** lead seu antes de deixar rodando pra todos.
+
+### Segurança embutida
+- Não reenvia (`respostaEnviada`) e não fica em loop se der erro (`erroEnvio`).
+- Se faltar credencial ou der erro no ChatGuru, o lead fica com `erroEnvio` e
+  **não** trava o resto.
+
+---
+
+## Etapa 6 — leads de atenção humana aparecem no CRM
+
+Os leads que a IA marcou como `aguardando_humano` (valor > R$ 500.000, sem valor,
+valor claramente errado) também são criados no CRM (coluna **Novo Lead**), mas:
+- marcados com `atencaoHumano: true` e `motivoHumano` (o porquê),
+- com prioridade quente e um aviso 🔴 na timeline,
+- com o vendedor do rodízio, e
+- **sem auto-resposta** (`_semAutoResposta: true` → o `prepararResposta` pula):
+  **nada é enviado ao cliente** nesses casos.
+
+Assim a equipe vê o lead na hora e assume manualmente. Deploy junto com os demais
+(`firebase deploy --only functions`).
+
+---
+
+Próximas etapas: **Fase B** (portar o cálculo pro backend, pra rodar 24h sem
+navegador). O **responsável no ChatGuru** fica só no CRM por enquanto (a API
+documentada não reatribui responsável de chat existente).
+
+> **Nota — responsável no ChatGuru:** a API documentada do ChatGuru não tem uma
+> ação pra *reatribuir* o responsável de um chat que já existe (só `chat_add`
+> delega no momento da criação). Então hoje o responsável certo fica no **CRM**
+> (rodízio). Pra refletir no ChatGuru, as opções são: (a) a equipe delega na
+> tela, ou (b) checar com o suporte do ChatGuru se existe uma ação de
+> transferência não documentada. Quando você confirmar, eu ligo isso no envio.
