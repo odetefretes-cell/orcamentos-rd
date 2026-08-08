@@ -170,6 +170,17 @@ function querFecharAgora(b){
   return false;
 }
 
+/* É o INÍCIO de uma nova cotação? (formulário do site ou botão do atendente).
+   Serve pra REINICIAR o ciclo de um número que JÁ foi cotado antes — senão o
+   cliente que volta (ou o mesmo número em novo teste) fica travado no guard
+   iaProcessado e não recebe nada. Uma resposta solta do cliente (continuação)
+   NÃO conta como início — ela só acumula no ciclo em andamento. */
+function ehInicioDeCotacao(corpo, texto){
+  if(querFecharAgora(corpo)) return true;                                  // botão "Gerar Orçamento (Backend OBS)"
+  if(/solicita[çc][aã]o de or[çc]amento/i.test(String(texto || ''))) return true; // formulário
+  return false;
+}
+
 /* A partir do corpo do webhook, extrai os campos que a gente consegue
    reconhecer. Tudo é "melhor esforço": se não achar, fica vazio — e o corpo
    CRU fica salvo no log de qualquer jeito, então nada se perde. */
@@ -303,19 +314,27 @@ exports.chatguruWebhook = onRequest(
         status: info.status,
       };
 
+      const inicioCotacao = ehInicioDeCotacao(corpo, info.texto);
+
       const ref = db.collection('crm_leads_intake').doc(info.telefone);
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
+        const antigo = snap.exists ? (snap.data() || {}) : {};
 
-        if(!snap.exists){
+        // NOVO CICLO: primeira vez do contato, OU uma NOVA solicitação
+        // (formulário/botão) de um número que JÁ foi processado/cotado antes.
+        // Reiniciar zera o guard iaProcessado/leadCriado pra IA reprocessar e o
+        // lead reenviar — assim o cliente que volta recebe orçamento de novo.
+        const jaFinalizado = !!(antigo.iaProcessado || antigo.leadCriado);
+        if(!snap.exists || (inicioCotacao && jaFinalizado)){
           tx.set(ref, {
             telefone: info.telefone,
             telefoneOriginal: info.telefoneOriginal,
-            nome:  info.nome,
-            email: info.email,
-            chatId: info.chatId,          // id da conversa no ChatGuru (p/ Etapa 5)
-            responsavelChatguru: info.responsavel,             // vendedor da conversa
-            responsavelEmailChatguru: info.responsavelEmail,
+            nome:  info.nome  || antigo.nome  || '',
+            email: info.email || antigo.email || '',
+            chatId: info.chatId || antigo.chatId || '',          // id da conversa no ChatGuru (p/ Etapa 5)
+            responsavelChatguru: info.responsavel || antigo.responsavelChatguru || '',
+            responsavelEmailChatguru: info.responsavelEmail || antigo.responsavelEmailChatguru || '',
             origemLead: 'chatguru',
             statusIntake: 'recebendo',   // Etapa 3 muda pra 'completo' após a janela
             janelaSegundos: JANELA_SEGUNDOS,
@@ -323,11 +342,18 @@ exports.chatguruWebhook = onRequest(
             ultimaMensagemEm: agora,
             totalMensagens: 1,
             mensagens: [mensagem],
+            // zera o ciclo anterior (deixa a IA reprocessar e o lead reenviar):
+            iaProcessado: false,
+            leadCriado: false,
+            extraido: null,
+            mensagemCompleta: '',
+            perguntasFeitas: 0,
+            faltamCampos: [],
+            cicloReiniciadoEm: agora,
           });
           return;
         }
 
-        const antigo = snap.data() || {};
         const patch = {
           ultimaMensagemEm: agora,
           statusIntake: 'recebendo',

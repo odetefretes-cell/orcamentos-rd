@@ -228,6 +228,9 @@ exports.criarLeadNoCrm = onDocumentUpdated(
         dados.atencaoHumano = true;
         dados.motivoHumano = (e.motivo || 'Requer atendimento humano');
         dados._semAutoResposta = true;   // prepararResposta pula este lead
+        // Reinício de ciclo: reabre o AVISO para o mesmo número que volta a cotar.
+        dados.avisoHumanoEnviado = false;
+        dados.erroEnvio = '';
       }
 
       const textoTimeline = paraHumano
@@ -272,6 +275,15 @@ exports.criarLeadNoCrm = onDocumentUpdated(
             _calcAuto: true,          // impede o app de recalcular por cima
             _mediaBackend: true,
             mediaCalculadaEm: FieldValue.serverTimestamp(),
+            // Reinício de ciclo: reabre o envio JUNTO com a média NOVA (mesma
+            // atualização), pra prepararResposta enviar o valor certo — nunca o
+            // antigo. Sem isso, o mesmo número recotando não reenviava.
+            respostaEnviada: false,
+            avisoHumanoEnviado: false,
+            erroEnvio: '',
+            _semAutoResposta: false,
+            atencaoHumano: false,
+            mediaEnviadaMarcada: false,
           });
           console.log(`[criarLeadNoCrm] média backend ${leadId}: R$ ${calc.valorEstimado} (prazo ${calc.prazoSW || '?'}d).`);
         } else {
@@ -281,6 +293,9 @@ exports.criarLeadNoCrm = onDocumentUpdated(
             motivoHumano: 'Sem rota automática — orçamento manual pelo atendente',
             _semAutoResposta: true,
             _semRota: true,
+            // Reinício de ciclo: reabre o AVISO para o mesmo número que volta.
+            avisoHumanoEnviado: false,
+            erroEnvio: '',
           });
           console.log(`[criarLeadNoCrm] ${leadId} SEM rota automática (${calc.motivo}) → atenção humana.`);
         }
