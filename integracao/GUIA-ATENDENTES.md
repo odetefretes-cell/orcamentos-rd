@@ -6,6 +6,19 @@ a média sozinho na maioria dos casos. Vocês entram nos casos que precisam de g
 
 ---
 
+## ⭐ LEIA PRIMEIRO — Como acompanhar os leads
+
+- **Todos os contatos entram no ChatGuru como "Ninguém Delegado"** (sem responsável). Isso é o normal — não é erro.
+- Por isso, **vocês precisam ACOMPANHAR a entrada de novos leads pelo CRM** (fiquem de olho na coluna **Novo Lead / Contato Feito**). É lá que os leads aparecem.
+- Quando você for conferir/atender um lead, **PUXE o atendimento para você**:
+  - assuma a conversa no ChatGuru, mudando o **"Responsável"** de *"- Ninguém Delegado -"* para **o seu nome**;
+  - confira que fica **igual ao vendedor no CRM** (o responsável tem que ser o mesmo nos dois).
+- **Depois da tratativa inicial da estimativa** (assim que você respondeu / deu a sequência com o cliente), **acione o FollowUp** — é isso que garante o acompanhamento e evita o lead ser esquecido.
+
+> Em resumo: **o lead entra "de todo mundo" (Ninguém Delegado); quem for atender puxa pra si no ChatGuru, deixa igual ao CRM e aciona o FollowUp.**
+
+---
+
 ## 🟢 Situação 1 — Cliente preencheu o FORMULÁRIO do site
 
 **O que o sistema faz (sozinho):**
