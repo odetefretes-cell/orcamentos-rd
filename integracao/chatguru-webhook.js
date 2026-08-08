@@ -118,6 +118,26 @@ function coletarCamposExtras(b){
   return linhas.join('\n');
 }
 
+/* O atendente aciona o "Gerar Orçamento (Backend OBS)" quando JÁ coletou tudo.
+   Nesse caso não faz sentido esperar os 60s de silêncio: se o POST trouxer um
+   marcador (ex.: fechar=sim), fechamos o lead na hora → a IA processa e responde
+   em segundos. Basta o diálogo do ChatGuru mandar UM desses campos com um valor
+   afirmativo. Se não vier nada, o fluxo normal (janela de 60s) continua valendo. */
+const MARCADORES_FECHAR = ['fechar','fechar_agora','fecharAgora','acionar','acionar_agora',
+                           'processar_agora','processarAgora','completo','completar',
+                           'gerar_orcamento','gerarOrcamento','acao','action'];
+function querFecharAgora(b){
+  if(!b || typeof b !== 'object') return false;
+  for(const k of MARCADORES_FECHAR){
+    if(b[k] == null) continue;
+    const s = String(b[k]).trim().toLowerCase();
+    if(s === '') continue;
+    if(/(n[aã]o|false|^0$|^no$)/.test(s)) continue; // valor negativo → ignora
+    return true;
+  }
+  return false;
+}
+
 /* A partir do corpo do webhook, extrai os campos que a gente consegue
    reconhecer. Tudo é "melhor esforço": se não achar, fica vazio — e o corpo
    CRU fica salvo no log de qualquer jeito, então nada se perde. */
@@ -292,11 +312,38 @@ exports.chatguruWebhook = onRequest(
         tx.update(ref, patch);
       });
 
+      // ---- 2b) CONTATO DIRETO: fechar NA HORA se o atendente acionou ----
+      // Quando o POST traz um marcador (ex.: fechar=sim, vindo do diálogo
+      // "Gerar Orçamento (Backend OBS)"), não esperamos os 60s: marcamos o lead
+      // como 'completo' já, e a IA (processarLeadCompleto) dispara em segundos.
+      // Só faz isso se o lead ainda não passou pela IA (a Fase C — resposta do
+      // cliente a uma pergunta — continua usando o fluxo normal de 60s).
+      let fechadoNaHora = false;
+      if(querFecharAgora(corpo)){
+        try {
+          const atual = (await ref.get()).data() || {};
+          if(!atual.iaProcessado && atual.statusIntake !== 'completo'){
+            await ref.update({
+              statusIntake: 'completo',
+              completadoEm: FieldValue.serverTimestamp(),
+              mensagemCompleta: montarMensagemCompleta(atual.mensagens),
+              fechadoManual: true,
+            });
+            fechadoNaHora = true;
+            console.log(`[chatguruWebhook] Lead ${info.telefone} FECHADO NA HORA (acionamento do atendente) — IA vai processar já.`);
+          }
+        } catch(err){
+          // Se falhar, não quebra o webhook: a varredura de 60s fecha depois.
+          console.error('[chatguruWebhook] erro ao fechar na hora:', err);
+        }
+      }
+
       res.json({
         ok: true,
         salvo: 'intake',
         telefone: info.telefone,
         temTexto: !!info.texto,
+        fechadoNaHora,
       });
     } catch (e) {
       console.error('[chatguruWebhook] ERRO:', e);
