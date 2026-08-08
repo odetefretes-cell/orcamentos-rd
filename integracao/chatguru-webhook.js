@@ -61,6 +61,63 @@ function pegar(obj, ...chaves){
   return '';
 }
 
+/* Palavras-chave que indicam um campo útil pro cálculo (origem, destino,
+   veículo, valor…). Serve pra reconhecer os CAMPOS PERSONALIZADOS do ChatGuru
+   pelo NOME, sem depender de nomes exatos. */
+const CAMPO_RELEVANTE = /(origem|destino|coleta|entrega|ve[ií]culo|carro|moto|caminh|modelo|marca|\bano\b|valor|pre[çc]o|cidade|munic|\buf\b|estado|\bcep\b|placa|mercadoria|transporte|rota|trecho|leil)/i;
+
+/* Devolve pares [rótulo, valor] de um contêiner de campos personalizados.
+   O ChatGuru pode mandar isso como OBJETO ({ "Local de destino": "..." }) ou
+   como LISTA de objetos ([{ name/label/campo, value/valor }]). */
+function _paresDeCampos(container){
+  const pares = [];
+  if(Array.isArray(container)){
+    for(const item of container){
+      if(!item || typeof item !== 'object') continue;
+      const rotulo = item.nome || item.name || item.label || item.campo
+                  || item.key || item.chave || item.field || '';
+      const valor  = item.valor != null ? item.valor
+                  : (item.value != null ? item.value
+                  : (item.conteudo != null ? item.conteudo : item.text));
+      if(rotulo && valor != null && String(valor).trim() !== '')
+        pares.push([String(rotulo), String(valor)]);
+    }
+  } else if(container && typeof container === 'object'){
+    for(const [k, v] of Object.entries(container)){
+      if(v == null || typeof v === 'object') continue; // só primitivos, sem descer
+      if(String(v).trim() === '') continue;
+      pares.push([k, String(v)]);
+    }
+  }
+  return pares;
+}
+
+/* Junta os CAMPOS PERSONALIZADOS / variáveis de contexto do ChatGuru num
+   textinho ("Rótulo: valor"), pra IA extrair origem/destino/veículo/valor
+   MESMO quando o cliente não digitou tudo numa mensagem (contatos diretos que
+   o atendente aciona pelo "Gerar Orçamento (Backend OBS)"). */
+function coletarCamposExtras(b){
+  const nomesContainer = ['campos','campos_personalizados','custom_fields','customFields',
+                          'variaveis','variables','contexto','context','bot_context',
+                          'dados_personalizados','fields','data','chat','contato'];
+  const containers = [b];
+  for(const n of nomesContainer){
+    if(b[n] && typeof b[n] === 'object') containers.push(b[n]);
+  }
+  const linhas = [];
+  const vistos = new Set();
+  for(const c of containers){
+    for(const [rotulo, valor] of _paresDeCampos(c)){
+      if(!CAMPO_RELEVANTE.test(rotulo)) continue;
+      const chave = (rotulo + '=' + valor).toLowerCase();
+      if(vistos.has(chave)) continue;
+      vistos.add(chave);
+      linhas.push(`${rotulo}: ${valor}`);
+    }
+  }
+  return linhas.join('\n');
+}
+
 /* A partir do corpo do webhook, extrai os campos que a gente consegue
    reconhecer. Tudo é "melhor esforço": se não achar, fica vazio — e o corpo
    CRU fica salvo no log de qualquer jeito, então nada se perde. */
@@ -89,10 +146,16 @@ function extrairContato(b){
   // — a Etapa 4 (Claude) extrai de lá.
   const email = /@/.test(String(emailBruto)) ? emailBruto : '';
 
-  const texto = pegar(b, 'texto_mensagem', 'mensagem', 'texto', 'message',
+  const textoMsg = pegar(b, 'texto_mensagem', 'mensagem', 'texto', 'message',
                          'msg', 'body', 'text', 'ultima_mensagem', 'content')
              || pegar(chat, 'mensagem', 'texto', 'message')
              || pegar(data, 'mensagem', 'texto', 'message');
+
+  // CONTATOS DIRETOS: quando o atendente aciona o "Gerar Orçamento (Backend OBS)",
+  // origem/destino/veículo/valor costumam vir nos CAMPOS PERSONALIZADOS do
+  // ChatGuru (não no texto). Juntamos esses campos ao texto pra IA extrair.
+  const camposExtras = coletarCamposExtras(b);
+  const texto = [textoMsg, camposExtras].filter(t => String(t || '').trim()).join('\n');
 
   const status = pegar(b, 'status', 'situacao', 'stage') || pegar(chat, 'status');
 
