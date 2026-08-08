@@ -334,20 +334,24 @@ exports.prepararResposta = onDocumentUpdated(
     if(d.atencaoHumano){
       if(d.avisoHumanoEnviado || d.erroEnvio) return;
       if(await envioEstaAtivo()){
+        const ref = event.data.after.ref;
         const e = d.extraidoIA || {};
         const valorAlto = !!e.valorInformado && Number(e.valorVeiculo) > LIMITE_VALOR_HUMANO;
+        // trava ATÔMICA p/ não enviar o aviso 2x (mesma corrida de dois updates rápidos)
+        const claimed = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref); const cur = snap.exists ? (snap.data() || {}) : {};
+          if(cur.avisoHumanoEnviado || cur.erroEnvio || !cur.atencaoHumano) return false;
+          tx.update(ref, { avisoHumanoEnviado: true, avisoHumanoTipo: valorAlto ? 'valor_alto' : 'padrao', avisoHumanoEm: FieldValue.serverTimestamp() });
+          return true;
+        });
+        if(!claimed) return;   // outra invocação já pegou → não duplica
         const texto = valorAlto ? montarMensagemValorAlto(d) : montarMensagemHumano(d);
         try {
           const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
-          await event.data.after.ref.update({
-            avisoHumanoEnviado: true,
-            avisoHumanoTipo: valorAlto ? 'valor_alto' : 'padrao',
-            avisoHumanoMessageId: (r && r.message_id) || '',
-            avisoHumanoEm: FieldValue.serverTimestamp(),
-          });
+          await ref.update({ avisoHumanoMessageId: (r && r.message_id) || '' });
           console.log(`[prepararResposta] AVISO HUMANO (${valorAlto ? 'valor alto' : 'padrão'}) enviado ${event.params.leadId}.`);
         } catch(e2){
-          await event.data.after.ref.update({ erroEnvio: String((e2 && e2.message) || e2) });
+          await ref.update({ avisoHumanoEnviado: false, erroEnvio: String((e2 && e2.message) || e2) });
           console.error(`[prepararResposta] ERRO ao enviar aviso humano ${event.params.leadId}:`, e2);
         }
       } else {
@@ -362,43 +366,46 @@ exports.prepararResposta = onDocumentUpdated(
     if(d.erroEnvio) return;                    // falhou antes; não fica retentando em loop
 
     const ref = event.data.after.ref;
-    const patch = {};
+    const ativo = await envioEstaAtivo();
 
-    // 1) Garante o rascunho (só cria se ainda não existe).
-    let texto = d.respostaPreparada;
-    if(!texto){
-      texto = montarMensagem(d);
-      patch.respostaPreparada = texto;
-      patch.respostaEnviada = false;
-      patch.respostaPreparadaEm = FieldValue.serverTimestamp();
-    }
-
-    // 2) Envia de verdade só se a chave estiver ligada.
-    if(await envioEstaAtivo()){
+    // ENVIO LIGADO: trava ATÔMICA para NÃO enviar 2x. Dois updates rápidos do lead
+    // (ex.: o botão "Enviar automático" + sync) disparavam a função quase juntos; sem
+    // trava, as duas liam respostaEnviada=false e enviavam. A transação marca
+    // respostaEnviada ANTES do envio — só UMA invocação passa.
+    if(ativo){
+      const claimed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref); const cur = snap.exists ? (snap.data() || {}) : {};
+        if(cur.respostaEnviada || cur.erroEnvio || cur._semAutoResposta) return false;
+        if(!formatarBRL(cur.valorEstimado)) return false;
+        tx.update(ref, { respostaEnviada: true, respostaEnviadaEm: FieldValue.serverTimestamp() });
+        return true;
+      });
+      if(!claimed) return;   // outra invocação já pegou o envio → não duplica
+      const texto = d.respostaPreparada || montarMensagem(d);
       try {
         const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
-        patch.respostaEnviada = true;
-        patch.chatguruMessageId = (r && r.message_id) || '';
-        patch.respostaEnviadaEm = FieldValue.serverTimestamp();
-        console.log(`[prepararResposta] ENVIADO ${event.params.leadId} (msg ${patch.chatguruMessageId}).`);
-        // Marca MediaEnviada=Sim no ChatGuru (mesma variável de contexto que o botão
-        // grava) → habilita os diálogos de interesse (3.3/3.4) também nos leads do
-        // formulário. Melhor-esforço: se falhar, a média já foi enviada.
+        const patch = { respostaPreparada: texto, chatguruMessageId: (r && r.message_id) || '' };
+        // Marca MediaEnviada=Sim no ChatGuru (habilita os diálogos de interesse 3.3/3.4).
         try {
           await atualizarContexto({ chatNumber: d._intakeTelefone, variaveis: { MediaEnviada: 'Sim' } });
           patch.mediaEnviadaMarcada = true;
         } catch(e2){
           console.warn(`[prepararResposta] média enviada, mas falhou marcar MediaEnviada em ${event.params.leadId}:`, (e2 && e2.message) || e2);
         }
+        await ref.update(patch);
+        console.log(`[prepararResposta] ENVIADO ${event.params.leadId} (msg ${patch.chatguruMessageId}).`);
       } catch(e){
-        patch.respostaEnviada = false;
-        patch.erroEnvio = String((e && e.message) || e);
+        // falhou: LIBERA a trava e registra o erro (não fica preso como enviado)
+        await ref.update({ respostaEnviada: false, erroEnvio: String((e && e.message) || e) });
         console.error(`[prepararResposta] ERRO ao enviar ${event.params.leadId}:`, e);
       }
-    } else {
-      console.log(`[prepararResposta] Rascunho pronto para ${event.params.leadId} (envio DESLIGADO).`);
+      return;
     }
 
-    if(Object.keys(patch).length) await ref.update(patch);
+    // ENVIO DESLIGADO: só prepara o rascunho (não envia).
+    if(!d.respostaPreparada){
+      await ref.update({ respostaPreparada: montarMensagem(d), respostaEnviada: false, respostaPreparadaEm: FieldValue.serverTimestamp() });
+    }
+    console.log(`[prepararResposta] Rascunho pronto para ${event.params.leadId} (envio DESLIGADO).`);
   }
 );
