@@ -268,14 +268,28 @@ function crmSeqRota(r){
   for(const t of tj) seq.push({norm:t.d, nome:t.dNome, uf:t.dUF});
   return seq;
 }
+let _COORDS_SUB = null;   // coords disponíveis p/ o crmSubTrecho (setado em calcularFreteLead)
 function crmSubTrecho(r, isO, isD){
   const tj=r.trajetos||[]; if(!tj.length) return null;
   const seq=[{norm:tj[0].o, nome:tj[0].oNome, uf:tj[0].oUF}];
   for(const t of tj) seq.push({norm:t.d, nome:t.dNome, uf:t.dUF});
-  let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(nk(seq[i].norm,seq[i].uf))){ iO=i; break; } }
+  // ORDEM GEOGRÁFICA (distância da origem da rota), não a ordem da planilha — os
+  // trajetos podem vir fora de ordem (ex.: numa rota Goiânia→SP, "Uberlândia" listada
+  // depois de "Vinhedo"), o que quebrava o subtrecho e forçava reembarque errado.
+  const CO = _COORDS_SUB || null;
+  const cco = c => CO ? CO[c.norm+'|'+((c.uf||'').toUpperCase())] : null;
+  const oco = cco(seq[0]);
+  const prog = c => { const cc=cco(c); return (oco&&cc) ? haversine(oco,cc) : null; };
+  const oList=[], dList=[];
+  for(let i=0;i<seq.length;i++){ const k=nk(seq[i].norm,seq[i].uf); if(isO(k)) oList.push(i); if(isD(k)) dList.push(i); }
+  if(!oList.length || !dList.length) return null;
+  let iO=-1, iD=-1;
+  for(const a of oList){ for(const b of dList){ if(a===b) continue;
+    const pA=prog(seq[a]), pB=prog(seq[b]);
+    const ordemOK = (pA!=null && pB!=null) ? (pA < pB) : (a < b);
+    if(ordemOK){ iO=a; iD=b; break; }
+  } if(iO>=0) break; }
   if(iO<0) return null;
-  let iD=-1; for(let j=iO+1;j<seq.length;j++){ if(isD(nk(seq[j].norm,seq[j].uf))){ iD=j; break; } }
-  if(iD<0) return null;
   const O=seq[iO], D=seq[iD];
   return { transportadora:r.transportadora, valores:r.valores, prazo:r.prazoDias,
            oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:nk(O.norm,O.uf), dN:nk(D.norm,D.uf) };
@@ -514,6 +528,7 @@ function crmRecalcCalc(l, db){
 function calcularFreteLead(l, db, coords){
   if(!l || !l.origem || !l.destino) return false;
   if(!db) return false;
+  _COORDS_SUB = coords || null;   // habilita ordem geográfica no crmSubTrecho
   let oR=resolverCidade(db,coords,l.origem), dR=resolverCidade(db,coords,l.destino);
   const cat=crmCategoriaSugerida(l);
   let opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;

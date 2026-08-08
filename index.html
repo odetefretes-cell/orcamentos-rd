@@ -5743,10 +5743,25 @@ function crmSubTrecho(r, isO, isD){
   const tj=r.trajetos||[]; if(!tj.length) return null;
   const seq=[{norm:tj[0].o, nome:tj[0].oNome, uf:tj[0].oUF}];
   for(const t of tj) seq.push({norm:t.d, nome:t.dNome, uf:t.dUF});
-  let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(nk(seq[i].norm,seq[i].uf))){ iO=i; break; } }
+  // ORDEM GEOGRÁFICA (por distância da origem da rota), NÃO a ordem da planilha.
+  // Os trajetos podem vir fora de ordem — ex.: numa rota Goiânia→SP, "Uberlândia"
+  // listada DEPOIS de "Vinhedo". Usar a ordem da lista quebrava o subtrecho
+  // (Uberlândia→Vinhedo) e forçava um reembarque errado. Com coordenadas, O é
+  // válido antes de D quando está mais perto da ORIGEM da rota.
+  const CO = (typeof CIDADES_COORDS!=='undefined' && CIDADES_COORDS) ? CIDADES_COORDS : null;
+  const cco = c => CO ? CO[c.norm+'|'+((c.uf||'').toUpperCase())] : null;
+  const oco = cco(seq[0]);
+  const prog = c => { const cc=cco(c); return (oco&&cc) ? haversine(oco,cc) : null; };
+  const oList=[], dList=[];
+  for(let i=0;i<seq.length;i++){ const k=nk(seq[i].norm,seq[i].uf); if(isO(k)) oList.push(i); if(isD(k)) dList.push(i); }
+  if(!oList.length || !dList.length) return null;
+  let iO=-1, iD=-1;
+  for(const a of oList){ for(const b of dList){ if(a===b) continue;
+    const pA=prog(seq[a]), pB=prog(seq[b]);
+    const ordemOK = (pA!=null && pB!=null) ? (pA < pB) : (a < b);   // geográfica; sem coord, posicional
+    if(ordemOK){ iO=a; iD=b; break; }
+  } if(iO>=0) break; }
   if(iO<0) return null;
-  let iD=-1; for(let j=iO+1;j<seq.length;j++){ if(isD(nk(seq[j].norm,seq[j].uf))){ iD=j; break; } }
-  if(iD<0) return null;
   const O=seq[iO], D=seq[iD];
   return { transportadora:r.transportadora, valores:r.valores, prazo:r.prazoDias,
            oNome:O.nome, oUF:O.uf, dNome:D.nome, dUF:D.uf, oN:nk(O.norm,O.uf), dN:nk(D.norm,D.uf) };
