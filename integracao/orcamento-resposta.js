@@ -389,8 +389,14 @@ exports.prepararResposta = onDocumentUpdated(
         try {
           await atualizarContexto({ chatNumber: d._intakeTelefone, variaveis: { MediaEnviada: 'Sim' } });
           patch.mediaEnviadaMarcada = true;
+          patch.mediaEnviadaErro = '';   // limpa erro anterior, se houver
+          console.log(`[prepararResposta] MediaEnviada=Sim marcada no ChatGuru para ${event.params.leadId} (${d._intakeTelefone}).`);
         } catch(e2){
-          console.warn(`[prepararResposta] média enviada, mas falhou marcar MediaEnviada em ${event.params.leadId}:`, (e2 && e2.message) || e2);
+          // Não interrompe (a média já foi enviada). Guarda o erro NO LEAD pra
+          // aparecer no CRM/Firestore, e loga bem visível pra diagnosticar.
+          patch.mediaEnviadaMarcada = false;
+          patch.mediaEnviadaErro = String((e2 && e2.message) || e2);
+          console.error(`[prepararResposta] média enviada, mas FALHOU marcar MediaEnviada em ${event.params.leadId} (${d._intakeTelefone}): ${patch.mediaEnviadaErro}`);
         }
         await ref.update(patch);
         console.log(`[prepararResposta] ENVIADO ${event.params.leadId} (msg ${patch.chatguruMessageId}).`);
