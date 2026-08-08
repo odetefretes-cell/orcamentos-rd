@@ -6162,14 +6162,23 @@ function crmRevAdj(db){
 // sem alterar o comportamento das cidades que já são origem de rota.
 function crmArestasDaOrigem(db, oKey){
   const isO = k=> matchKey(k, oKey);
+  const CO = (typeof CIDADES_COORDS!=='undefined' && CIDADES_COORDS) ? CIDADES_COORDS : null;
   const out=[];
   for(const r of db.rotas){
     const seq=crmSeqRota(r);
+    const cco = c => CO ? CO[c.norm+'|'+((c.uf||'').toUpperCase())] : null;
+    const oco = cco(seq[0]);
+    const prog = c => { const cc=cco(c); return (oco&&cc) ? haversine(oco,cc) : null; };
     let iO=-1; for(let i=0;i<seq.length;i++){ if(isO(nk(seq[i].norm,seq[i].uf))){ iO=i; break; } }
     if(iO<0) continue;
-    const A=seq[iO], Ak=nk(A.norm,A.uf);
-    for(let j=iO+1;j<seq.length;j++){ const B=seq[j], Bk=nk(B.norm,B.uf);
+    const A=seq[iO], Ak=nk(A.norm,A.uf), pA=prog(A);
+    // arestas A→B onde B vem DEPOIS de A na rota — por ordem GEOGRÁFICA (distância da
+    // origem da rota), não pela ordem da planilha (que pode vir embaralhada).
+    for(let j=0;j<seq.length;j++){ if(j===iO) continue; const B=seq[j], Bk=nk(B.norm,B.uf);
       if(!B.norm || Bk===Ak) continue;
+      const pB=prog(B);
+      const depois = (pA!=null && pB!=null) ? (pB > pA) : (j > iO);
+      if(!depois) continue;
       out.push({ to:Bk, oN:Ak, valores:r.valores, carrier:r.transportadora,
         oNome:A.nome, oUF:A.uf, dNome:B.nome, dUF:B.uf, prazo:r.prazoDias });
     }
