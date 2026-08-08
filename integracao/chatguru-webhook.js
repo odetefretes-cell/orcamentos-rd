@@ -109,6 +109,7 @@ function coletarCamposExtras(b){
   for(const c of containers){
     for(const [rotulo, valor] of _paresDeCampos(c)){
       if(!CAMPO_RELEVANTE.test(rotulo)) continue;
+      if(MARCADOR_VALOR.test(String(valor).trim())) continue; // é o marcador (ex.: "fechar"), não é dado de rota
       const chave = (rotulo + '=' + valor).toLowerCase();
       if(vistos.has(chave)) continue;
       vistos.add(chave);
@@ -120,19 +121,50 @@ function coletarCamposExtras(b){
 
 /* O atendente aciona o "Gerar Orçamento (Backend OBS)" quando JÁ coletou tudo.
    Nesse caso não faz sentido esperar os 60s de silêncio: se o POST trouxer um
-   marcador (ex.: fechar=sim), fechamos o lead na hora → a IA processa e responde
-   em segundos. Basta o diálogo do ChatGuru mandar UM desses campos com um valor
-   afirmativo. Se não vier nada, o fluxo normal (janela de 60s) continua valendo. */
-const MARCADORES_FECHAR = ['fechar','fechar_agora','fecharAgora','acionar','acionar_agora',
-                           'processar_agora','processarAgora','completo','completar',
-                           'gerar_orcamento','gerarOrcamento','acao','action'];
+   MARCADOR combinado, fechamos o lead na hora → a IA processa e responde em
+   segundos. Se não vier nada, o fluxo normal (janela de 60s) continua valendo.
+
+   Como a ação "POST PARA URL" do ChatGuru só tem campos FIXOS (ID/Nome de
+   campanha, ORIGEM, tokens), o atendente põe um valor combinado (ex.: "fechar")
+   no campo ORIGEM. Reconhecemos esse VALOR em qualquer campo do corpo. Também
+   aceitamos, por robustez, um campo com NOME de marcador (ex.: fechar=sim). */
+const MARCADOR_VALOR = /^(fechar|fechar[ _-]?agora|acionar|processar[ _-]?agora|completo|gerar[ _-]?or[çc]amento|backend[ _-]?obs)$/i;
+const MARCADORES_CHAVE = ['fechar','fechar_agora','fecharAgora','acionar','acionar_agora',
+                          'processar_agora','processarAgora','completar','gerar_orcamento','gerarOrcamento'];
+
+/* Junta os VALORES de texto do corpo (topo + contêineres conhecidos, 1 nível). */
+function _valoresDoCorpo(b){
+  const vals = [];
+  const push = (v)=>{ if(v!=null && typeof v!=='object'){ const s=String(v).trim(); if(s) vals.push(s); } };
+  const nomes = ['campos','campos_personalizados','custom_fields','customFields',
+                 'variaveis','variables','contexto','context','bot_context',
+                 'dados_personalizados','fields','data','chat','contato'];
+  const containers = [b];
+  for(const n of nomes){ if(b && b[n] && typeof b[n] === 'object') containers.push(b[n]); }
+  for(const c of containers){
+    if(Array.isArray(c)){
+      for(const it of c){
+        if(it && typeof it === 'object'){ push(it.valor); push(it.value); push(it.conteudo); push(it.text); }
+        else push(it);
+      }
+    } else if(c && typeof c === 'object'){
+      for(const v of Object.values(c)) push(v);
+    }
+  }
+  return vals;
+}
+
 function querFecharAgora(b){
   if(!b || typeof b !== 'object') return false;
-  for(const k of MARCADORES_FECHAR){
+  // (1) VALOR combinado (ex.: ORIGEM="fechar") em qualquer campo do corpo.
+  for(const v of _valoresDoCorpo(b)){
+    if(MARCADOR_VALOR.test(v)) return true;
+  }
+  // (2) campo com NOME de marcador e valor afirmativo (ex.: fechar=sim).
+  for(const k of MARCADORES_CHAVE){
     if(b[k] == null) continue;
     const s = String(b[k]).trim().toLowerCase();
-    if(s === '') continue;
-    if(/(n[aã]o|false|^0$|^no$)/.test(s)) continue; // valor negativo → ignora
+    if(s === '' || /(n[aã]o|false|^0$|^no$)/.test(s)) continue; // vazio/negativo → ignora
     return true;
   }
   return false;
