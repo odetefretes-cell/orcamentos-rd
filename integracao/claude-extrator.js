@@ -26,7 +26,7 @@
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const Anthropic = require('@anthropic-ai/sdk');
-const { enviarMensagem } = require('./chatguru-api');   // Fase C: perguntar dados que faltam
+const { enviarMensagem, atualizarContexto } = require('./chatguru-api');   // Fase C: perguntar dados que faltam + reativar encaminhador
 
 const db = getFirestore();
 
@@ -211,6 +211,15 @@ exports.processarLeadCompleto = onDocumentUpdated(
         if (await envioEstaAtivo()) {
           try {
             await enviarMensagem({ chatNumber: telefone, texto: dados.perguntaCliente });
+            // REATIVA O ENCAMINHADOR: garante que a resposta do cliente chegue ao
+            // backend. O botão "Gerar Orçamento" grava MediaEnviada=Sim (que BLOQUEIA
+            // o encaminhador); como aqui a média NÃO saiu (estamos perguntando), a
+            // gente liga Cotando=Sim e limpa MediaEnviada pra captar a resposta.
+            try {
+              await atualizarContexto({ chatNumber: telefone, variaveis: { Cotando: 'Sim', MediaEnviada: 'Nao' } });
+            } catch (errCtx) {
+              console.warn(`[processarLeadCompleto] Lead ${telefone}: falhou reativar encaminhador (Cotando/MediaEnviada):`, (errCtx && errCtx.message) || errCtx);
+            }
             await ref.update({
               extraido: dados,
               statusIntake: 'faltando_dados',
