@@ -157,6 +157,22 @@ personalizado **"Valor do veículo"** (ID `6a79f48aa4fd7f150cf35681`).
 
 ---
 
+## 14. Entradas por mensagem-canned do site (Guincho / Campanha) — 10/08/2026
+
+Botões de WhatsApp no site abrem a conversa com um texto pronto; cada um tem um
+diálogo de entrada com gatilho `!text==` (match exato da mensagem inteira):
+
+| Texto canned | ID entrada | `$URA` |
+|---|---|---|
+| `Olá! Estou procurando orçamento de guincho.` | `69d7ae5b68a0815f5a78ca71` | `Guincho` → cadeia Guincho |
+| `Olá! Estou no site e quero solicitar um orçamento.` | `69d7b0d71081c653ccc62508` | `Campanha_Orcamento` |
+
+- **Bug corrigido:** a entrada do guincho estava `node_type=manual` (não disparava sozinha) → mudada pra `standard` (caso Matheus).
+- **Anti-conflito com o Opener:** como o Opener reconhece "olá/orçamento/guincho", foram adicionadas exclusões ao gatilho dele: `and !text!='Olá! Estou procurando orçamento de guincho.' and !text!='Olá! Estou no site e quero solicitar um orçamento.'` — assim mensagem-canned → só o fluxo dedicado; saudação espontânea → Opener.
+- **Backend:** guincho é serviço à parte (não passa pelo cálculo de frete) — sem envolvimento do backend.
+
+---
+
 ## O que o BACKEND faz (resumo, não mexer sem sincronizar)
 
 - Acumula mensagens por telefone (janela ~60s) e fecha o lead.
