@@ -1,6 +1,6 @@
 # OBS Transportes — Sistema de Orçamentos + Automação de Leads
 
-Contexto do projeto para o Claude Code. Última atualização: **07/08/2026**.
+Contexto do projeto para o Claude Code. Última atualização: **10/08/2026**.
 
 > **Resumo em uma frase:** app single-file (`index.html`) de CRM/orçamentos que roda
 > no Firebase (Firestore + Hosting), mais um backend de **Cloud Functions** (pasta
@@ -119,24 +119,32 @@ ao centavo com o app.
 
 ## 7. Configuração do ChatGuru (conta s22, chatbot `67e2f6b3198069809dfaf169`)
 
+> **Config completa e atual:** `integracao/CHATGURU-CONFIGURACAO.md` (IDs, gatilhos,
+> ações). Abaixo, o resumo. A config é mantida pela equipe/Cowork na tela do ChatGuru.
+
 Grupo de diálogos "ChatGuru Integrações":
 
-1. **Webhook Lead Novo (Formulário)** — gatilho `!word=='Solicitação de orçamento'` →
-   POST para `.../chatguruWebhook`. (Automático.)
-2. **Gerar Orçamento (Backend OBS)** — diálogo **manual** (o atendente aciona em
-   "**...**" → "Acionar um diálogo"). POST para o webhook + grava `MediaEnviada=Sim`.
-   Usado nos **contatos diretos** (atendente coleta as infos e aciona).
-3. **Interesse pós-média (dentro do expediente)** — gatilho: frases de interesse +
-   `$MediaEnviada=='Sim'` + horário comercial → responde `/confirmar` (base a base ×
-   coleta/entrega) + status AGUARDANDO.
-4. **Interesse (fora do expediente)** — igual, mas manda mensagem de retorno.
+1. **Webhook Lead Novo (Formulário)** (`6a75e9a1…`) — gatilho `!word=='Solicitação de orçamento'`
+   → POST `.../chatguruWebhook`. Contexto de Saída `Cotando=Sim`.
+2. **Gerar Orçamento (Backend OBS)** (`6a764da1…`) — **manual** ("**...**" → "Acionar um diálogo").
+   POST + `MediaEnviada=Sim`. Campo **Origem=`fechar`** → backend processa **na hora**.
+3. **Interesse pós-média (dentro)** (`6a765e9e…`) — interesse + `$MediaEnviada=='Sim'` + horário →
+   `/confirmar` + AGUARDANDO. → `MediaEnviada=Respondido`.
+4. **Interesse (fora do expediente)** (`6a766737…`) — igual, mensagem de retorno.
+5. **Opener – Saudação** (`6a763823…`) — intake do contato direto ("Para emissão de um orçamento…")
+   + `Cotando=Sim`. Gatilho: saudações **AND `!new_chat`** (não dispara em contato já em tratativa;
+   retorno de cliente antigo = atendente aciona manual).
+6. **Encaminhar Resposta (Backend OBS)** (`6a776678…`) — `anything_else and $Cotando=='Sim' and
+   $MediaEnviada!='Sim' and $MediaEnviada!='Respondido'` → POST (Origem **vazio**, pra acumular).
+   Faz as **respostas soltas** do cliente chegarem ao backend (Fase C, contatos diretos).
+7. **Falar com Atendente** (`6a79d1af…`) — frases "quero atendente/humano" → **AGUARDANDO +
+   DELEGAR Comercial (rodízio) + não lido** + `Cotando=Nao`. (No backend, IA marca `pediuAtendente`.)
 
-**`MediaEnviada`** é uma **variável de contexto** do ChatGuru. O botão [2] grava via
-"Contexto de Saída"; nos leads do formulário (envio automático), o **backend grava via
-API** (`chat_update_context`, em `prepararResposta` após enviar a média) — assim os
-diálogos 3/4 disparam nos dois caminhos.
+**`MediaEnviada`** é **variável de contexto**. Botão [2] grava por "Contexto de Saída"; nos leads do
+formulário o **backend grava via API** (`chat_update_context` em `prepararResposta`) — **confirmado em
+produção**. `Cotando` liga/desliga o encaminhador [6].
 
-⚠️ **Conferir:** fuso da conta ChatGuru = **America/Sao_Paulo** (senão os horários 3/4 saem deslocados).
+⚠️ **Conferir:** fuso da conta ChatGuru = **America/Sao_Paulo** (horários 3/4 e o aviso de fora de expediente).
 
 ---
 
@@ -163,10 +171,12 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
 ## 10. Pendências / próximas melhorias (a partir daqui)
 
 - [ ] **Múltiplos veículos / frota** numa mesma cotação (hoje o cálculo é por 1 veículo; a IA extrai 1). Cliente Muve Locadora foi o caso real (PJ, ~38 veículos).
-- [ ] **Sincronizar responsável no ChatGuru** no fluxo 100% automático (a API não reatribui responsável de chat existente; hoje o responsável certo fica no CRM. Nos contatos diretos, o Cowork delega na tela).
-- [ ] **Fase C em produção:** decidir se o robô pergunta sozinho (fase C automática) ou se fica só o botão do atendente (recomendado hoje, pra não falar por cima do atendente).
+- [x] **Responsável no ChatGuru:** o diálogo "Falar com Atendente" delega ao Comercial por rodízio (a API não reatribui responsável; resolvido por diálogo). No fluxo de média o responsável certo segue no CRM.
+- [x] **Fase C em produção:** ativa. As respostas do cliente chegam ao backend pelo **encaminhador** (diálogo [6], chavinha `Cotando`). Escopo controlado (só enquanto cota) evita falar por cima do atendente.
+- [ ] **Retorno de cliente antigo (contato direto):** o Opener não dispara sozinho (`!new_chat`); o atendente aciona manual. Avaliar automação melhor no futuro.
 - [ ] Limpar leads **duplicados antigos** (`lead_wpp_{número completo}`) criados antes da correção de chave.
 - [ ] Manter `calc-fretes.js` **em sincronia** com a lógica de cálculo do `index.html` (é uma cópia fiel; se mudar a regra no app, atualizar aqui).
+- [ ] **Node 20** das Functions é descontinuado em **30/10/2026** — migrar pra Node 22 antes disso.
 
 ---
 
@@ -182,3 +192,12 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    preparar" (com texto **personalizado p/ alto valor**). **Fase C**: perguntar dados
    que faltam (contatos diretos). Marcação `MediaEnviada` via API pra ligar o follow-up
    de interesse também nos leads do formulário.
+6. **Ciclo completo (10/08/2026):**
+   - Webhook lê **campos personalizados** do ChatGuru (contatos diretos) + junta ao texto pra IA.
+   - Botão do atendente com **Origem=`fechar`** → processa **na hora** (sem esperar 60s).
+   - **Reinício de ciclo**: mesmo número que volta a pedir é cotado de novo (antes travava em `iaProcessado`/`respostaEnviada`).
+   - **Aviso de fora de expediente** anexado às mensagens automáticas (fuso Brasília).
+   - **Encaminhador** (`Cotando`): respostas soltas do cliente chegam ao backend (acumula ~60s e cota).
+   - **`pediuAtendente`**: cliente que pede pessoa vai pra humano sem o robô perguntar dados.
+   - `MediaEnviada` via API **confirmada em produção** (log `MediaEnviada=Sim marcada`).
+   - Config completa do ChatGuru versionada em `integracao/CHATGURU-CONFIGURACAO.md`.
