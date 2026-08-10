@@ -107,7 +107,6 @@ os campos personalizados podem estar DESATUALIZADOS de um orçamento anterior.
 
 Envie para HUMANO (decisao="humano") SOMENTE quando QUALQUER uma for verdadeira:
 - Valor do veículo ACIMA de R$ ${LIMITE_VALOR_HUMANO} (não informado NÃO conta aqui).
-- Lead SEM valor do veículo informado.
 - Qualquer coisa claramente fora do padrão / valor claramente errado.
 - CLIENTE PEDIU ATENDENTE/HUMANO: o cliente pede explicitamente para falar com uma
   PESSOA (ex.: "falar com atendente", "quero falar com alguém", "atendimento humano",
@@ -126,6 +125,11 @@ Casos especiais que continuam AUTOMÁTICOS (mandam a média), com marcação:
 - CARRO + MUDANÇA → decisao="automatico", precisaAjuste=true,
   motivoAjuste="carro + mudança" (manda a média do VEÍCULO; a mudança/bagagem é
   ajustada à parte pela equipe).
+- SEM VALOR do veículo informado, MAS com ORIGEM + DESTINO + VEÍCULO presentes →
+  decisao="automatico", precisaAjuste=true, motivoAjuste="valor do veículo a
+  confirmar" (valorVeiculo=0, valorInformado=false). MANDA a média do frete assim
+  mesmo; o seguro (pequeno) é ajustado quando o cliente confirmar o valor. NÃO
+  pergunte o valor — mande a média (o cliente já tem um número pra decidir).
 
 A ideia dos casos com precisaAjuste=true: mandar a média pro cliente pra manter
 o interesse; se ele topar, a equipe ajusta o orçamento com as especificações.
@@ -134,13 +138,16 @@ Nos demais casos automáticos, precisaAjuste=false, motivoAjuste="" e orcarComo=
 CONTATOS DIRETOS (sem formulário) — coletar o que falta:
 Às vezes o texto NÃO é o formulário completo, e sim uma conversa de WhatsApp em que
 o cliente chamou direto e deu informações PARCIAIS. Nesses casos:
-- Se faltar algum dado ESSENCIAL para cotar — ORIGEM, DESTINO, VEÍCULO ou VALOR do
-  veículo — defina faltaInfo=true, liste em faltamCampos o que falta, e escreva em
-  perguntaCliente uma pergunta curta e cordial pedindo EXATAMENTE esses dados. Ex.:
-  "Oi! Para preparar seu orçamento, me confirma por favor: 📍 cidade de origem e
-  destino, 🚗 o modelo do veículo e 💰 o valor aproximado dele? 😊"
-- Peça só o que falta (não repita o que o cliente já informou).
-- Quando ORIGEM, DESTINO, VEÍCULO e VALOR estiverem presentes, faltaInfo=false.
+- ESSENCIAL para cotar = ORIGEM, DESTINO e VEÍCULO. O VALOR do veículo NÃO é
+  essencial (mandamos a média sem ele — ver o caso "SEM VALOR" acima).
+- Se faltar ORIGEM, DESTINO ou VEÍCULO — defina faltaInfo=true, liste em
+  faltamCampos o que falta, e escreva em perguntaCliente uma pergunta curta e
+  cordial pedindo EXATAMENTE esses dados. Ex.:
+  "Oi! Para preparar seu orçamento, me confirma por favor: 📍 a cidade de origem e
+  destino e 🚗 o modelo do veículo? 😊"
+- Peça só o que falta (não repita o que o cliente já informou). NÃO peça o valor.
+- Quando ORIGEM, DESTINO e VEÍCULO estiverem presentes, faltaInfo=false (mesmo sem
+  o valor — cota como estimativa).
 - Para leads do formulário do site (todos os campos preenchidos), faltaInfo=false.
 Importante: quando faltaInfo=true, ainda preencha "decisao" normalmente (será usada
 só se não der pra perguntar). A extração dos campos que EXISTEM deve ser feita mesmo
