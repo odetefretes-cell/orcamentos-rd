@@ -93,9 +93,17 @@ site "Solicitação de orçamento — OBS Transportes") e faz DUAS coisas:
 
 Normalização do valor do veículo:
 - Interprete formatos variados: "80000", "R$ 50.000,00", "50 mil", "50.0000".
+- Sufixos: "k" e "mil" = milhares → "419k" = 419000, "50k" = 50000, "419 mil" = 419000.
+- FIPE: "Fipe 419k", "Fipe R$ 419.000", "vale 419 mil na fipe" → use o valor FIPE
+  como valor do veículo (ex.: 419000). FIPE é o preço de referência do veículo.
 - Converta para número inteiro em reais (ex.: 50000).
 - Se não houver valor, ou o valor for claramente impossível de interpretar,
   use 0 e valorInformado=false.
+
+PRIORIDADE conversa × campos: se os dados vierem de CAMPOS PERSONALIZADOS do
+ChatGuru (linhas "Rótulo: valor") e eles CONFLITAREM com o que o cliente escreveu
+na CONVERSA (ex.: modelo/origem/destino diferentes), PREFIRA sempre a CONVERSA —
+os campos personalizados podem estar DESATUALIZADOS de um orçamento anterior.
 
 Envie para HUMANO (decisao="humano") SOMENTE quando QUALQUER uma for verdadeira:
 - Valor do veículo ACIMA de R$ ${LIMITE_VALOR_HUMANO} (não informado NÃO conta aqui).
