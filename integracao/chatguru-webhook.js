@@ -327,19 +327,19 @@ exports.chatguruWebhook = onRequest(
         status: info.status,
       };
 
-      const inicioCotacao = ehInicioDeCotacao(corpo, info.texto);
+      const viaBotao = querFecharAgora(corpo);
+      const viaFormulario = /solicita[çc][aã]o de or[çc]amento/i.test(String(info.texto || ''));
 
       const ref = db.collection('crm_leads_intake').doc(info.telefone);
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
         const antigo = snap.exists ? (snap.data() || {}) : {};
-
-        // NOVO CICLO: primeira vez do contato, OU uma NOVA solicitação
-        // (formulário/botão) de um número que JÁ foi processado/cotado antes.
-        // Reiniciar zera o guard iaProcessado/leadCriado pra IA reprocessar e o
-        // lead reenviar — assim o cliente que volta recebe orçamento de novo.
         const jaFinalizado = !!(antigo.iaProcessado || antigo.leadCriado);
-        if(!snap.exists || (inicioCotacao && jaFinalizado)){
+
+        // (A) PRIMEIRA vez do contato, OU FORMULÁRIO de um número já finalizado →
+        // ciclo LIMPO. O formulário traz TODOS os dados no próprio texto, então dá
+        // pra zerar o acúmulo antigo (cliente que volta com nova solicitação completa).
+        if(!snap.exists || (viaFormulario && jaFinalizado)){
           tx.set(ref, {
             telefone: info.telefone,
             telefoneOriginal: info.telefoneOriginal,
@@ -367,6 +367,27 @@ exports.chatguruWebhook = onRequest(
           return;
         }
 
+        // (B) BOTÃO "Gerar Orçamento" num lead já finalizado → REPROCESSA a conversa
+        // existente. ATENÇÃO: o botão NÃO traz os dados (eles estão na conversa
+        // acumulada), então NÃO apagamos as mensagens — só reabrimos os guards
+        // (iaProcessado/leadCriado) pra IA cotar de novo com o que o cliente já
+        // escreveu. (Sem isso, clicar o botão num lead já processado zerava tudo.)
+        if(viaBotao && jaFinalizado){
+          tx.update(ref, {
+            ultimaMensagemEm: agora,
+            statusIntake: 'recebendo',
+            totalMensagens: (antigo.totalMensagens || 0) + 1,
+            mensagens: [...(antigo.mensagens || []), mensagem],
+            iaProcessado: false,
+            leadCriado: false,
+            extraido: null,
+            mensagemCompleta: '',
+            reprocessadoBotaoEm: agora,
+          });
+          return;
+        }
+
+        // (C) continuação normal: acumula.
         const patch = {
           ultimaMensagemEm: agora,
           statusIntake: 'recebendo',
