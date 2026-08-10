@@ -214,12 +214,15 @@ function extrairContato(b){
              || pegar(chat, 'mensagem', 'texto', 'message')
              || pegar(data, 'mensagem', 'texto', 'message');
 
-  // CONTATOS DIRETOS: quando o atendente aciona o "Gerar Orçamento (Backend OBS)",
-  // origem/destino/veículo/valor podem vir nos CAMPOS PERSONALIZADOS do ChatGuru.
-  // Juntamos ao texto pra IA extrair — MAS marcamos como fonte SECUNDÁRIA, porque
-  // esses campos podem estar DESATUALIZADOS de um orçamento anterior (outro veículo/
-  // rota). A CONVERSA (o que o cliente escreveu) tem prioridade quando conflitar.
-  const camposExtras = coletarCamposExtras(b);
+  // CAMPOS PERSONALIZADOS: só colhemos no ACIONAMENTO MANUAL do botão "Gerar
+  // Orçamento" (origem=fechar), onde o atendente conta com esses campos. Nas
+  // mensagens soltas (encaminhador) e no formulário, os dados estão no TEXTO da
+  // conversa — colher os campos aqui só traria valores de ORÇAMENTOS ANTERIORES
+  // (campos velhos), e como cada mensagem reencaminhada recolava os campos, eles
+  // se REPETIAM no acúmulo e afogavam o que o cliente escreveu (caso Jorge:
+  // "Fiat Argo/Araguaiana" velho vencendo "Macan/São Paulo" da conversa).
+  // Quando colhidos (botão), entram como fonte SECUNDÁRIA (a conversa tem prioridade).
+  const camposExtras = querFecharAgora(b) ? coletarCamposExtras(b) : '';
   const partes = [];
   if(String(textoMsg || '').trim()) partes.push(String(textoMsg).trim());
   if(String(camposExtras || '').trim()){
