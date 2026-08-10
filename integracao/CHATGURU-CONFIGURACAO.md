@@ -169,7 +169,29 @@ diálogo de entrada com gatilho `!text==` (match exato da mensagem inteira):
 
 - **Bug corrigido:** a entrada do guincho estava `node_type=manual` (não disparava sozinha) → mudada pra `standard` (caso Matheus).
 - **Anti-conflito com o Opener:** como o Opener reconhece "olá/orçamento/guincho", foram adicionadas exclusões ao gatilho dele: `and !text!='Olá! Estou procurando orçamento de guincho.' and !text!='Olá! Estou no site e quero solicitar um orçamento.'` — assim mensagem-canned → só o fluxo dedicado; saudação espontânea → Opener.
-- **Backend:** guincho é serviço à parte (não passa pelo cálculo de frete) — sem envolvimento do backend.
+
+---
+
+## 15. `Cotando=Sim` em TODOS os fluxos de orçamento — 10/08/2026
+
+O encaminhador (`6a776678cb274c43e5f40945`) só repassa a conversa ao backend quando
+**`$Cotando=='Sim'`**. Fluxo que coleta orçamento sem ligar `Cotando` → o backend
+nunca recebe a conversa → lead **vazio** (caso Matheus, via guincho). Correção: ligar
+`Cotando=Sim` em **todos** os pontos de entrada.
+
+| Fluxo | ID entrada | Cotando=Sim |
+|---|---|---|
+| Formulário (3.1) | `6a75e9a15ffa7455b9ce5033` | ✅ (já tinha) |
+| Opener (3.5) | `6a76382343ec83dc260744f7` | ✅ (já tinha) |
+| Guincho | `69d7ae5b68a0815f5a78ca71` | ✅ adicionado |
+| Campanha | `69d7b0d71081c653ccc62508` | ✅ adicionado |
+| URA / Template | `681b5fd9b26db46921d0c1ec` | ✅ adicionado (rede de segurança) |
+
+- **Guincho = conversa livre** → precisava do `Cotando` (era o bug do Matheus).
+- **Campanha/URA = estruturados** (campos + botão) → `Cotando` é rede de segurança: o
+  `anything_else` só repassa texto **fora do roteiro**, sem atrapalhar os passos.
+- **Diagnóstico:** no `chatguru_webhook_log`, o POST do contato deve ter `texto_mensagem`
+  com os dados **e** `bot_context: {"Cotando":"Sim"}`.
 
 ---
 
