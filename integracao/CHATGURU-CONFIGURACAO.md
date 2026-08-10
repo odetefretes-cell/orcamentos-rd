@@ -56,7 +56,9 @@ Integrar o ChatGuru ao backend da OBS e organizar o fluxo de orçamento:
 ### 3.5. Opener – Saudação / Pedido de orçamento — ID `6a76382343ec83dc260744f7`
 - Invocável. Envia o formulário de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
 - **Gatilho (3 travas):**
-  `(!word=='bom dia' or 'boa tarde' or 'boa noite' or 'preciso de um orçamento') AND !new_chat AND $Template!='True' AND $Template!='1'`.
+  `(saudações/intenções) AND !new_chat AND $Template!='True' AND $Template!='1'`.
+  - Saudações/intenções (ampliadas 10/08): bom dia, boa tarde, boa noite, preciso de um orçamento, **oi, olá, ola, opa, boa, orçamento, orcamento, cotação, cotacao, guincho, cegonha, transporte, frete**.
+  - ⚠️ Editar essa condição pelos **chips** do builder (o textarea avançado não persiste — o ChatGuru reconstrói dos chips no submit).
 - **As 3 travas:**
   1. `!new_chat` — só a primeira interação (não dispara em contato já em tratativa).
      ⚠️ Antes era `!new_chat OR !status=='ABERTO'`; o `!status=='ABERTO'` fazia o intake disparar em qualquer contato aberto — removido.
