@@ -138,12 +138,32 @@ Cliente pede uma pessoa → **AGUARDANDO + delegar ao Comercial (rodízio) + nã
 
 ---
 
+## 13. URA de Orçamento — passo "Valor do veículo" (10/08/2026)
+
+A URA (máquina de estados que coleta os dados antes de passar pro atendente) ganhou
+um passo **Valor do veículo** entre *Modelo* e *Data de envio*. Guarda no campo
+personalizado **"Valor do veículo"** (ID `6a79f48aa4fd7f150cf35681`).
+
+- **Pergunta:** `1.1.1.1.1.1.1 - Modelo -> Valor` (`680a8df296644d68e2f5d6bb`) — `$URA='OrcamentoValor'` + "Qual o valor do veículo?".
+- **Captura:** `1.1.1.1.1.1.1.V` (`6a79f4e85fcfd9cdf7e6196b`) — grava o valor no campo, avança pra Data de envio.
+- **Lembrete 5 min:** `T - Valor` (`6a7a0ab97ada0f9bd240abde`) — reenvia a pergunta se o cliente não respondeu (`$URA=='OrcamentoValor' e $Timer=='False'`), depois escala pro atendente.
+
+> **Backend:** o campo "Valor do veículo" é lido no acionamento do botão (harvest —
+> `CAMPO_RELEVANTE` casa "valor"). Complementa a regra do backend de cotar a média
+> **mesmo sem valor** (contatos livres que não passam pela URA): URA coleta quando dá,
+> e o backend cota como estimativa quando não tem o valor.
+
+---
+
 ## O que o BACKEND faz (resumo, não mexer sem sincronizar)
 
 - Acumula mensagens por telefone (janela ~60s) e fecha o lead.
-- Junta **texto + campos personalizados** pra IA extrair origem/destino/veículo/valor.
+- Junta o **texto da conversa**; colhe **campos personalizados só no botão** (fonte secundária — a conversa tem prioridade sobre campos velhos).
 - Botão `origem=fechar` → processa na hora.
 - **Reinicia o ciclo** quando o mesmo número volta a pedir (formulário/botão).
 - Calcula a média (Fase B) e envia; grava **`MediaEnviada=Sim`** via API.
+- **Cota a média mesmo SEM o valor** do veículo (origem+destino+veículo bastam; estimativa).
+- Entende valor em vários formatos ("Fipe 419k", "419 mil", "50k").
 - Aviso de **fora de expediente**.
 - **`pediuAtendente`** → humano sem perguntar.
+- **Fase C** reativa o encaminhador (liga `Cotando`, limpa `MediaEnviada`) ao pedir dado que falta.
