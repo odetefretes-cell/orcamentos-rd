@@ -74,12 +74,13 @@ const SCHEMA = {
     faltaInfo:     { type: 'boolean', description: 'true se faltam dados ESSENCIAIS para cotar: ORIGEM, DESTINO, VEÍCULO ou VALOR do veículo. Para leads do formulário do site (vêm completos), normalmente false.' },
     faltamCampos:  { type: 'array',   items: { type: 'string' }, description: 'Lista dos campos essenciais que faltam (ex.: ["origem","destino","veículo","valor do veículo"]). Vazio se não faltar nada.' },
     perguntaCliente:{ type: 'string', description: 'Quando faltaInfo=true, uma pergunta curta e cordial (pt-BR) pedindo ao cliente EXATAMENTE os dados que faltam para o orçamento. Vazio caso contrário.' },
+    pediuAtendente: { type: 'boolean', description: 'true SOMENTE quando o cliente pede explicitamente para falar com um ATENDENTE/PESSOA/HUMANO (ex.: "falar com atendente", "quero falar com alguém", "me liga"). Nesse caso, decisao="humano" e faltaInfo=false (não perguntar nada). false caso contrário.' },
   },
   required: [
     'nome','email','telefone','tipoCliente','veiculo','tipoVeiculo',
     'valorVeiculo','valorInformado','funciona','blindado','motoEletrica','leilao','carroMudanca',
     'origem','destino','observacao','decisao','motivo','precisaAjuste','motivoAjuste','orcarComo',
-    'faltaInfo','faltamCampos','perguntaCliente',
+    'faltaInfo','faltamCampos','perguntaCliente','pediuAtendente',
   ],
 };
 
@@ -100,6 +101,11 @@ Envie para HUMANO (decisao="humano") SOMENTE quando QUALQUER uma for verdadeira:
 - Valor do veículo ACIMA de R$ ${LIMITE_VALOR_HUMANO} (não informado NÃO conta aqui).
 - Lead SEM valor do veículo informado.
 - Qualquer coisa claramente fora do padrão / valor claramente errado.
+- CLIENTE PEDIU ATENDENTE/HUMANO: o cliente pede explicitamente para falar com uma
+  PESSOA (ex.: "falar com atendente", "quero falar com alguém", "atendimento humano",
+  "chama um vendedor", "me liga", "quero falar com um humano"). Neste caso, ALÉM de
+  decisao="humano", defina TAMBÉM faltaInfo=false e pediuAtendente=true — NÃO faça
+  nenhuma pergunta (ele quer uma pessoa, não o robô). motivo="cliente pediu atendente".
 
 Em todos os outros casos, decisao="automatico".
 
