@@ -55,8 +55,13 @@ Integrar o ChatGuru ao backend da OBS e organizar o fluxo de orçamento:
 
 ### 3.5. Opener – Saudação / Pedido de orçamento — ID `6a76382343ec83dc260744f7`
 - Invocável. Envia o formulário de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
-- **Gatilho (após trava):** `(!word=='bom dia' or 'boa tarde' or 'boa noite' or 'preciso de um orçamento') AND !new_chat`.
-- ⚠️ **Trava:** antes era `... AND (!new_chat OR !status=='ABERTO')` — o `!status=='ABERTO'` fazia o intake disparar em qualquer contato aberto (inclusive clientes em tratativa). Trocado por **`!new_chat`** (só a primeira interação).
+- **Gatilho (3 travas):**
+  `(!word=='bom dia' or 'boa tarde' or 'boa noite' or 'preciso de um orçamento') AND !new_chat AND $Template!='True' AND $Template!='1'`.
+- **As 3 travas:**
+  1. `!new_chat` — só a primeira interação (não dispara em contato já em tratativa).
+     ⚠️ Antes era `!new_chat OR !status=='ABERTO'`; o `!status=='ABERTO'` fazia o intake disparar em qualquer contato aberto — removido.
+  2. Contatos existentes (follow-up) não são `new_chat` → já ficam de fora.
+  3. `$Template!='True' AND $Template!='1'` — **contatos incluídos por template** (equipe manda "Olá {nome}… Aqui é da OBS" + tag "Emitir orçamento") passam pelo diálogo **"URA - Template"** (ID `681b5fd9b26db46921d0c1ec`), que grava `$Template`. Sem essa trava, o Opener disparava junto e mandava o intake por engano (caso "Alex"). Com ela, o contato segue só pelo fluxo da URA.
 - **Limitação (retorno de cliente antigo):** o chat reabre como ABERTO (não é `new_chat`), então o Opener **não** dispara sozinho no retorno — o atendente aciona manualmente (Invocável). Leads do formulário não são afetados (3.1 liga o `Cotando` sempre).
 
 ---
