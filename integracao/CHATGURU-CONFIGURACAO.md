@@ -55,15 +55,15 @@ Integrar o ChatGuru ao backend da OBS e organizar o fluxo de orçamento:
 
 ### 3.5. Opener – Saudação / Pedido de orçamento — ID `6a76382343ec83dc260744f7`
 - Invocável. Envia o formulário de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
-- **Gatilho (3 travas):**
-  `(saudações/intenções) AND !new_chat AND $Template!='True' AND $Template!='1'`.
-  - Saudações/intenções (ampliadas 10/08): bom dia, boa tarde, boa noite, preciso de um orçamento, **oi, olá, ola, opa, boa, orçamento, orcamento, cotação, cotacao, guincho, cegonha, transporte, frete**.
-  - ⚠️ Editar essa condição pelos **chips** do builder (o textarea avançado não persiste — o ChatGuru reconstrói dos chips no submit).
-- **As 3 travas:**
-  1. `!new_chat` — só a primeira interação (não dispara em contato já em tratativa).
-     ⚠️ Antes era `!new_chat OR !status=='ABERTO'`; o `!status=='ABERTO'` fazia o intake disparar em qualquer contato aberto — removido.
-  2. Contatos existentes (follow-up) não são `new_chat` → já ficam de fora.
-  3. `$Template!='True' AND $Template!='1'` — **contatos incluídos por template** (equipe manda "Olá {nome}… Aqui é da OBS" + tag "Emitir orçamento") passam pelo diálogo **"URA - Template"** (ID `681b5fd9b26db46921d0c1ec`), que grava `$Template`. Sem essa trava, o Opener disparava junto e mandava o intake por engano (caso "Alex"). Com ela, o contato segue só pelo fluxo da URA.
+- **Gatilho (ATUAL, v11 — 11/08): dispara em QUALQUER 1ª mensagem de contato novo.**
+  `!new_chat AND $Template!='True' AND $Template!='1' AND !text!='Olá! Estou procurando orçamento de guincho.' AND !text!='Olá! Estou no site e quero solicitar um orçamento.'`
+  - **Mudança:** antes era uma lista de palavras casadas por **"Frase Exata"** (`!word=='bom dia'` só batia se a mensagem fosse EXATAMENTE "bom dia"). Variações reais nunca batiam ("Bom dia !", "Oi" com maiúscula, "Queria fazer uma cotação" — casos Mari, Fran). Trocado por **`!new_chat`**: dispara na 1ª mensagem de todo contato novo, seja qual for o texto.
+  - **Efeito colateral aceito:** um contato novo que escreva sobre outro assunto também recebe o intake (recuperável; o atendente assume).
+  - ⚠️ Editar pelos **chips** do builder (o textarea avançado não persiste; salvar pelo **submit do formulário**).
+- **Travas mantidas:**
+  1. `!new_chat` — só a **primeira** interação de um contato novo (não dispara em tratativa).
+  2. `$Template!='True' AND $Template!='1'` — **contatos incluídos por template** (URA-Template `681b5fd9b26db46921d0c1ec`) seguem só pela URA, sem intake por engano (caso "Alex").
+  3. **Exclusão das 2 mensagens-canned** (guincho/campanha, §14) — elas têm fluxo próprio.
 - **Limitação (retorno de cliente antigo):** o chat reabre como ABERTO (não é `new_chat`), então o Opener **não** dispara sozinho no retorno — o atendente aciona manualmente (Invocável). Leads do formulário não são afetados (3.1 liga o `Cotando` sempre).
 
 ---
