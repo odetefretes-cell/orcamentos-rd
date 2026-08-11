@@ -55,16 +55,16 @@ Integrar o ChatGuru ao backend da OBS e organizar o fluxo de orçamento:
 
 ### 3.5. Opener – Saudação / Pedido de orçamento — ID `6a76382343ec83dc260744f7`
 - Invocável. Envia o formulário de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
-- **Tipo:** Contínuo (`soft`) · **Máx. Execuções por chat: 1** · Invocável.
-- **Gatilho (ATUAL, v13 — 11/08): gatilho de PALAVRA "contém" (lista ampla), SEM `new_chat`/`anything_else`.**
+- **Tipo:** **Padrão (`standard`)** ⚠️ **— a correção FINAL (v14, 11/08).** · **Máx. Execuções por chat: 1** · Invocável.
+- **Gatilho (ATUAL): gatilho de PALAVRA "contém" (lista ampla).**
   Lista (contém): `bom dia, boa tarde, boa noite, oi, ola, olá, opa, eae, orçamento, orcamento, cotação, cotacao, cotar, frete, mudança, mudanca, transporte, transportar, guincho, cegonha, carro, veículo, veiculo, moto, preciso, gostaria, quero, quanto, valor, preço, preco, buscar, levar, custa`
   `+ $Cotando!='Sim' AND $MediaEnviada!='Sim' AND $MediaEnviada!='Respondido' AND $Template!='True' AND $Template!='1' + exclusões !text!= (guincho/campanha/'Solicitação de orçamento')`
-  - **CAUSA RAIZ (confirmada — 3 tentativas):** no ChatGuru, o gatilho tipo **"Palavra" casa quando a mensagem CONTÉM a palavra** (NÃO é frase exata — "Frase Exata" era só o nome do *grupo*). Num nó Contínuo/soft, **só o gatilho de PALAVRA dispara em mensagem fria** de contato novo; **`new_chat` e `anything_else` NÃO disparam a frio**. O problema nunca foi a lista — era a trava **`AND !new_chat`** junto dela. Solução: palavra "contém" **sem** `new_chat`.
-  - Como é "contém", pega "Bom diaa", "Preciso de um frete", "Queria fazer uma cotação", etc.
-  - **Handoff com o encaminhador:** o `$Cotando!='Sim'` garante que o Opener não redispara depois de começar; a partir daí o encaminhador (`anything_else + $Cotando=='Sim'`) assume. `Máx. Execuções=1`.
-  - **Exclusões `!text!=`:** evitam disparar sobre guincho/campanha (canned) e formulário, cujas frases contêm palavras da lista.
+  - **🎯 CAUSA RAIZ FINAL — era o TIPO do diálogo.** No ChatGuru, diálogo **"Contínuo" (soft) NÃO dispara na mensagem FRIA de um contato novo — só o tipo "Padrão" dispara.** O Opener estava como "Contínuo" o tempo todo → por isso NENHUMA condição (palavra, `new_chat`, `anything_else`) disparava a frio. Confirmado pelo caso "josé" (funcionou porque veio pela URA, cujos diálogos são "Padrão"). **Fix: Tipo → "Padrão".** (Salvar o tipo só gravou via `form.submit()` — os cliques em "Salvar Alterações" não submetiam.)
+  - **Sobre "Palavra":** casa quando a mensagem **CONTÉM** a palavra (não é frase exata) → pega "Bom diaa", "Preciso de um frete", "Queria uma cotação".
+  - **Handoff com o encaminhador:** `$Cotando!='Sim'` evita redisparo; depois o encaminhador (`anything_else + $Cotando=='Sim'`) assume. `Máx. Execuções=1`.
+  - **Exclusões `!text!=`:** evitam disparar sobre guincho/campanha (canned) e formulário.
   - **Efeito colateral aceito:** contato que escreve uma dessas palavras sobre outro assunto também recebe o intake (recuperável).
-  - ⚠️ Editar: **"Gatilho Avançado" → digitar em `manual_trigger_input` → "✓ Salvar" → "Salvar Alterações"** (a UI reconstrói os chips; editar o textarea escondido por script não persiste).
+  - ⚠️ Editar: **"Gatilho Avançado" → `manual_trigger_input` → "✓ Salvar" → "Salvar Alterações"**. Trocar o TIPO: pode precisar de `form.submit()` (o botão às vezes não submete).
 - **Limitação (retorno de cliente antigo):** conversa já aberta não reprocessa; o atendente aciona o Opener manual (Invocável).
 
 ---
