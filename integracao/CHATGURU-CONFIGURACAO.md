@@ -55,16 +55,18 @@ Integrar o ChatGuru ao backend da OBS e organizar o fluxo de orçamento:
 
 ### 3.5. Opener – Saudação / Pedido de orçamento — ID `6a76382343ec83dc260744f7`
 - Invocável. Envia o formulário de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
-- **Gatilho (ATUAL, v11 — 11/08): dispara em QUALQUER 1ª mensagem de contato novo.**
-  `!new_chat AND $Template!='True' AND $Template!='1' AND !text!='Olá! Estou procurando orçamento de guincho.' AND !text!='Olá! Estou no site e quero solicitar um orçamento.'`
-  - **Mudança:** antes era uma lista de palavras casadas por **"Frase Exata"** (`!word=='bom dia'` só batia se a mensagem fosse EXATAMENTE "bom dia"). Variações reais nunca batiam ("Bom dia !", "Oi" com maiúscula, "Queria fazer uma cotação" — casos Mari, Fran). Trocado por **`!new_chat`**: dispara na 1ª mensagem de todo contato novo, seja qual for o texto.
-  - **Efeito colateral aceito:** um contato novo que escreva sobre outro assunto também recebe o intake (recuperável; o atendente assume).
-  - ⚠️ Editar pelos **chips** do builder (o textarea avançado não persiste; salvar pelo **submit do formulário**).
-- **Travas mantidas:**
-  1. `!new_chat` — só a **primeira** interação de um contato novo (não dispara em tratativa).
-  2. `$Template!='True' AND $Template!='1'` — **contatos incluídos por template** (URA-Template `681b5fd9b26db46921d0c1ec`) seguem só pela URA, sem intake por engano (caso "Alex").
-  3. **Exclusão das 2 mensagens-canned** (guincho/campanha, §14) — elas têm fluxo próprio.
-- **Limitação (retorno de cliente antigo):** o chat reabre como ABERTO (não é `new_chat`), então o Opener **não** dispara sozinho no retorno — o atendente aciona manualmente (Invocável). Leads do formulário não são afetados (3.1 liga o `Cotando` sempre).
+- **Tipo:** Contínuo (`soft`) · **Máx. Execuções por chat: 1** · Invocável.
+- **Gatilho (ATUAL, v12 — 11/08): `anything_else` + travas de contexto.**
+  `anything_else AND $Cotando!='Sim' AND $MediaEnviada!='Sim' AND $MediaEnviada!='Respondido' AND $Template!='True' AND $Template!='1'`
+  - **Evolução do gatilho (o que fez FINALMENTE disparar):**
+    - Lista de palavras (`!word==`) = match **"Frase Exata"** → variações nunca batiam ("Bom dia !", "Oi" maiúsc., "Queria uma cotação" — casos Mari/Fran).
+    - `!new_chat` → **também não disparava** num nó Contínuo/soft (caso Antonival): `new_chat` quase nunca fica verdadeiro quando o nó é avaliado como fallback.
+    - **`anything_else`** (mesmo mecanismo do encaminhador `6a776678`, que comprovadamente dispara) → roda na **1ª mensagem que não casa com nenhum outro diálogo**.
+  - **Handoff limpo com o encaminhador:** Opener = `anything_else + $Cotando!='Sim'`; encaminhador = `anything_else + $Cotando=='Sim'`. Na 1ª msg dispara o Opener (liga `Cotando=Sim`); nas seguintes, o encaminhador. `Máx. Execuções=1` garante 1x por chat.
+  - **Não pega os fluxos próprios:** formulário e mensagens-canned (guincho/campanha) **casam com os próprios diálogos**, então `anything_else` não dispara neles. Template fica de fora pela trava `$Template`.
+  - **Efeito colateral aceito:** contato que escreve sobre outro assunto também recebe o intake (recuperável; atendente assume).
+  - ⚠️ Editar: **"Gatilho Avançado" → digitar em `manual_trigger_input` → "✓ Salvar" → "Salvar Alterações"** (submit). Editar o textarea escondido por script não persiste.
+- **Limitação (retorno de cliente antigo):** conversa já aberta não reprocessa; o atendente aciona o Opener manual (Invocável).
 
 ---
 
