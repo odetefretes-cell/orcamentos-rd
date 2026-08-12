@@ -236,6 +236,37 @@ Resposta Inválida" (edge-cases mid-URA) ficam sem o almoço até a centralizaç
 
 ---
 
+## 18. Opener parou de gravar `Cotando=Sim` (contato direto não cota) — 12/08/2026
+
+**Sintoma:** contato direto (edson) — o Opener mandou o intake certo, o cliente
+respondeu os dados por texto (Celta 2015, R$25.000, Orós/CE → Guarulhos), mas
+**nenhum lead / nenhuma média**. Painel vazio, "Ninguém Delegado".
+
+**Diagnóstico (log, confirmado):** a resposta do edson **não chegou** ao backend
+(`gcloud logging` na janela dele = vazio; nada no `chatguruWebhook`). Comparando:
+o **Antonio** (mesmo horário) entrou pela **URA/Template** com **`bot_context:
+{"Cotando":"Sim"}`** e foi recebido normal. Ou seja: o encaminhador
+(`anything_else and $Cotando=='Sim'`) **funciona** — o que faltou foi o
+**`Cotando=Sim` não estar ativo** no fluxo do Opener.
+
+**Causa provável:** o **Contexto de Saída `Cotando=Sim` do Opener se perdeu** quando
+o diálogo foi trocado pro tipo **"Padrão"** (correção da §3.5). Backend/IA/cálculo
+estão OK — o furo é o dado do cliente não ser repassado.
+
+**Correção:** Opener (`6a76382343ec83dc260744f7`) → **Contexto de Saída** →
+confirmar/re-adicionar **`Cotando = Sim`** → Salvar.
+
+**Blindagem (recomendada):** ligar `Cotando=Sim` também por um ponto ÚNICO — um
+diálogo que dispara quando a **tag "Emitir orçamento"** é adicionada (todo lead de
+orçamento recebe). Assim não depende só do Opener; qualquer caminho de orçamento
+habilita o encaminhador. (Era a "alternativa não aplicada" da §15.)
+
+**Teste:** contato novo → "bom dia" → intake → responder dados → ~1-2 min → média
+sozinha. Conferir no log: `firebase functions:log --only chatguruWebhook | grep bot_context`
+→ tem que ter **`"Cotando":"Sim"`**.
+
+---
+
 ## O que o BACKEND faz (resumo, não mexer sem sincronizar)
 
 - Acumula mensagens por telefone (janela ~60s) e fecha o lead.
