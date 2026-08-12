@@ -547,8 +547,15 @@ function calcularFreteLead(l, db, coords){
     opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
   }
   if(!opts.length){ l.trajetos=[]; l.valorCotacaoSW=''; l.valorEstimado=''; l.prazoSW=''; return false; }
-  const barata=opts.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12)||a.legs.length-b.legs.length)[0];
-  const menos =opts.slice().sort((a,b)=>(a.legs.length-b.legs.length)||(a.total??1e12)-(b.total??1e12))[0];
+  // Só considera opções com PREÇO para a categoria do veículo (todas as pernas com valor).
+  // Uma rota que EXISTE mas não tem preço p/ a categoria (ex.: moto numa rota só de carro —
+  // caso Kroth Caxias→SP) NÃO pode virar média: sem esse filtro o Frete Base ia a 0 e a
+  // composição (seguro+lucro+imposto) ainda gerava um total > 0 → média ERRADA ao cliente.
+  // Filtrando aqui, essa rota vira "sem rota automática" → atenção humana (orçamento manual).
+  const comPreco = opts.filter(o => o.total!=null && o.legs.every(g=>g.valor!=null));
+  if(!comPreco.length){ l.trajetos=[]; l.valorCotacaoSW=''; l.valorEstimado=''; l.prazoSW=''; return false; }
+  const barata=comPreco.slice().sort((a,b)=>(a.total??1e12)-(b.total??1e12)||a.legs.length-b.legs.length)[0];
+  const menos =comPreco.slice().sort((a,b)=>(a.legs.length-b.legs.length)||(a.total??1e12)-(b.total??1e12))[0];
   const escolhida = crmPadraoDireta(barata, menos);
   l.trajetos=escolhida.legs.map(g=>({ de:`${g.oNome}/${g.oUF}`, para:`${g.dNome}/${g.dUF}`,
     transportadora:g.transportadora, valor:g.valor!=null?String(g.valor):'', valores:g.valores||null, oUF:g.oUF, dUF:g.dUF, prazo:g.prazo||null }));
