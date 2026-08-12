@@ -249,12 +249,16 @@ o **Antonio** (mesmo horário) entrou pela **URA/Template** com **`bot_context:
 (`anything_else and $Cotando=='Sim'`) **funciona** — o que faltou foi o
 **`Cotando=Sim` não estar ativo** no fluxo do Opener.
 
-**Causa provável:** o **Contexto de Saída `Cotando=Sim` do Opener se perdeu** quando
-o diálogo foi trocado pro tipo **"Padrão"** (correção da §3.5). Backend/IA/cálculo
-estão OK — o furo é o dado do cliente não ser repassado.
+**Causa (confirmada pelo Cowork):** o `Cotando=Sim` do Opener estava **ausente
+naquele momento** — caiu durante uma edição do nó/gatilho (troca pra "Padrão"),
+**não porque "Padrão apaga o Cotando"** (a **URA-Template** é `Padrão` + `Cotando=Sim`
+no Contexto de Saída **e funciona** — se apagasse, ela também falharia). Backend/IA/
+cálculo estão OK — o furo foi o dado do cliente não ser repassado por falta do marcador.
 
-**Correção:** Opener (`6a76382343ec83dc260744f7`) → **Contexto de Saída** →
-confirmar/re-adicionar **`Cotando = Sim`** → Salvar.
+**Correção — JÁ APLICADA (confirmada):** Opener (`6a76382343ec83dc260744f7`) está
+**íntegro**: `node_type=standard` + Contexto de Saída **`Cotando=Sim`** + ação
+status→ABERTO — idêntico à URA-Template que funciona. Pendente só o **teste ponta a
+ponta** (contato novo) pra fechar.
 
 **Blindagem (recomendada):** ligar `Cotando=Sim` também por um ponto ÚNICO — um
 diálogo que dispara quando a **tag "Emitir orçamento"** é adicionada (todo lead de
