@@ -3,7 +3,7 @@
 **Conta:** s22.chatguru.app — "Obs Transportes"
 **Chatbot ID:** `67e2f6b3198069809dfaf169`
 **Base de edição dos diálogos:** `https://s22.chatguru.app/chatbot/67e2f6b3198069809dfaf169/dialog/{id}/edit`
-**Última atualização:** 10/08/2026 (mantida pela equipe/Cowork; esta é a cópia versionada no repo)
+**Última atualização:** 12/08/2026 (mantida pela equipe/Cowork; esta é a cópia versionada no repo)
 
 ---
 
@@ -193,6 +193,46 @@ nunca recebe a conversa → lead **vazio** (caso Matheus, via guincho). Correç�
   `anything_else` só repassa texto **fora do roteiro**, sem atrapalhar os passos.
 - **Diagnóstico:** no `chatguru_webhook_log`, o POST do contato deve ter `texto_mensagem`
   com os dados **e** `bot_context: {"Cotando":"Sim"}`.
+
+---
+
+## 16. Interesse (/confirmar) disparando durante atendimento humano — 12/08/2026
+
+**Problema:** os diálogos **3.3** (`6a765e9e60ffafe1d1349210`) e **3.4**
+(`6a7667370f1264e13e5bfac2`) mandam o `/confirmar` sempre que o cliente diz "sim"/"quero"
+e `$MediaEnviada=='Sim'` — **mesmo com o operador já atendendo** (caso Alipio: a Yasmin
+atendia, o "Sim" era pra ela, e o bot injetou o /confirmar).
+
+**Solução (validada) — trava `!status=='ABERTO'`** no gatilho dos dois. Significado dos
+status na OBS: **ABERTO** = bot no controle (média enviada, ninguém assumiu);
+**AGUARDANDO / EM ATENDIMENTO** = operador atendendo. O passo 3.2 **não mexe no status**,
+e o AGUARDANDO só é setado pelo próprio diálogo de interesse **depois** de disparar — então,
+no "sim" do fluxo normal, o chat está ABERTO.
+
+Condição alvo (3.3 e 3.4): `(…palavras…) and $MediaEnviada=='Sim' and !status=='ABERTO'`
+- "sim" no fluxo normal (ABERTO) → dispara ✓. Operador já assumiu (AGUARDANDO/EM ATEND.) → não dispara ✓.
+
+> ⚠️ **Adicionar SÓ pelo builder nativo** (GATILHO → "Adicionar Gatilho" → "Status do Chat"
+> = ABERTO, ligado por **AND**). Texto cru é descartado no save. Repetir em 3.3 **e** 3.4.
+> **Requisito de processo:** operador tira o chat de ABERTO ao assumir (já é o hábito da equipe).
+> **Opção global (perguntar ao suporte):** pausar o bot quando o atendente assume.
+
+## 17. Horário — almoço 12:30–13:30 (seg a sex) — 12/08/2026
+
+Não há "Horário de Atendimento" central nesta conta — o expediente está **hardcoded em
+~13 diálogos** (família "FH – Fora de Horário" + interesse fora + fora de horário), com
+condições **não uniformes**. Decisão: aplicar o almoço só nos **2 diálogos que o cliente
+encosta** e levar a **consolidação central** pro suporte.
+
+| Diálogo | ID |
+|---|---|
+| Interesse FORA de expediente | `6a7667370f1264e13e5bfac2` |
+| Fora de horário – Em atendimento / Aguardando | `67e2f6c26628887da6f35028` |
+
+Em cada um, no **Gatilho Avançado**, trocar `!current_time>='18:00'` por:
+`!current_time>='18:00' or (!current_time>='12:30' and !current_time<'13:30')` → **Salvar**.
+Resultado: **12:30–13:30 conta como fora do expediente**. Os outros 11 diálogos "FH –
+Resposta Inválida" (edge-cases mid-URA) ficam sem o almoço até a centralização pelo suporte.
 
 ---
 
