@@ -31,22 +31,26 @@ duplica**.
 
 ## 2. Peça 1 — O Formulário do Meta (campos a coletar)
 
-No formulário instantâneo do anúncio, colete (nomes livres, o que importa é o
-conteúdo):
+**Decisão OBS:** o formulário do Meta terá as **MESMAS perguntas do formulário do
+site** (já em uso). Então os campos são:
 
-| Campo no formulário | Pra que serve | Obrigatório? |
+| Campo (igual ao site) | Pra que serve | Obrigatório? |
 |---|---|---|
 | Nome | identificar o lead | sim |
-| WhatsApp / Telefone | é a CHAVE do lead e pra onde vai a média | **sim** |
-| Cidade/Estado de **origem** | cálculo | **sim (p/ média automática)** |
-| Cidade/Estado de **destino** | cálculo | **sim (p/ média automática)** |
-| **Veículo** (marca/modelo/ano) | cálculo (categoria) | **sim (p/ média automática)** |
-| Valor do veículo | seguro (ajustável depois) | opcional |
+| Telefone / WhatsApp | é a CHAVE do lead e pra onde vai a média | **sim** |
 | E-mail | contato/fallback | opcional |
+| Tipo de cliente | classificação | opcional |
+| Veículo (marca/modelo/ano) | cálculo (categoria) | **sim** |
+| Tipo de veículo (categoria) | cálculo | ajuda (a IA infere se faltar) |
+| Valor do veículo | seguro (ajustável depois) | opcional |
+| Funciona/liga | marcação de ajuste | opcional |
+| Blindado | marcação de ajuste | opcional |
+| Cidade/Estado de **origem** | cálculo | **sim** |
+| Cidade/Estado de **destino** | cálculo | **sim** |
+| Observação | contexto | opcional |
 
 > **Mínimo pra cotar sozinho:** origem + destino + veículo. Sem um desses, a IA
-> pergunta o que falta (Fase C) OU vai pra humano — igual hoje. **Quanto mais o
-> formulário coletar, mais vai automático.**
+> pergunta o que falta (Fase C) OU vai pra humano — igual hoje.
 
 ---
 
@@ -82,21 +86,35 @@ formato do formulário do site** (assim o backend trata idêntico — inclusive 
 reinicia o ciclo pra não misturar com cotação antiga do mesmo número):
 
 **Ações do diálogo:**
-1. **Responder / Mensagem interna** montando o TEXTO abaixo com as variáveis dos
-   campos mapeados (ajuste os nomes `$...` aos campos reais do ChatGuru):
+1. **Responder / Mensagem interna** montando o TEXTO abaixo (é o **mesmo texto do
+   formulário do site**, campo por campo) com as variáveis dos campos mapeados.
+   Troque cada `$...` pelo nome REAL do Campo Personalizado no ChatGuru:
 
    ```
    *Solicitação de orçamento — OBS Transportes*
 
    Nome: $nome
    Telefone: $celular
-   Veículo: $modelo_do_veiculo
+   E-mail: $email
+   Tipo de cliente: $tipo_de_cliente
+   Veículo: $veiculo
+   Tipo de veículo: $tipo_de_veiculo
    Valor do veículo: $valor_do_veiculo
-   Origem: $local_de_origem_do_transporte
-   Destino: $local_de_desdetino_do_transporte
+   Funciona/liga: $funciona
+   Blindado: $blindado
+   Origem: $cidade_origem
+   Destino: $cidade_destino
+   Observação: $observacao
 
    Gostaria de receber o valor do transporte.
    ```
+
+   Observações:
+   - A 1ª linha `*Solicitação de orçamento — OBS Transportes*` é **obrigatória** — é
+     ela que faz o backend tratar como formulário (ciclo limpo + média automática).
+   - Campos vazios não atrapalham (a IA ignora o que vier em branco).
+   - Origem/Destino: mande **cidade + estado** (ex.: `São Paulo SP`) pra bater na
+     tabela de fretes.
 
 2. **POST PARA URL** → `https://southamerica-east1-obs-fretes.cloudfunctions.net/chatguruWebhook`
    (o payload nativo já leva `texto_mensagem` com esse texto + os campos).
