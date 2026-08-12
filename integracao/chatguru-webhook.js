@@ -178,7 +178,30 @@ function querFecharAgora(b){
 function ehInicioDeCotacao(corpo, texto){
   if(querFecharAgora(corpo)) return true;                                  // botão "Gerar Orçamento (Backend OBS)"
   if(/solicita[çc][aã]o de or[çc]amento/i.test(String(texto || ''))) return true; // formulário
+  if(ehIntakePreenchido(texto)) return true;                              // intake/Opener respondido (solicitação nova completa)
   return false;
+}
+
+/* Detecta um INTAKE COMPLETO respondido pelo cliente (o template do Opener/atendente
+   "Para emissão de um orçamento, por favor me informe: … origem … destino … veículo
+   … valor …"). É uma solicitação NOVA e completa, equivalente ao formulário do site
+   — traz todos os dados no próprio texto. Serve pra REINICIAR o ciclo de um contato
+   que JÁ foi cotado antes, em vez de misturar com o acúmulo do orçamento anterior.
+   Caso Rodrigo: BMW X4 novo (SP→Recife) reaproveitava o Mitsubishi TR4 velho
+   (Recife→SP) porque o botão só reprocessava a conversa antiga.
+   NÃO roda no botão (lá o texto vem com os campos personalizados "Rótulo: valor",
+   que dariam falso-positivo) — só em mensagem de conversa. */
+function ehIntakePreenchido(texto){
+  const t = String(texto || '');
+  if(!t.trim()) return false;
+  if(/para emiss[aã]o de um or[çc]amento/i.test(t)) return true;
+  let n = 0;
+  if(/cidade\/estado de origem|cidade de origem|origem\s*:/i.test(t)) n++;
+  if(/cidade\/estado de destino|cidade de destino|destino\s*:/i.test(t)) n++;
+  if(/marca\/modelo|modelo\/ano|ve[íi]culo\s*:/i.test(t)) n++;
+  if(/valor do ve[íi]culo/i.test(t)) n++;
+  if(/ve[íi]culo (é|e|esta|está) (blindado|em algum leil|funciona)|funciona\?/i.test(t)) n++;
+  return n >= 3;
 }
 
 /* A partir do corpo do webhook, extrai os campos que a gente consegue
@@ -329,6 +352,9 @@ exports.chatguruWebhook = onRequest(
 
       const viaBotao = querFecharAgora(corpo);
       const viaFormulario = /solicita[çc][aã]o de or[çc]amento/i.test(String(info.texto || ''));
+      // Intake/Opener respondido pelo cliente numa mensagem de conversa (não botão):
+      // é uma solicitação NOVA e completa → reinicia o ciclo igual ao formulário.
+      const viaIntakeNovo = !viaBotao && ehIntakePreenchido(info.texto);
 
       const ref = db.collection('crm_leads_intake').doc(info.telefone);
       await db.runTransaction(async (tx) => {
@@ -339,7 +365,7 @@ exports.chatguruWebhook = onRequest(
         // (A) PRIMEIRA vez do contato, OU FORMULÁRIO de um número já finalizado →
         // ciclo LIMPO. O formulário traz TODOS os dados no próprio texto, então dá
         // pra zerar o acúmulo antigo (cliente que volta com nova solicitação completa).
-        if(!snap.exists || (viaFormulario && jaFinalizado)){
+        if(!snap.exists || ((viaFormulario || viaIntakeNovo) && jaFinalizado)){
           tx.set(ref, {
             telefone: info.telefone,
             telefoneOriginal: info.telefoneOriginal,
