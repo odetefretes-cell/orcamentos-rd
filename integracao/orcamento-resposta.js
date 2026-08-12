@@ -90,6 +90,31 @@ function formatarBRL(v){
   catch(_) { return 'R$ ' + n.toFixed(2); }
 }
 
+/* Horário de atendimento (fuso America/Sao_Paulo), igual aos gatilhos 3.3/3.4
+   do ChatGuru: Seg–Sex 09:00–18:00 · Sáb 08:00–12:00 · Dom fechado. */
+function dentroDoExpedienteBR(){
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const val = (t) => (partes.find(p => p.type === t) || {}).value;
+  const dia = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }[val('weekday')];
+  let hh = Number(val('hour')); if(hh === 24) hh = 0;   // meia-noite às vezes vem '24'
+  const mins = hh * 60 + Number(val('minute'));
+  if(dia >= 1 && dia <= 5) return mins >= 540 && mins < 1080; // 09:00–18:00
+  if(dia === 6)            return mins >= 480 && mins < 720;  // 08:00–12:00
+  return false; // domingo
+}
+
+const AVISO_FORA_EXPEDIENTE =
+  '🕐 Estamos fora do horário de atendimento no momento (seg a sex das 9h às 18h, ' +
+  'e sáb das 8h às 12h). Sua solicitação já está registrada — assim que retornarmos, ' +
+  'damos sequência por aqui. 😉';
+
+/* Devolve o aviso (já com as quebras de linha) quando FORA do expediente; senão ''. */
+function sufixoForaExpediente(){
+  return dentroDoExpedienteBR() ? '' : ('\n\n' + AVISO_FORA_EXPEDIENTE);
+}
+
 /* Monta o texto da resposta (modelo oficial da OBS). */
 function montarMensagem(lead){
   const e = lead.extraidoIA || {};
@@ -228,6 +253,9 @@ exports.criarLeadNoCrm = onDocumentUpdated(
         dados.atencaoHumano = true;
         dados.motivoHumano = (e.motivo || 'Requer atendimento humano');
         dados._semAutoResposta = true;   // prepararResposta pula este lead
+        // Reinício de ciclo: reabre o AVISO para o mesmo número que volta a cotar.
+        dados.avisoHumanoEnviado = false;
+        dados.erroEnvio = '';
       }
 
       const textoTimeline = paraHumano
@@ -272,6 +300,15 @@ exports.criarLeadNoCrm = onDocumentUpdated(
             _calcAuto: true,          // impede o app de recalcular por cima
             _mediaBackend: true,
             mediaCalculadaEm: FieldValue.serverTimestamp(),
+            // Reinício de ciclo: reabre o envio JUNTO com a média NOVA (mesma
+            // atualização), pra prepararResposta enviar o valor certo — nunca o
+            // antigo. Sem isso, o mesmo número recotando não reenviava.
+            respostaEnviada: false,
+            avisoHumanoEnviado: false,
+            erroEnvio: '',
+            _semAutoResposta: false,
+            atencaoHumano: false,
+            mediaEnviadaMarcada: false,
           });
           console.log(`[criarLeadNoCrm] média backend ${leadId}: R$ ${calc.valorEstimado} (prazo ${calc.prazoSW || '?'}d).`);
         } else {
@@ -281,6 +318,9 @@ exports.criarLeadNoCrm = onDocumentUpdated(
             motivoHumano: 'Sem rota automática — orçamento manual pelo atendente',
             _semAutoResposta: true,
             _semRota: true,
+            // Reinício de ciclo: reabre o AVISO para o mesmo número que volta.
+            avisoHumanoEnviado: false,
+            erroEnvio: '',
           });
           console.log(`[criarLeadNoCrm] ${leadId} SEM rota automática (${calc.motivo}) → atenção humana.`);
         }
@@ -345,7 +385,7 @@ exports.prepararResposta = onDocumentUpdated(
           return true;
         });
         if(!claimed) return;   // outra invocação já pegou → não duplica
-        const texto = valorAlto ? montarMensagemValorAlto(d) : montarMensagemHumano(d);
+        const texto = (valorAlto ? montarMensagemValorAlto(d) : montarMensagemHumano(d)) + sufixoForaExpediente();
         try {
           const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
           await ref.update({ avisoHumanoMessageId: (r && r.message_id) || '' });
@@ -381,16 +421,23 @@ exports.prepararResposta = onDocumentUpdated(
         return true;
       });
       if(!claimed) return;   // outra invocação já pegou o envio → não duplica
-      const texto = d.respostaPreparada || montarMensagem(d);
+      const textoBase = d.respostaPreparada || montarMensagem(d);
+      const texto = textoBase + sufixoForaExpediente();   // aviso só se estiver fora do horário
       try {
         const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
-        const patch = { respostaPreparada: texto, chatguruMessageId: (r && r.message_id) || '' };
+        const patch = { respostaPreparada: textoBase, chatguruMessageId: (r && r.message_id) || '' };
         // Marca MediaEnviada=Sim no ChatGuru (habilita os diálogos de interesse 3.3/3.4).
         try {
           await atualizarContexto({ chatNumber: d._intakeTelefone, variaveis: { MediaEnviada: 'Sim' } });
           patch.mediaEnviadaMarcada = true;
+          patch.mediaEnviadaErro = '';   // limpa erro anterior, se houver
+          console.log(`[prepararResposta] MediaEnviada=Sim marcada no ChatGuru para ${event.params.leadId} (${d._intakeTelefone}).`);
         } catch(e2){
-          console.warn(`[prepararResposta] média enviada, mas falhou marcar MediaEnviada em ${event.params.leadId}:`, (e2 && e2.message) || e2);
+          // Não interrompe (a média já foi enviada). Guarda o erro NO LEAD pra
+          // aparecer no CRM/Firestore, e loga bem visível pra diagnosticar.
+          patch.mediaEnviadaMarcada = false;
+          patch.mediaEnviadaErro = String((e2 && e2.message) || e2);
+          console.error(`[prepararResposta] média enviada, mas FALHOU marcar MediaEnviada em ${event.params.leadId} (${d._intakeTelefone}): ${patch.mediaEnviadaErro}`);
         }
         await ref.update(patch);
         console.log(`[prepararResposta] ENVIADO ${event.params.leadId} (msg ${patch.chatguruMessageId}).`);

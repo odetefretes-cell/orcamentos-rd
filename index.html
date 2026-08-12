@@ -944,6 +944,7 @@
     <div class="crm-toolbar">
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
       <button id="crmBtnPerdaLote" class="btn-ghost" onclick="crmAbrirPerdasLote()" title="Marcar vários leads como PERDIDO de uma vez — cole a lista da auditoria (telefone | motivo, nome ou id)" style="display:none;color:#da3633;border-color:#da3633">❌ Marcar perdas (lote)</button>
+      <button id="crmBtnArquivar" class="btn-ghost" onclick="crmArquivarPerdidosAntigos(false)" title="Arquivar os leads PERDIDOS parados há 10+ dias (vão para a coluna Arquivado, sem sumir)" style="display:none;color:#6b7280;border-color:#6b7280">🗄️ Arquivar antigos</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -4211,6 +4212,11 @@ const CRM_PRIO = { quente:'🔥', morno:'⚡', frio:'❄️' };
 
 let CRM_LEADS = {};
 let crmDragId = null;
+// ---- Render por partes (evita travar o quadro com 1.400+ leads) ----
+const CRM_VIS_BASE = 40;        // cards mostrados por coluna no 1º render
+const CRM_VIS_STEP = 60;        // quantos "carregar mais" adiciona por clique
+let CRM_VIS = {};               // etapaId -> nº de cards visíveis nesta coluna
+let CRM_ARQ_ABERTO = false;     // coluna "Arquivado" começa colapsada (carrega sob demanda)
 
 // ---- Persistência ----
 function loadCRM(){ try{ const o=JSON.parse(localStorage.getItem(CRM_KEY))||{}; for(const k in o){ if(o[k]&&!o[k].id) o[k].id=k; } return o; }catch(_){ return {}; } }
@@ -4345,7 +4351,9 @@ function crmLimparPeriodo(){
 function crmSalvarFiltroVend(v){ try{ v ? localStorage.setItem('obs_crm_vend',v) : localStorage.removeItem('obs_crm_vend'); }catch(_){} }
 function renderCRM(){
   renderCRMMetrics();
-  { const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')?'':'none'; }
+  { const adm=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin');
+    const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=adm?'':'none';
+    const ba=$('#crmBtnArquivar'); if(ba) ba.style.display=adm?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const buscaDig = busca.replace(/\D/g,'');   // só dígitos (para casar telefone com qualquer formatação)
   // casa por texto OU por telefone (só dígitos, ignora (), - e espaços). Com 4+ dígitos, busca no telefone.
@@ -4419,7 +4427,8 @@ function renderCRM(){
         <button onclick="event.stopPropagation();crmWhatsApp('${l.id}')" title="Mensagem de WhatsApp">📱</button>
         <button onclick="event.stopPropagation();crmEmailLead('${l.id}')" title="Enviar orçamento por e-mail (Gmail)">✉️</button>
         <button onclick="event.stopPropagation();crmEnviarOrcamento('${l.id}')" title="Orçamento em PDF">📄</button>
-        ${l.etapa!=='perdido'?`<button onclick="event.stopPropagation();crmMarcarPerda('${l.id}')" title="Marcar como perdido">❌</button>`:''}
+        ${(l.etapa!=='perdido'&&l.etapa!=='arquivado')?`<button onclick="event.stopPropagation();crmMarcarPerda('${l.id}')" title="Marcar como perdido">❌</button>`:''}
+        ${l.etapa==='arquivado'?`<button onclick="event.stopPropagation();crmRestaurarLead('${l.id}')" title="Restaurar (voltar para Perdido)">↩️</button>`:''}
         <button onclick="event.stopPropagation();crmExcluirLead('${l.id}')" title="Excluir">🗑️</button>
       </div>
       <div class="kc-header">
@@ -4443,7 +4452,15 @@ function renderCRM(){
       </div>
     </div>`;
   const tbtn = 'border:none;background:none;cursor:pointer;font-size:11px;color:rgba(228,228,240,.55);padding:0 2px';
-  board.innerHTML = CRM_ETAPAS.map((etapa, ci) => {
+  // render por partes: mostra só os primeiros N cards da coluna + botão "carregar mais"
+  const kmaisStyle='width:100%;margin-top:2px;padding:7px;border:1px dashed rgba(255,255,255,.22);background:rgba(255,255,255,.04);color:rgba(228,228,240,.72);border-radius:8px;cursor:pointer;font-size:12px;font-weight:600';
+  const crmCardsBox = (arr, etapaId) => {
+    const lim = CRM_VIS[etapaId] || CRM_VIS_BASE;
+    const vis = arr.slice(0, lim);
+    const resto = arr.length - vis.length;
+    return vis.map(cardHTML).join('') + (resto>0 ? `<button class="k-mais" style="${kmaisStyle}" onclick="crmVerMais('${etapaId}')">▾ carregar mais (+${Math.min(CRM_VIS_STEP,resto)} de ${resto})</button>` : '');
+  };
+  const colsHTML = CRM_ETAPAS.map((etapa, ci) => {
     let leads = Object.values(CRM_LEADS).filter(l => l.etapa === etapa.id && !l._novo);
     if(busca) leads = leads.filter(crmMatchBusca);
     if(filtroPrio) leads = leads.filter(l => l.prioridade === filtroPrio);
@@ -4467,9 +4484,37 @@ function renderCRM(){
           <button style="${tbtn}" title="Excluir etapa" onclick="crmExcluirEtapa('${etapa.id}')">🗑️</button>
         </span>
       </div>
-      <div class="kanban-cards" data-etapa="${etapa.id}">${leads.map(cardHTML).join('')}</div>
+      <div class="kanban-cards" data-etapa="${etapa.id}">${crmCardsBox(leads, etapa.id)}</div>
     </div>`;
   }).join('');
+
+  // ---- Coluna ARQUIVADO (perdidos guardados) — colapsada por padrão, carrega sob demanda ----
+  let arq = Object.values(CRM_LEADS).filter(l => l.etapa==='arquivado' && !l._novo);
+  const arqTotal = arq.length;
+  if(busca) arq = arq.filter(crmMatchBusca);
+  if(filtroPrio) arq = arq.filter(l=>l.prioridade===filtroPrio);
+  if(filtroVendedor) arq = arq.filter(l=>l.vendedor===filtroVendedor);
+  if(filtroTarefa) arq = arq.filter(casaTarefa);
+  if(filtroLink) arq = arq.filter(casaLink);
+  if(perDe||perAte) arq = arq.filter(casaPeriodo);
+  arq.sort((a,b)=>(b.ultimaInteracao||b.dataEntrada||'').localeCompare(a.ultimaInteracao||a.dataEntrada||''));
+  let arqColHTML = '';
+  if(arqTotal>0){
+    const cor='#6b7280';
+    const arqAberto = CRM_ARQ_ABERTO || (!!busca && arq.length>0);   // busca abre sozinho (achar arquivado pesquisando)
+    const corpo = arqAberto
+      ? crmCardsBox(arq, 'arquivado')
+      : `<button class="k-mais" style="${kmaisStyle}" onclick="crmToggleArquivados()">🗄️ ver ${arqTotal} arquivado(s)</button>`;
+    arqColHTML = `<div class="kanban-col" data-etapa="arquivado">
+      <div class="kanban-col-header" style="border-bottom-color:${cor};cursor:pointer" onclick="crmToggleArquivados()" title="${arqAberto?'Recolher':'Ver arquivados'}">
+        <span class="kch-dot" style="background:${cor}"></span>
+        <span class="kch-title">🗄️ Arquivado ${arqAberto?'▾':'▸'}</span>
+        <span class="kch-count">${arqAberto?arq.length:arqTotal}</span>
+      </div>
+      <div class="kanban-cards" data-etapa="arquivado">${corpo}</div>
+    </div>`;
+  }
+  board.innerHTML = colsHTML + arqColHTML;
 
   // inicializar drag & drop nas colunas
   board.querySelectorAll('.kanban-cards').forEach(col => {
@@ -4500,6 +4545,46 @@ function renderCRM(){
         <span>💰 soma das médias: <b>${moeda(soma)}</b></span></div>`;
     } else resumo.innerHTML='';
   }
+  crmAutoArquivar();   // 1x/dia (admin, após a nuvem confirmar) arquiva perdidos antigos
+}
+
+// ---- Render por partes / Arquivado (ações) ----
+function crmVerMais(etapaId){ CRM_VIS[etapaId]=(CRM_VIS[etapaId]||CRM_VIS_BASE)+CRM_VIS_STEP; renderCRM(); }
+function crmToggleArquivados(){ CRM_ARQ_ABERTO=!CRM_ARQ_ABERTO; if(CRM_ARQ_ABERTO) CRM_VIS['arquivado']=CRM_VIS_BASE; renderCRM(); }
+function crmRestaurarLead(id){
+  if(!CRM_LEADS[id]) return;
+  CRM_LEADS[id].etapa='perdido';
+  crmAddTimeline(id,'restauracao','Restaurado do arquivo (voltou para Perdido).');
+  saveCRM(); renderCRM(); flash('Lead restaurado ✔');
+}
+// maior data entre dataFechamento / ultimaInteracao / dataEntrada / timeline[].data
+function crmUltimaAtividade(l){
+  const ds=[l.dataFechamento, l.ultimaInteracao, l.dataEntrada];
+  if(Array.isArray(l.timeline)) for(const t of l.timeline){ if(t&&t.data) ds.push(t.data); }
+  let max=0; for(const d of ds){ const n=d?+new Date(d):0; if(!isNaN(n)&&n>max) max=n; } return max;
+}
+// arquiva os PERDIDOS parados há 10+ dias → etapa 'arquivado' (grava 1x)
+async function crmArquivarPerdidosAntigos(silencioso){
+  const LIM=10, agora=Date.now(); let n=0;
+  for(const id in CRM_LEADS){ const l=CRM_LEADS[id];
+    if(!l||l._novo||l.etapa!=='perdido') continue;
+    const ua=crmUltimaAtividade(l); if(!ua) continue;
+    const dias=(agora-ua)/864e5;
+    if(dias>=LIM){ l.etapa='arquivado'; crmAddTimeline(id,'arquivamento',`Arquivado (perdido há ${Math.floor(dias)} dias).`); n++; }
+  }
+  if(n){ await saveCRM(); if(typeof renderCRM==='function') renderCRM(); if(!silencioso) flash(`${n} lead(s) arquivado(s) ✔`); }
+  else if(!silencioso) flash('Nenhum perdido de 10+ dias para arquivar.');
+  return n;
+}
+// roda o arquivamento no máximo 1x/dia, só admin e só depois que a nuvem confirmou (evita agir em dado incompleto)
+function crmAutoArquivar(){
+  try{
+    if(!(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin')) return;
+    if(!(CRM_LAST_IDS&&CRM_LAST_IDS.size>0)) return;
+    const hoje=hojeISO(); if(localStorage.getItem('obs_crm_arq_dia')===hoje) return;
+    localStorage.setItem('obs_crm_arq_dia', hoje);   // marca ANTES (evita reentrância no re-render)
+    crmArquivarPerdidosAntigos(true);
+  }catch(_){}
 }
 
 // ---- Drag & Drop ----
@@ -6211,7 +6296,7 @@ function crmCustoAteDestino(db, cat, isDest){
 }
 // escolhe a opção padrão: prefere a rota com MENOS embarques quando ela custa
 // só um pouco mais que a mais barata (evita reembarque desnecessário por poucos reais)
-const CRM_TETO_DIRETA = 150;   // R$ a mais aceitáveis para ganhar um embarque a menos
+const CRM_TETO_DIRETA = 300;   // R$ a mais aceitáveis para ganhar um embarque a menos
 function crmPadraoDireta(barata, menos){
   if(menos && barata && menos.legs.length < barata.legs.length
      && (menos.total??1e12) <= (barata.total??0) + CRM_TETO_DIRETA) return menos;

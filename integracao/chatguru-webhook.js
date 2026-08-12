@@ -61,6 +61,149 @@ function pegar(obj, ...chaves){
   return '';
 }
 
+/* Palavras-chave que indicam um campo útil pro cálculo (origem, destino,
+   veículo, valor…). Serve pra reconhecer os CAMPOS PERSONALIZADOS do ChatGuru
+   pelo NOME, sem depender de nomes exatos. */
+const CAMPO_RELEVANTE = /(origem|destino|coleta|entrega|ve[ií]culo|carro|moto|caminh|modelo|marca|\bano\b|valor|pre[çc]o|cidade|munic|\buf\b|estado|\bcep\b|placa|mercadoria|transporte|rota|trecho|leil)/i;
+
+/* Devolve pares [rótulo, valor] de um contêiner de campos personalizados.
+   O ChatGuru pode mandar isso como OBJETO ({ "Local de destino": "..." }) ou
+   como LISTA de objetos ([{ name/label/campo, value/valor }]). */
+function _paresDeCampos(container){
+  const pares = [];
+  if(Array.isArray(container)){
+    for(const item of container){
+      if(!item || typeof item !== 'object') continue;
+      const rotulo = item.nome || item.name || item.label || item.campo
+                  || item.key || item.chave || item.field || '';
+      const valor  = item.valor != null ? item.valor
+                  : (item.value != null ? item.value
+                  : (item.conteudo != null ? item.conteudo : item.text));
+      if(rotulo && valor != null && String(valor).trim() !== '')
+        pares.push([String(rotulo), String(valor)]);
+    }
+  } else if(container && typeof container === 'object'){
+    for(const [k, v] of Object.entries(container)){
+      if(v == null || typeof v === 'object') continue; // só primitivos, sem descer
+      if(String(v).trim() === '') continue;
+      pares.push([k, String(v)]);
+    }
+  }
+  return pares;
+}
+
+/* Junta os CAMPOS PERSONALIZADOS / variáveis de contexto do ChatGuru num
+   textinho ("Rótulo: valor"), pra IA extrair origem/destino/veículo/valor
+   MESMO quando o cliente não digitou tudo numa mensagem (contatos diretos que
+   o atendente aciona pelo "Gerar Orçamento (Backend OBS)"). */
+function coletarCamposExtras(b){
+  const nomesContainer = ['campos','campos_personalizados','custom_fields','customFields',
+                          'variaveis','variables','contexto','context','bot_context',
+                          'dados_personalizados','fields','data','chat','contato'];
+  const containers = [b];
+  for(const n of nomesContainer){
+    if(b[n] && typeof b[n] === 'object') containers.push(b[n]);
+  }
+  const linhas = [];
+  const vistos = new Set();
+  for(const c of containers){
+    for(const [rotulo, valor] of _paresDeCampos(c)){
+      if(!CAMPO_RELEVANTE.test(rotulo)) continue;
+      if(MARCADOR_VALOR.test(String(valor).trim())) continue; // é o marcador (ex.: "fechar"), não é dado de rota
+      const chave = (rotulo + '=' + valor).toLowerCase();
+      if(vistos.has(chave)) continue;
+      vistos.add(chave);
+      linhas.push(`${rotulo}: ${valor}`);
+    }
+  }
+  return linhas.join('\n');
+}
+
+/* O atendente aciona o "Gerar Orçamento (Backend OBS)" quando JÁ coletou tudo.
+   Nesse caso não faz sentido esperar os 60s de silêncio: se o POST trouxer um
+   MARCADOR combinado, fechamos o lead na hora → a IA processa e responde em
+   segundos. Se não vier nada, o fluxo normal (janela de 60s) continua valendo.
+
+   Como a ação "POST PARA URL" do ChatGuru só tem campos FIXOS (ID/Nome de
+   campanha, ORIGEM, tokens), o atendente põe um valor combinado (ex.: "fechar")
+   no campo ORIGEM. Reconhecemos esse VALOR em qualquer campo do corpo. Também
+   aceitamos, por robustez, um campo com NOME de marcador (ex.: fechar=sim). */
+const MARCADOR_VALOR = /^(fechar|fechar[ _-]?agora|acionar|processar[ _-]?agora|completo|gerar[ _-]?or[çc]amento|backend[ _-]?obs)$/i;
+const MARCADORES_CHAVE = ['fechar','fechar_agora','fecharAgora','acionar','acionar_agora',
+                          'processar_agora','processarAgora','completar','gerar_orcamento','gerarOrcamento'];
+
+/* Junta os VALORES de texto do corpo (topo + contêineres conhecidos, 1 nível). */
+function _valoresDoCorpo(b){
+  const vals = [];
+  const push = (v)=>{ if(v!=null && typeof v!=='object'){ const s=String(v).trim(); if(s) vals.push(s); } };
+  const nomes = ['campos','campos_personalizados','custom_fields','customFields',
+                 'variaveis','variables','contexto','context','bot_context',
+                 'dados_personalizados','fields','data','chat','contato'];
+  const containers = [b];
+  for(const n of nomes){ if(b && b[n] && typeof b[n] === 'object') containers.push(b[n]); }
+  for(const c of containers){
+    if(Array.isArray(c)){
+      for(const it of c){
+        if(it && typeof it === 'object'){ push(it.valor); push(it.value); push(it.conteudo); push(it.text); }
+        else push(it);
+      }
+    } else if(c && typeof c === 'object'){
+      for(const v of Object.values(c)) push(v);
+    }
+  }
+  return vals;
+}
+
+function querFecharAgora(b){
+  if(!b || typeof b !== 'object') return false;
+  // (1) VALOR combinado (ex.: ORIGEM="fechar") em qualquer campo do corpo.
+  for(const v of _valoresDoCorpo(b)){
+    if(MARCADOR_VALOR.test(v)) return true;
+  }
+  // (2) campo com NOME de marcador e valor afirmativo (ex.: fechar=sim).
+  for(const k of MARCADORES_CHAVE){
+    if(b[k] == null) continue;
+    const s = String(b[k]).trim().toLowerCase();
+    if(s === '' || /(n[aã]o|false|^0$|^no$)/.test(s)) continue; // vazio/negativo → ignora
+    return true;
+  }
+  return false;
+}
+
+/* É o INÍCIO de uma nova cotação? (formulário do site ou botão do atendente).
+   Serve pra REINICIAR o ciclo de um número que JÁ foi cotado antes — senão o
+   cliente que volta (ou o mesmo número em novo teste) fica travado no guard
+   iaProcessado e não recebe nada. Uma resposta solta do cliente (continuação)
+   NÃO conta como início — ela só acumula no ciclo em andamento. */
+function ehInicioDeCotacao(corpo, texto){
+  if(querFecharAgora(corpo)) return true;                                  // botão "Gerar Orçamento (Backend OBS)"
+  if(/solicita[çc][aã]o de or[çc]amento/i.test(String(texto || ''))) return true; // formulário
+  if(ehIntakePreenchido(texto)) return true;                              // intake/Opener respondido (solicitação nova completa)
+  return false;
+}
+
+/* Detecta um INTAKE COMPLETO respondido pelo cliente (o template do Opener/atendente
+   "Para emissão de um orçamento, por favor me informe: … origem … destino … veículo
+   … valor …"). É uma solicitação NOVA e completa, equivalente ao formulário do site
+   — traz todos os dados no próprio texto. Serve pra REINICIAR o ciclo de um contato
+   que JÁ foi cotado antes, em vez de misturar com o acúmulo do orçamento anterior.
+   Caso Rodrigo: BMW X4 novo (SP→Recife) reaproveitava o Mitsubishi TR4 velho
+   (Recife→SP) porque o botão só reprocessava a conversa antiga.
+   NÃO roda no botão (lá o texto vem com os campos personalizados "Rótulo: valor",
+   que dariam falso-positivo) — só em mensagem de conversa. */
+function ehIntakePreenchido(texto){
+  const t = String(texto || '');
+  if(!t.trim()) return false;
+  if(/para emiss[aã]o de um or[çc]amento/i.test(t)) return true;
+  let n = 0;
+  if(/cidade\/estado de origem|cidade de origem|origem\s*:/i.test(t)) n++;
+  if(/cidade\/estado de destino|cidade de destino|destino\s*:/i.test(t)) n++;
+  if(/marca\/modelo|modelo\/ano|ve[íi]culo\s*:/i.test(t)) n++;
+  if(/valor do ve[íi]culo/i.test(t)) n++;
+  if(/ve[íi]culo (é|e|esta|está) (blindado|em algum leil|funciona)|funciona\?/i.test(t)) n++;
+  return n >= 3;
+}
+
 /* A partir do corpo do webhook, extrai os campos que a gente consegue
    reconhecer. Tudo é "melhor esforço": se não achar, fica vazio — e o corpo
    CRU fica salvo no log de qualquer jeito, então nada se perde. */
@@ -89,10 +232,29 @@ function extrairContato(b){
   // — a Etapa 4 (Claude) extrai de lá.
   const email = /@/.test(String(emailBruto)) ? emailBruto : '';
 
-  const texto = pegar(b, 'texto_mensagem', 'mensagem', 'texto', 'message',
+  const textoMsg = pegar(b, 'texto_mensagem', 'mensagem', 'texto', 'message',
                          'msg', 'body', 'text', 'ultima_mensagem', 'content')
              || pegar(chat, 'mensagem', 'texto', 'message')
              || pegar(data, 'mensagem', 'texto', 'message');
+
+  // CAMPOS PERSONALIZADOS: só colhemos no ACIONAMENTO MANUAL do botão "Gerar
+  // Orçamento" (origem=fechar), onde o atendente conta com esses campos. Nas
+  // mensagens soltas (encaminhador) e no formulário, os dados estão no TEXTO da
+  // conversa — colher os campos aqui só traria valores de ORÇAMENTOS ANTERIORES
+  // (campos velhos), e como cada mensagem reencaminhada recolava os campos, eles
+  // se REPETIAM no acúmulo e afogavam o que o cliente escreveu (caso Jorge:
+  // "Fiat Argo/Araguaiana" velho vencendo "Macan/São Paulo" da conversa).
+  // Quando colhidos (botão), entram como fonte SECUNDÁRIA (a conversa tem prioridade).
+  const camposExtras = querFecharAgora(b) ? coletarCamposExtras(b) : '';
+  const partes = [];
+  if(String(textoMsg || '').trim()) partes.push(String(textoMsg).trim());
+  if(String(camposExtras || '').trim()){
+    partes.push(
+      '--- Campos do ChatGuru (fonte SECUNDÁRIA — podem ser de um orçamento ' +
+      'ANTERIOR; se conflitarem com a conversa acima, USE A CONVERSA) ---\n' + camposExtras
+    );
+  }
+  const texto = partes.join('\n\n');
 
   const status = pegar(b, 'status', 'situacao', 'stage') || pegar(chat, 'status');
 
@@ -188,19 +350,30 @@ exports.chatguruWebhook = onRequest(
         status: info.status,
       };
 
+      const viaBotao = querFecharAgora(corpo);
+      const viaFormulario = /solicita[çc][aã]o de or[çc]amento/i.test(String(info.texto || ''));
+      // Intake/Opener respondido pelo cliente numa mensagem de conversa (não botão):
+      // é uma solicitação NOVA e completa → reinicia o ciclo igual ao formulário.
+      const viaIntakeNovo = !viaBotao && ehIntakePreenchido(info.texto);
+
       const ref = db.collection('crm_leads_intake').doc(info.telefone);
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
+        const antigo = snap.exists ? (snap.data() || {}) : {};
+        const jaFinalizado = !!(antigo.iaProcessado || antigo.leadCriado);
 
-        if(!snap.exists){
+        // (A) PRIMEIRA vez do contato, OU FORMULÁRIO de um número já finalizado →
+        // ciclo LIMPO. O formulário traz TODOS os dados no próprio texto, então dá
+        // pra zerar o acúmulo antigo (cliente que volta com nova solicitação completa).
+        if(!snap.exists || ((viaFormulario || viaIntakeNovo) && jaFinalizado)){
           tx.set(ref, {
             telefone: info.telefone,
             telefoneOriginal: info.telefoneOriginal,
-            nome:  info.nome,
-            email: info.email,
-            chatId: info.chatId,          // id da conversa no ChatGuru (p/ Etapa 5)
-            responsavelChatguru: info.responsavel,             // vendedor da conversa
-            responsavelEmailChatguru: info.responsavelEmail,
+            nome:  info.nome  || antigo.nome  || '',
+            email: info.email || antigo.email || '',
+            chatId: info.chatId || antigo.chatId || '',          // id da conversa no ChatGuru (p/ Etapa 5)
+            responsavelChatguru: info.responsavel || antigo.responsavelChatguru || '',
+            responsavelEmailChatguru: info.responsavelEmail || antigo.responsavelEmailChatguru || '',
             origemLead: 'chatguru',
             statusIntake: 'recebendo',   // Etapa 3 muda pra 'completo' após a janela
             janelaSegundos: JANELA_SEGUNDOS,
@@ -208,11 +381,39 @@ exports.chatguruWebhook = onRequest(
             ultimaMensagemEm: agora,
             totalMensagens: 1,
             mensagens: [mensagem],
+            // zera o ciclo anterior (deixa a IA reprocessar e o lead reenviar):
+            iaProcessado: false,
+            leadCriado: false,
+            extraido: null,
+            mensagemCompleta: '',
+            perguntasFeitas: 0,
+            faltamCampos: [],
+            cicloReiniciadoEm: agora,
           });
           return;
         }
 
-        const antigo = snap.data() || {};
+        // (B) BOTÃO "Gerar Orçamento" num lead já finalizado → REPROCESSA a conversa
+        // existente. ATENÇÃO: o botão NÃO traz os dados (eles estão na conversa
+        // acumulada), então NÃO apagamos as mensagens — só reabrimos os guards
+        // (iaProcessado/leadCriado) pra IA cotar de novo com o que o cliente já
+        // escreveu. (Sem isso, clicar o botão num lead já processado zerava tudo.)
+        if(viaBotao && jaFinalizado){
+          tx.update(ref, {
+            ultimaMensagemEm: agora,
+            statusIntake: 'recebendo',
+            totalMensagens: (antigo.totalMensagens || 0) + 1,
+            mensagens: [...(antigo.mensagens || []), mensagem],
+            iaProcessado: false,
+            leadCriado: false,
+            extraido: null,
+            mensagemCompleta: '',
+            reprocessadoBotaoEm: agora,
+          });
+          return;
+        }
+
+        // (C) continuação normal: acumula.
         const patch = {
           ultimaMensagemEm: agora,
           statusIntake: 'recebendo',
@@ -229,11 +430,38 @@ exports.chatguruWebhook = onRequest(
         tx.update(ref, patch);
       });
 
+      // ---- 2b) CONTATO DIRETO: fechar NA HORA se o atendente acionou ----
+      // Quando o POST traz um marcador (ex.: fechar=sim, vindo do diálogo
+      // "Gerar Orçamento (Backend OBS)"), não esperamos os 60s: marcamos o lead
+      // como 'completo' já, e a IA (processarLeadCompleto) dispara em segundos.
+      // Só faz isso se o lead ainda não passou pela IA (a Fase C — resposta do
+      // cliente a uma pergunta — continua usando o fluxo normal de 60s).
+      let fechadoNaHora = false;
+      if(querFecharAgora(corpo)){
+        try {
+          const atual = (await ref.get()).data() || {};
+          if(!atual.iaProcessado && atual.statusIntake !== 'completo'){
+            await ref.update({
+              statusIntake: 'completo',
+              completadoEm: FieldValue.serverTimestamp(),
+              mensagemCompleta: montarMensagemCompleta(atual.mensagens),
+              fechadoManual: true,
+            });
+            fechadoNaHora = true;
+            console.log(`[chatguruWebhook] Lead ${info.telefone} FECHADO NA HORA (acionamento do atendente) — IA vai processar já.`);
+          }
+        } catch(err){
+          // Se falhar, não quebra o webhook: a varredura de 60s fecha depois.
+          console.error('[chatguruWebhook] erro ao fechar na hora:', err);
+        }
+      }
+
       res.json({
         ok: true,
         salvo: 'intake',
         telefone: info.telefone,
         temTexto: !!info.texto,
+        fechadoNaHora,
       });
     } catch (e) {
       console.error('[chatguruWebhook] ERRO:', e);

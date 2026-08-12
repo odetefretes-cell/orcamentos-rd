@@ -26,7 +26,7 @@
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const Anthropic = require('@anthropic-ai/sdk');
-const { enviarMensagem } = require('./chatguru-api');   // Fase C: perguntar dados que faltam
+const { enviarMensagem, atualizarContexto } = require('./chatguru-api');   // Fase C: perguntar dados que faltam + reativar encaminhador
 
 const db = getFirestore();
 
@@ -74,12 +74,13 @@ const SCHEMA = {
     faltaInfo:     { type: 'boolean', description: 'true se faltam dados ESSENCIAIS para cotar: ORIGEM, DESTINO, VEÍCULO ou VALOR do veículo. Para leads do formulário do site (vêm completos), normalmente false.' },
     faltamCampos:  { type: 'array',   items: { type: 'string' }, description: 'Lista dos campos essenciais que faltam (ex.: ["origem","destino","veículo","valor do veículo"]). Vazio se não faltar nada.' },
     perguntaCliente:{ type: 'string', description: 'Quando faltaInfo=true, uma pergunta curta e cordial (pt-BR) pedindo ao cliente EXATAMENTE os dados que faltam para o orçamento. Vazio caso contrário.' },
+    pediuAtendente: { type: 'boolean', description: 'true SOMENTE quando o cliente pede explicitamente para falar com um ATENDENTE/PESSOA/HUMANO (ex.: "falar com atendente", "quero falar com alguém", "me liga"). Nesse caso, decisao="humano" e faltaInfo=false (não perguntar nada). false caso contrário.' },
   },
   required: [
     'nome','email','telefone','tipoCliente','veiculo','tipoVeiculo',
     'valorVeiculo','valorInformado','funciona','blindado','motoEletrica','leilao','carroMudanca',
     'origem','destino','observacao','decisao','motivo','precisaAjuste','motivoAjuste','orcarComo',
-    'faltaInfo','faltamCampos','perguntaCliente',
+    'faltaInfo','faltamCampos','perguntaCliente','pediuAtendente',
   ],
 };
 
@@ -92,14 +93,26 @@ site "Solicitação de orçamento — OBS Transportes") e faz DUAS coisas:
 
 Normalização do valor do veículo:
 - Interprete formatos variados: "80000", "R$ 50.000,00", "50 mil", "50.0000".
+- Sufixos: "k" e "mil" = milhares → "419k" = 419000, "50k" = 50000, "419 mil" = 419000.
+- FIPE: "Fipe 419k", "Fipe R$ 419.000", "vale 419 mil na fipe" → use o valor FIPE
+  como valor do veículo (ex.: 419000). FIPE é o preço de referência do veículo.
 - Converta para número inteiro em reais (ex.: 50000).
 - Se não houver valor, ou o valor for claramente impossível de interpretar,
   use 0 e valorInformado=false.
 
+PRIORIDADE conversa × campos: se os dados vierem de CAMPOS PERSONALIZADOS do
+ChatGuru (linhas "Rótulo: valor") e eles CONFLITAREM com o que o cliente escreveu
+na CONVERSA (ex.: modelo/origem/destino diferentes), PREFIRA sempre a CONVERSA —
+os campos personalizados podem estar DESATUALIZADOS de um orçamento anterior.
+
 Envie para HUMANO (decisao="humano") SOMENTE quando QUALQUER uma for verdadeira:
 - Valor do veículo ACIMA de R$ ${LIMITE_VALOR_HUMANO} (não informado NÃO conta aqui).
-- Lead SEM valor do veículo informado.
 - Qualquer coisa claramente fora do padrão / valor claramente errado.
+- CLIENTE PEDIU ATENDENTE/HUMANO: o cliente pede explicitamente para falar com uma
+  PESSOA (ex.: "falar com atendente", "quero falar com alguém", "atendimento humano",
+  "chama um vendedor", "me liga", "quero falar com um humano"). Neste caso, ALÉM de
+  decisao="humano", defina TAMBÉM faltaInfo=false e pediuAtendente=true — NÃO faça
+  nenhuma pergunta (ele quer uma pessoa, não o robô). motivo="cliente pediu atendente".
 
 Em todos os outros casos, decisao="automatico".
 
@@ -112,6 +125,14 @@ Casos especiais que continuam AUTOMÁTICOS (mandam a média), com marcação:
 - CARRO + MUDANÇA → decisao="automatico", precisaAjuste=true,
   motivoAjuste="carro + mudança" (manda a média do VEÍCULO; a mudança/bagagem é
   ajustada à parte pela equipe).
+- VEÍCULO BLINDADO → decisao="automatico", precisaAjuste=true,
+  motivoAjuste="veículo blindado" (manda a média normal; o acréscimo do blindado,
+  se houver, a equipe ajusta depois). NÃO vai pra humano só por ser blindado.
+- SEM VALOR do veículo informado, MAS com ORIGEM + DESTINO + VEÍCULO presentes →
+  decisao="automatico", precisaAjuste=true, motivoAjuste="valor do veículo a
+  confirmar" (valorVeiculo=0, valorInformado=false). MANDA a média do frete assim
+  mesmo; o seguro (pequeno) é ajustado quando o cliente confirmar o valor. NÃO
+  pergunte o valor — mande a média (o cliente já tem um número pra decidir).
 
 A ideia dos casos com precisaAjuste=true: mandar a média pro cliente pra manter
 o interesse; se ele topar, a equipe ajusta o orçamento com as especificações.
@@ -120,13 +141,16 @@ Nos demais casos automáticos, precisaAjuste=false, motivoAjuste="" e orcarComo=
 CONTATOS DIRETOS (sem formulário) — coletar o que falta:
 Às vezes o texto NÃO é o formulário completo, e sim uma conversa de WhatsApp em que
 o cliente chamou direto e deu informações PARCIAIS. Nesses casos:
-- Se faltar algum dado ESSENCIAL para cotar — ORIGEM, DESTINO, VEÍCULO ou VALOR do
-  veículo — defina faltaInfo=true, liste em faltamCampos o que falta, e escreva em
-  perguntaCliente uma pergunta curta e cordial pedindo EXATAMENTE esses dados. Ex.:
-  "Oi! Para preparar seu orçamento, me confirma por favor: 📍 cidade de origem e
-  destino, 🚗 o modelo do veículo e 💰 o valor aproximado dele? 😊"
-- Peça só o que falta (não repita o que o cliente já informou).
-- Quando ORIGEM, DESTINO, VEÍCULO e VALOR estiverem presentes, faltaInfo=false.
+- ESSENCIAL para cotar = ORIGEM, DESTINO e VEÍCULO. O VALOR do veículo NÃO é
+  essencial (mandamos a média sem ele — ver o caso "SEM VALOR" acima).
+- Se faltar ORIGEM, DESTINO ou VEÍCULO — defina faltaInfo=true, liste em
+  faltamCampos o que falta, e escreva em perguntaCliente uma pergunta curta e
+  cordial pedindo EXATAMENTE esses dados. Ex.:
+  "Oi! Para preparar seu orçamento, me confirma por favor: 📍 a cidade de origem e
+  destino e 🚗 o modelo do veículo? 😊"
+- Peça só o que falta (não repita o que o cliente já informou). NÃO peça o valor.
+- Quando ORIGEM, DESTINO e VEÍCULO estiverem presentes, faltaInfo=false (mesmo sem
+  o valor — cota como estimativa).
 - Para leads do formulário do site (todos os campos preenchidos), faltaInfo=false.
 Importante: quando faltaInfo=true, ainda preencha "decisao" normalmente (será usada
 só se não der pra perguntar). A extração dos campos que EXISTEM deve ser feita mesmo
@@ -205,6 +229,15 @@ exports.processarLeadCompleto = onDocumentUpdated(
         if (await envioEstaAtivo()) {
           try {
             await enviarMensagem({ chatNumber: telefone, texto: dados.perguntaCliente });
+            // REATIVA O ENCAMINHADOR: garante que a resposta do cliente chegue ao
+            // backend. O botão "Gerar Orçamento" grava MediaEnviada=Sim (que BLOQUEIA
+            // o encaminhador); como aqui a média NÃO saiu (estamos perguntando), a
+            // gente liga Cotando=Sim e limpa MediaEnviada pra captar a resposta.
+            try {
+              await atualizarContexto({ chatNumber: telefone, variaveis: { Cotando: 'Sim', MediaEnviada: 'Nao' } });
+            } catch (errCtx) {
+              console.warn(`[processarLeadCompleto] Lead ${telefone}: falhou reativar encaminhador (Cotando/MediaEnviada):`, (errCtx && errCtx.message) || errCtx);
+            }
             await ref.update({
               extraido: dados,
               statusIntake: 'faltando_dados',
