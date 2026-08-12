@@ -6211,7 +6211,7 @@ function crmCustoAteDestino(db, cat, isDest){
 }
 // escolhe a opção padrão: prefere a rota com MENOS embarques quando ela custa
 // só um pouco mais que a mais barata (evita reembarque desnecessário por poucos reais)
-const CRM_TETO_DIRETA = 150;   // R$ a mais aceitáveis para ganhar um embarque a menos
+const CRM_TETO_DIRETA = 300;   // R$ a mais aceitáveis para ganhar um embarque a menos
 function crmPadraoDireta(barata, menos){
   if(menos && barata && menos.legs.length < barata.legs.length
      && (menos.total??1e12) <= (barata.total??0) + CRM_TETO_DIRETA) return menos;
