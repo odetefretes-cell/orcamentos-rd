@@ -125,6 +125,9 @@ Casos especiais que continuam AUTOMÁTICOS (mandam a média), com marcação:
 - CARRO + MUDANÇA → decisao="automatico", precisaAjuste=true,
   motivoAjuste="carro + mudança" (manda a média do VEÍCULO; a mudança/bagagem é
   ajustada à parte pela equipe).
+- VEÍCULO BLINDADO → decisao="automatico", precisaAjuste=true,
+  motivoAjuste="veículo blindado" (manda a média normal; o acréscimo do blindado,
+  se houver, a equipe ajusta depois). NÃO vai pra humano só por ser blindado.
 - SEM VALOR do veículo informado, MAS com ORIGEM + DESTINO + VEÍCULO presentes →
   decisao="automatico", precisaAjuste=true, motivoAjuste="valor do veículo a
   confirmar" (valorVeiculo=0, valorInformado=false). MANDA a média do frete assim
