@@ -3,7 +3,7 @@
 **Conta:** s22.chatguru.app — "Obs Transportes"
 **Chatbot ID:** `67e2f6b3198069809dfaf169`
 **Base de edição dos diálogos:** `https://s22.chatguru.app/chatbot/67e2f6b3198069809dfaf169/dialog/{id}/edit`
-**Última atualização:** 12/08/2026 (mantida pela equipe/Cowork; esta é a cópia versionada no repo)
+**Última atualização:** 13/08/2026 (mantida pela equipe/Cowork; esta é a cópia versionada no repo)
 
 ---
 
@@ -54,18 +54,19 @@ Integrar o ChatGuru ao backend da OBS e organizar o fluxo de orçamento:
 - (3.3 e 3.4 são mutuamente exclusivos pela lógica de horário.)
 
 ### 3.5. Opener – Saudação / Pedido de orçamento — ID `6a76382343ec83dc260744f7`
-- Invocável. Envia o formulário de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
-- **Tipo:** **Padrão (`standard`)** ⚠️ **— a correção FINAL (v14, 11/08).** · **Máx. Execuções por chat: 1** · Invocável.
-- **Gatilho (ATUAL): gatilho de PALAVRA "contém" (lista ampla).**
-  Lista (contém): `bom dia, boa tarde, boa noite, oi, ola, olá, opa, eae, orçamento, orcamento, cotação, cotacao, cotar, frete, mudança, mudanca, transporte, transportar, guincho, cegonha, carro, veículo, veiculo, moto, preciso, gostaria, quero, quanto, valor, preço, preco, buscar, levar, custa`
-  `+ $Cotando!='Sim' AND $MediaEnviada!='Sim' AND $MediaEnviada!='Respondido' AND $Template!='True' AND $Template!='1' + exclusões !text!= (guincho/campanha/'Solicitação de orçamento')`
-  - **🎯 CAUSA RAIZ FINAL — era o TIPO do diálogo.** No ChatGuru, diálogo **"Contínuo" (soft) NÃO dispara na mensagem FRIA de um contato novo — só o tipo "Padrão" dispara.** O Opener estava como "Contínuo" o tempo todo → por isso NENHUMA condição (palavra, `new_chat`, `anything_else`) disparava a frio. Confirmado pelo caso "josé" (funcionou porque veio pela URA, cujos diálogos são "Padrão"). **Fix: Tipo → "Padrão".** (Salvar o tipo só gravou via `form.submit()` — os cliques em "Salvar Alterações" não submetiam.)
-  - **Sobre "Palavra":** casa quando a mensagem **CONTÉM** a palavra (não é frase exata) → pega "Bom diaa", "Preciso de um frete", "Queria uma cotação".
-  - **Handoff com o encaminhador:** `$Cotando!='Sim'` evita redisparo; depois o encaminhador (`anything_else + $Cotando=='Sim'`) assume. `Máx. Execuções=1`.
-  - **Exclusões `!text!=`:** evitam disparar sobre guincho/campanha (canned) e formulário.
-  - **Efeito colateral aceito:** contato que escreve uma dessas palavras sobre outro assunto também recebe o intake (recuperável).
-  - ⚠️ Editar: **"Gatilho Avançado" → `manual_trigger_input` → "✓ Salvar" → "Salvar Alterações"**. Trocar o TIPO: pode precisar de `form.submit()` (o botão às vezes não submete).
-- **Limitação (retorno de cliente antigo):** conversa já aberta não reprocessa; o atendente aciona o Opener manual (Invocável).
+- Envia o bloco de intake ("Para emissão de um orçamento, por favor me informe: …") e liga `Cotando=Sim`.
+- **Tipo:** **Padrão (`standard`)** ⚠️ (enquanto ficar "Manual" NÃO dispara sozinho) · **Máx. Execuções por chat: 100** · Invocável.
+- **Gatilho FINAL (13/08/2026 — via suporte + ajuste):**
+  ```
+  !new_chat and not $Cotando=='Sim' and not $Template=='True' and not $Template=='1'
+  ```
+  - **🎯 DESCOBERTA (13/08): `!new_chat` NÃO enxerga o texto da mensagem** — dispara no instante da CRIAÇÃO do chat, quando ainda não há texto. Por isso `!new_chat and !word=='X'` **nunca** dispara a frio (os dois nunca são verdadeiros juntos) — foi o que fez o Opener ignorar leads novos. Padrão copiado do diálogo "Cria deal no RD CRM" (`!new_chat and not $CRM=='True'`, sem palavras). Só travas por **variável de contexto** (que existem na criação).
+  - ⚠️⚠️ **ARMADILHA: o ChatGuru NÃO tem "não contém" para Palavra.** `!word!='X'` **salva sem erro mas quebra o gatilho em runtime** (o Opener PARA de disparar). **NUNCA usar `!word!=`.** Válidos: `!new_chat`, `!word=='X'` (contém), `!text=='X'`/`!text!='X'` (texto EXATO), `not $Var=='X'` (contexto).
+  - **Comportamento:** dispara em **TODO chat novo**, exceto quem já cota (`Cotando=Sim`) ou veio por template (`Template`). (Decisão do Luiz: "disparar em toda 1ª mensagem" — melhor que perder lead.)
+  - **Ações:** (1) Responder o bloco de intake; (2) **status → ABERTO** (garante que a automação/IA capte). **Contexto de Saída:** `Cotando=Sim`.
+- 🔧 **CONFLITO DO FORMULÁRIO DO SITE → tarefa de código (backend/site):** como o Opener dispara em TODO chat novo, o lead do **formulário** também recebe o bloco de intake por cima. Não dá pra barrar no ChatGuru (`!new_chat` não vê o texto e não há "não contém"). **Solução escolhida:** o **site/backend pré-cadastra o lead no ChatGuru já com `Cotando=Sim`** no envio do formulário (via API `chat_add` + `chat_update_context`, ANTES da mensagem chegar) → o chat deixa de ser `!new_chat` e o `Cotando` já está ligado → as 2 travas do Opener barram. (Ref. Cowork: `OBS_Fix_Opener_LeadFormulario.md`.)
+- **Limitação (retorno de cliente antigo):** cliente que volta não é `new_chat` → Opener não dispara; o atendente aciona manual (Invocável).
+- **Histórico:** 11/08 o bloqueio era o TIPO ("Contínuo" não dispara a frio; só "Padrão"). 12/08 o suporte montou `!new_chat + palavras` — mas isso nunca disparava (descoberta acima) e o `!word!=` derrubou o gatilho por horas. 13/08 → gatilho só-contexto acima.
 
 ---
 
@@ -237,6 +238,11 @@ Resposta Inválida" (edge-cases mid-URA) ficam sem o almoço até a centralizaç
 ---
 
 ## 18. Opener parou de gravar `Cotando=Sim` (contato direto não cota) — 12/08/2026
+
+> **Atualização 13/08:** este caso levou à reformulação do gatilho do Opener — ver
+> **§3.5** (gatilho só-contexto `!new_chat and not $Cotando … not $Template`, porque
+> `!new_chat` não vê o texto; e a armadilha do `!word!=`). O que segue é o diagnóstico
+> original (marcador `Cotando` ausente no momento do edson).
 
 **Sintoma:** contato direto (edson) — o Opener mandou o intake certo, o cliente
 respondeu os dados por texto (Celta 2015, R$25.000, Orós/CE → Guarulhos), mas
