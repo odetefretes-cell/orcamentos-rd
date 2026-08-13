@@ -100,4 +100,41 @@ async function atualizarContexto({ chatNumber, variaveis }){
   return json;
 }
 
-module.exports = { enviarMensagem, atualizarContexto, normalizarNumeroBR };
+/* Cria/registra um chat no ChatGuru (action=chat_add). Exige o módulo
+   "Adicionar Chats" habilitado na conta. Usado no PRÉ-CADASTRO do lead do
+   formulário: cria o chat ANTES da mensagem do WhatsApp chegar, pra o chat
+   deixar de ser `!new_chat` e o Opener não disparar o intake por cima. */
+async function criarChat({ chatNumber, nome }){
+  const key       = process.env.CHATGURU_API_KEY || '';
+  const accountId = process.env.CHATGURU_ACCOUNT_ID || '';
+  const phoneId   = process.env.CHATGURU_PHONE_ID || '';
+  if(!key || !accountId || !phoneId){
+    throw new Error('Credenciais do ChatGuru não configuradas (CHATGURU_API_KEY/ACCOUNT_ID/PHONE_ID).');
+  }
+  if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
+
+  const numero = normalizarNumeroBR(chatNumber);
+  const body = new URLSearchParams({
+    action: 'chat_add',
+    chat_number: numero,
+    key,
+    account_id: accountId,
+    phone_id: phoneId,
+  });
+  if(nome) body.append('name', String(nome));
+
+  const resp = await fetch(CHATGURU_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const json = await resp.json().catch(() => ({}));
+  // chat_add pode devolver "já existe" — tratamos como sucesso (o objetivo é o chat existir).
+  const jaExiste = json && /exist|já|cadastrad/i.test(String(json.description || ''));
+  if(!resp.ok || (json.result && json.result !== 'success' && !jaExiste)){
+    throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+  }
+  return json;
+}
+
+module.exports = { enviarMensagem, atualizarContexto, criarChat, normalizarNumeroBR };

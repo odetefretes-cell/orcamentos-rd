@@ -21,6 +21,21 @@
   // WhatsApp oficial da OBS (ChatGuru) — o formulário leva o cliente pra cá com a mensagem pronta,
   // para a conversa nascer no ChatGuru já com as informações e a janela de 24h aberta.
   var WPP_NUMERO = '5511932225311';
+  // Pré-cadastro no ChatGuru (backend): cria o chat + liga Cotando=Sim ANTES da
+  // mensagem chegar, pra o Opener não disparar o intake por cima do lead do formulário.
+  var PRECADASTRO_URL = 'https://southamerica-east1-obs-fretes.cloudfunctions.net/preCadastrarLead';
+  function preCadastrarChatguru(lead) {
+    try {
+      var ctrl = ('AbortController' in window) ? new AbortController() : null;
+      var to = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, 4000) : null;
+      return fetch(PRECADASTRO_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone: lead.telefone, nome: lead.nome, origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc, valor: lead.valorVeiculo }),
+        signal: ctrl ? ctrl.signal : undefined
+      }).then(function (r) { if (to) clearTimeout(to); if (!r.ok) console.warn('pré-cadastro status', r.status); })
+        .catch(function (e) { if (to) clearTimeout(to); console.warn('pré-cadastro ChatGuru falhou (segue pro WhatsApp):', e); });
+    } catch (e) { console.warn('pré-cadastro ChatGuru erro (segue):', e); return Promise.resolve(); }
+  }
   // monta a mensagem que o cliente envia no WhatsApp (mesma estrutura da página #orc do app)
   function montarMsgWpp(lead) {
     var l = [
@@ -197,11 +212,15 @@
       // leva o cliente pro WhatsApp da OBS com tudo preenchido → a conversa nasce no ChatGuru
       // com as informações e a janela de 24h aberta (aí a equipe responde o orçamento direto).
       var waUrl = 'https://wa.me/' + WPP_NUMERO + '?text=' + encodeURIComponent(montarMsgWpp(lead));
-      // grava no CRM e dispara o RD (melhor esforço); o redirecionamento acontece de qualquer forma
-      db().then(function (base) {
-        return _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
-      }).then(function () {
-        try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
+      // PRÉ-CADASTRO no ChatGuru PRIMEIRO (liga Cotando=Sim antes da mensagem chegar —
+      // barra o Opener). Depois grava no CRM + RD (melhor esforço). O redirecionamento
+      // acontece de qualquer forma (todas as etapas são tolerantes a falha).
+      preCadastrarChatguru(lead).then(function () {
+        return db().then(function (base) {
+          return _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
+        }).then(function () {
+          try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
+        });
       }).catch(function (e) {
         console.error('CRM/RD (segue pro WhatsApp mesmo assim):', e);
       }).then(function () {
