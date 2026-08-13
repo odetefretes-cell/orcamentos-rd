@@ -34,9 +34,15 @@ exports.preCadastrarLead = onRequest(
       const telefone = b.telefone || b.chat_number || b.celular || '';
       if (!telefone) { res.status(400).json({ ok: false, erro: 'telefone ausente' }); return; }
 
-      // 1) cria o chat (deixa de ser !new_chat quando a mensagem chegar)
+      // 1) cria o chat (deixa de ser !new_chat quando a mensagem chegar).
+      // Esta conta exige "mensagem inicial" no chat_add — usamos uma saudação
+      // segura (caso o ChatGuru a entregue ao cliente).
+      // Texto exigido pelo chat_add (esta conta obriga uma "mensagem inicial"). NÃO é
+      // template → não gera custo; em contato frio ela nem entrega (falha silenciosa),
+      // e o que importa é o chat passar a EXISTIR (barra o Opener). Neutro de propósito.
+      const saudacao = 'Recebemos sua solicitação de orçamento pelo site. 📋';
       let criouChat = false, erroChat = '';
-      try { await criarChat({ chatNumber: telefone, nome: b.nome || '' }); criouChat = true; }
+      try { await criarChat({ chatNumber: telefone, nome: b.nome || '', text: saudacao }); criouChat = true; }
       catch (e) { erroChat = e.message || String(e); console.warn('[preCadastrarLead] chat_add falhou:', erroChat); }
 
       // 2) liga Cotando=Sim (+ dados do formulário como contexto — bônus p/ a IA/atendente)
@@ -46,9 +52,19 @@ exports.preCadastrarLead = onRequest(
       if (b.veiculo) variaveis.Veiculo = String(b.veiculo);
       if (b.valor)   variaveis.Valor   = String(b.valor);
 
+      // O chat_add cria o chat, mas ele não fica consultável na MESMA hora (leva ~1-2s
+      // pra propagar) → chat_update_context pode dar "Chat não encontrado". Repetimos
+      // algumas vezes com espera curta.
       let marcouContexto = false, erroContexto = '';
-      try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; }
-      catch (e) { erroContexto = e.message || String(e); console.warn('[preCadastrarLead] chat_update_context falhou:', erroContexto); }
+      for (let tentativa = 1; tentativa <= 3 && !marcouContexto; tentativa++) {
+        try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; }
+        catch (e) {
+          erroContexto = e.message || String(e);
+          const propagando = /encontrad|not found/i.test(erroContexto);
+          if (tentativa < 3 && propagando) { await new Promise(r => setTimeout(r, 1500)); }
+          else { console.warn('[preCadastrarLead] chat_update_context falhou:', erroContexto); break; }
+        }
+      }
 
       console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}`);
       // sempre 200 (best-effort): o site segue pro WhatsApp de qualquer jeito

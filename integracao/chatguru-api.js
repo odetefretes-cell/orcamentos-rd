@@ -104,7 +104,7 @@ async function atualizarContexto({ chatNumber, variaveis }){
    "Adicionar Chats" habilitado na conta. Usado no PRÉ-CADASTRO do lead do
    formulário: cria o chat ANTES da mensagem do WhatsApp chegar, pra o chat
    deixar de ser `!new_chat` e o Opener não disparar o intake por cima. */
-async function criarChat({ chatNumber, nome }){
+async function criarChat({ chatNumber, nome, text }){
   const key       = process.env.CHATGURU_API_KEY || '';
   const accountId = process.env.CHATGURU_ACCOUNT_ID || '';
   const phoneId   = process.env.CHATGURU_PHONE_ID || '';
@@ -120,6 +120,8 @@ async function criarChat({ chatNumber, nome }){
     key,
     account_id: accountId,
     phone_id: phoneId,
+    // esta conta EXIGE uma "mensagem inicial" (senão: "Mensagem inicial inválida").
+    text: (text && String(text).trim()) || 'Novo orçamento recebido pelo site.',
   });
   if(nome) body.append('name', String(nome));
 
