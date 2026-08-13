@@ -10,7 +10,11 @@
   'use strict';
   if (window.__obsBotaoWpp) return; window.__obsBotaoWpp = true;
 
-  var COTACAO_JS = 'https://odetefretes-cell.github.io/orcamentos-rd/integracao/obs-cotacao.js';
+  // Cache-bust DIÁRIO: o `?v=AAAA-MM-DD` muda a cada dia, então o navegador baixa o
+  // obs-cotacao.js novo em até 24h automaticamente (sem depender do cache do WP).
+  // Assim, futuras atualizações do widget entram sozinhas — não repete o problema
+  // do lead que pega a versão antiga (sem o pré-cadastro).
+  var COTACAO_JS = 'https://odetefretes-cell.github.io/orcamentos-rd/integracao/obs-cotacao.js?v=' + (new Date().toISOString().slice(0, 10));
 
   var CSS = ''
     + '#obsWppBtn{position:fixed;right:20px;bottom:20px;z-index:99998;width:60px;height:60px;border-radius:50%;'
