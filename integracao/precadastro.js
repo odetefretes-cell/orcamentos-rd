@@ -34,9 +34,12 @@ exports.preCadastrarLead = onRequest(
       const telefone = b.telefone || b.chat_number || b.celular || '';
       if (!telefone) { res.status(400).json({ ok: false, erro: 'telefone ausente' }); return; }
 
-      // 1) cria o chat (deixa de ser !new_chat quando a mensagem chegar)
+      // 1) cria o chat (deixa de ser !new_chat quando a mensagem chegar).
+      // Esta conta exige "mensagem inicial" no chat_add — usamos uma saudação
+      // segura (caso o ChatGuru a entregue ao cliente).
+      const saudacao = 'Olá! Aqui é a OBS Transportes 🚚 — recebemos sua solicitação e já vamos te enviar a estimativa por aqui. 😊';
       let criouChat = false, erroChat = '';
-      try { await criarChat({ chatNumber: telefone, nome: b.nome || '' }); criouChat = true; }
+      try { await criarChat({ chatNumber: telefone, nome: b.nome || '', text: saudacao }); criouChat = true; }
       catch (e) { erroChat = e.message || String(e); console.warn('[preCadastrarLead] chat_add falhou:', erroChat); }
 
       // 2) liga Cotando=Sim (+ dados do formulário como contexto — bônus p/ a IA/atendente)
