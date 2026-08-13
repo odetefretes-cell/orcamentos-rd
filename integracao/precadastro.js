@@ -49,9 +49,19 @@ exports.preCadastrarLead = onRequest(
       if (b.veiculo) variaveis.Veiculo = String(b.veiculo);
       if (b.valor)   variaveis.Valor   = String(b.valor);
 
+      // O chat_add cria o chat, mas ele não fica consultável na MESMA hora (leva ~1-2s
+      // pra propagar) → chat_update_context pode dar "Chat não encontrado". Repetimos
+      // algumas vezes com espera curta.
       let marcouContexto = false, erroContexto = '';
-      try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; }
-      catch (e) { erroContexto = e.message || String(e); console.warn('[preCadastrarLead] chat_update_context falhou:', erroContexto); }
+      for (let tentativa = 1; tentativa <= 3 && !marcouContexto; tentativa++) {
+        try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; }
+        catch (e) {
+          erroContexto = e.message || String(e);
+          const propagando = /encontrad|not found/i.test(erroContexto);
+          if (tentativa < 3 && propagando) { await new Promise(r => setTimeout(r, 1500)); }
+          else { console.warn('[preCadastrarLead] chat_update_context falhou:', erroContexto); break; }
+        }
+      }
 
       console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}`);
       // sempre 200 (best-effort): o site segue pro WhatsApp de qualquer jeito
