@@ -37,7 +37,10 @@ exports.preCadastrarLead = onRequest(
       // 1) cria o chat (deixa de ser !new_chat quando a mensagem chegar).
       // Esta conta exige "mensagem inicial" no chat_add — usamos uma saudação
       // segura (caso o ChatGuru a entregue ao cliente).
-      const saudacao = 'Olá! Aqui é a OBS Transportes 🚚 — recebemos sua solicitação e já vamos te enviar a estimativa por aqui. 😊';
+      // Texto exigido pelo chat_add (esta conta obriga uma "mensagem inicial"). NÃO é
+      // template → não gera custo; em contato frio ela nem entrega (falha silenciosa),
+      // e o que importa é o chat passar a EXISTIR (barra o Opener). Neutro de propósito.
+      const saudacao = 'Recebemos sua solicitação de orçamento pelo site. 📋';
       let criouChat = false, erroChat = '';
       try { await criarChat({ chatNumber: telefone, nome: b.nome || '', text: saudacao }); criouChat = true; }
       catch (e) { erroChat = e.message || String(e); console.warn('[preCadastrarLead] chat_add falhou:', erroChat); }
