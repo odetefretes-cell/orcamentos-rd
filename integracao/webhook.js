@@ -218,3 +218,8 @@ exports.prepararResposta = _orc.prepararResposta;
 // Pré-cadastro do lead do formulário no ChatGuru (chat_add + Cotando=Sim), pra o
 // Opener não disparar o intake por cima do lead que veio pelo formulário do site.
 exports.preCadastrarLead = require('./precadastro').preCadastrarLead;
+
+// Opener (contato espontâneo) chama isto no disparo → backend grava Cotando=Sim
+// via API (o Contexto de Saída do Opener é descartado no new_chat). Assim o
+// encaminhador passa a repassar a resposta do cliente e o backend cota.
+exports.openerDisparou = require('./precadastro').openerDisparou;

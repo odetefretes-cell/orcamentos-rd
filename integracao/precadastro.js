@@ -75,3 +75,53 @@ exports.preCadastrarLead = onRequest(
     }
   }
 );
+
+/* ----------------------------------------------------------------------------
+   openerDisparou — o Opener (contato espontâneo) chama isto por POST no disparo.
+
+   Por que: o Opener dispara em `!new_chat` (evento de CRIAÇÃO do chat, sem
+   mensagem). O "Contexto de Saída" do ChatGuru é ADIADO ("vale da próxima
+   mensagem") e num gatilho de criação, sem mensagem pra ancorar, ele é
+   DESCARTADO — por isso o Opener nunca gravava `Cotando=Sim` (casos edson/Chico).
+   As ações IMEDIATAS (Responder, status→ABERTO) commitam; então uma ação de
+   POST também commita. Aqui o backend grava `Cotando=Sim` via API (chat_update_
+   context) — o MESMO caminho que já provou funcionar no pré-cadastro. Com o
+   Cotando gravado, o encaminhador (`$Cotando=='Sim'`) passa a repassar a
+   resposta do cliente → o backend cota.
+
+   O ChatGuru manda o payload NATIVO (o número vem em `celular`).
+   ---------------------------------------------------------------------------- */
+exports.openerDisparou = onRequest(
+  {
+    cors: true,
+    region: 'southamerica-east1',
+    secrets: ['CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID'],
+  },
+  async (req, res) => {
+    try {
+      if (req.method === 'GET') { res.json({ ok: true, servico: 'openerDisparou', dica: 'POST (payload nativo do ChatGuru — número em celular) → liga Cotando=Sim' }); return; }
+      if (req.method !== 'POST') { res.status(405).json({ ok: false, erro: 'use POST' }); return; }
+
+      const b = req.body || {};
+      const telefone = b.celular || b.phone || b.telefone || b.chat_number || b.numero || '';
+      if (!telefone) { res.status(200).json({ ok: false, erro: 'telefone (celular) ausente' }); return; }
+
+      // O chat já existe (o cliente mandou a saudação que criou o chat + disparou o
+      // Opener), então o contexto deve gravar de primeira; retry leve por segurança.
+      let ok = false, erro = '';
+      for (let tentativa = 1; tentativa <= 3 && !ok; tentativa++) {
+        try { await atualizarContexto({ chatNumber: telefone, variaveis: { Cotando: 'Sim' } }); ok = true; }
+        catch (e) {
+          erro = e.message || String(e);
+          if (tentativa < 3 && /encontrad|not found/i.test(erro)) { await new Promise(r => setTimeout(r, 1500)); }
+          else { console.warn('[openerDisparou] chat_update_context falhou:', erro); break; }
+        }
+      }
+      console.log(`[openerDisparou] ${telefone}: cotando=${ok}${erro ? ' | ' + erro : ''}`);
+      res.status(200).json({ ok, cotando: ok, telefone, erro: erro || undefined });
+    } catch (e) {
+      console.error('[openerDisparou] ERRO:', e);
+      res.status(200).json({ ok: false, erro: e.message || String(e) });
+    }
+  }
+);
