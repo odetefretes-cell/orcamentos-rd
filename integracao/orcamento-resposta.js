@@ -239,21 +239,27 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     const leadId = 'lead_wpp_' + chave;
     const ref = db.collection('crm_leads').doc(leadId);
 
-    // ⚠️ TRAVA "JÁ EM ANDAMENTO": o encaminhador (relaxado p/ pegar contato espontâneo)
-    // repassa QUALQUER conversa ativa do cliente — inclusive de quem JÁ está sendo
-    // atendido. Sem isto, o backend recotava e mandava mensagem automática POR CIMA de um
-    // lead que a equipe já trabalha (caso INGRID-1523: lead com frete recebeu mensagem
-    // vazia). Regra: se o lead JÁ existe e saiu da coluna "novo" (a equipe assumiu), o
-    // backend NÃO recota nem envia nada — só a equipe cuida. Lead novo/inexistente segue
-    // o fluxo automático normal.
+    // ⚠️ TRAVA (não criar/recotar/mensagear por cima de quem já está sendo atendido).
+    // O encaminhador (relaxado p/ pegar contato espontâneo) repassa QUALQUER conversa
+    // ativa do cliente — inclusive de quem JÁ está EM ATENDIMENTO. Dois sinais barram:
+    //  (a) HUMANO atendendo no ChatGuru: o chat tem RESPONSÁVEL assinalado (ex.: Yasmim
+    //      de Sá). Este é o sinal FORTE — pega mesmo quando o lead antigo tem OUTRO id
+    //      (chave antiga/duplicado) e a busca por id não encontra (caso Ruy-1549).
+    //  (b) lead já existe e saiu da coluna "novo" (a equipe assumiu) — caso INGRID-1523.
+    // Lead novo de verdade entra "Ninguém Delegado" (sem responsável) e na coluna novo →
+    // segue o fluxo automático normal.
+    const humanoNoChat = !!canonVendedor(d.responsavelChatguru);
+    let emAndamento = false, etapaAtual = '';
     const jaSnap = await ref.get();
     if(jaSnap.exists){
-      const etapaAtual = String(jaSnap.data().etapa || '').trim();
-      if(etapaAtual && etapaAtual !== 'novo'){
-        console.log(`[criarLeadNoCrm] ${leadId} JÁ EM ANDAMENTO (etapa=${etapaAtual}) — NÃO recota nem envia (equipe cuidando).`);
-        await event.data.after.ref.update({ leadId, emAndamentoIgnorado: true, emAndamentoEm: FieldValue.serverTimestamp() });
-        return;
-      }
+      etapaAtual = String(jaSnap.data().etapa || '').trim();
+      emAndamento = !!(etapaAtual && etapaAtual !== 'novo');
+    }
+    if(humanoNoChat || emAndamento){
+      const motivo = humanoNoChat ? `humano atendendo no ChatGuru: ${d.responsavelChatguru}` : `lead em andamento (etapa=${etapaAtual})`;
+      console.log(`[criarLeadNoCrm] ${leadId} — NÃO cria/recota/envia (${motivo}).`);
+      await event.data.after.ref.update({ leadId, emAtendimentoIgnorado: true, emAtendimentoEm: FieldValue.serverTimestamp() });
+      return;
     }
 
     // Responsável: se o ChatGuru já tiver um, respeita; senão (o normal, pois
