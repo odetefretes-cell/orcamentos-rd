@@ -945,6 +945,7 @@
       <button class="btn-primary" onclick="crmNovoLead()">＋ Novo lead</button>
       <button id="crmBtnPerdaLote" class="btn-ghost" onclick="crmAbrirPerdasLote()" title="Marcar vários leads como PERDIDO de uma vez — cole a lista da auditoria (telefone | motivo, nome ou id)" style="display:none;color:#da3633;border-color:#da3633">❌ Marcar perdas (lote)</button>
       <button id="crmBtnArquivar" class="btn-ghost" onclick="crmArquivarPerdidosAntigos(false)" title="Arquivar os leads PERDIDOS parados há 10+ dias (vão para a coluna Arquivado, sem sumir)" style="display:none;color:#6b7280;border-color:#6b7280">🗄️ Arquivar antigos</button>
+      <button id="crmBtnRecupPerda" class="btn-ghost" onclick="crmRecuperarPerdidosMalMovidos()" title="Devolve para a coluna Perdido os leads com histórico de perda que foram movidos por engano (quando a coluna Perdido sumiu)" style="display:none;color:#da3633;border-color:#da3633">♻️ Recuperar perdidos</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -4210,6 +4211,7 @@ function crmRenomearEtapa(id){
   gravarEtapas(); renderCRM(); flash('Etapa renomeada ✔');
 }
 async function crmExcluirEtapa(id){
+  if(id==='novo' || id==='perdido'){ flash('As colunas "Novo Lead" e "Perdido" são fixas — não podem ser removidas (leads novos e perdas dependem delas).','erro'); return; }
   if(CRM_ETAPAS.length<=1){ flash('Deixe pelo menos uma etapa.','erro'); return; }
   const idx = CRM_ETAPAS.findIndex(x=>x.id===id); if(idx<0) return;
   const destino = CRM_ETAPAS.find(x=>x.id!==id);   // 1ª etapa restante
@@ -4373,7 +4375,8 @@ function renderCRM(){
   renderCRMMetrics();
   { const adm=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin');
     const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=adm?'':'none';
-    const ba=$('#crmBtnArquivar'); if(ba) ba.style.display=adm?'':'none'; }
+    const ba=$('#crmBtnArquivar'); if(ba) ba.style.display=adm?'':'none';
+    const br=$('#crmBtnRecupPerda'); if(br) br.style.display=adm?'':'none'; }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const buscaDig = busca.replace(/\D/g,'');   // só dígitos (para casar telefone com qualquer formatação)
   // casa por texto OU por telefone (só dígitos, ignora (), - e espaços). Com 4+ dígitos, busca no telefone.
@@ -4576,6 +4579,28 @@ function crmRestaurarLead(id){
   CRM_LEADS[id].etapa='perdido';
   crmAddTimeline(id,'restauracao','Restaurado do arquivo (voltou para Perdido).');
   saveCRM(); renderCRM(); flash('Lead restaurado ✔');
+}
+// RECUPERAÇÃO PONTUAL: quando a coluna "Perdido" foi removida do funil, o sistema
+// empurrou os leads perdidos para a 1ª coluna (Contato Feito) — eles ficaram
+// mal-etiquetados. Todo lead que já foi marcado como perda carrega um item de
+// histórico `tipo:'perda'`. Este botão acha os que têm esse histórico mas NÃO estão
+// em perdido/arquivado/fechado (não desfaz venda) e devolve para "Perdido".
+async function crmRecuperarPerdidosMalMovidos(){
+  if(!(typeof sessaoUser!=='undefined' && sessaoUser && sessaoUser.papel==='admin')){ flash('Apenas admin.','erro'); return; }
+  const alvo=[];
+  for(const id in CRM_LEADS){ const l=CRM_LEADS[id];
+    if(!l || l._novo) continue;
+    if(l.etapa==='perdido' || l.etapa==='arquivado' || l.etapa==='fechado') continue;
+    const temPerda = Array.isArray(l.timeline) && l.timeline.some(t=>t && t.tipo==='perda');
+    if(temPerda) alvo.push(id);
+  }
+  if(!alvo.length){ flash('Nenhum perdido mal-movido encontrado — nada a recuperar ✔'); return; }
+  const ok=await uiConfirm(`Encontrei ${alvo.length} lead(s) com histórico de PERDA fora da coluna Perdido (provavelmente movidos quando a coluna foi removida). Devolver todos para "Perdido"?`, {titulo:'Recuperar perdidos', ok:`Devolver ${alvo.length} p/ Perdido`});
+  if(!ok) return;
+  for(const id of alvo){ CRM_LEADS[id].etapa='perdido'; crmAddTimeline(id,'restauracao','Reposto em Perdido (a coluna havia sido removida do funil).'); }
+  const r=await saveCRM();
+  if(typeof renderCRM==='function') renderCRM();
+  flash(`${alvo.length} lead(s) devolvidos para Perdido ✔`);
 }
 // maior data entre dataFechamento / ultimaInteracao / dataEntrada / timeline[].data
 function crmUltimaAtividade(l){
