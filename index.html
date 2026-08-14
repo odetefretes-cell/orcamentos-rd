@@ -1162,7 +1162,9 @@ function moeda(v){
   let s = String(v).trim().replace(/[R$\s]/g,'');
   if(s.includes(',')){            // formato BR: "2.339,80" -> ponto é milhar, vírgula é decimal
     s = s.replace(/\./g,'').replace(',','.');
-  }                               // sem vírgula: "2339.80" ou "2339" -> ponto já é decimal
+  } else if(/^-?\d{1,3}(\.\d{3})+$/.test(s)){   // "136.800" | "50.000" = milhar (BR), sem centavos
+    s = s.replace(/\./g,'');                     // (mesma regra de num()/numMoeda() — evita virar 136,80)
+  }                               // resto sem vírgula: "2339.80" ou "2339" -> ponto já é decimal
   const n = parseFloat(s.replace(/[^\d.-]/g,''));
   if(isNaN(n)) return up(v);
   return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -1399,13 +1401,16 @@ function fipeUsar(){
 function render(){
   const d = dados();
 
-  // coleta/entrega herdam do contratante quando vazias (base × base)
+  // coleta/entrega herdam nome/CPF/tel do contratante quando vazios — MAS a cidade/UF
+  // caem na ORIGEM (remetente/coleta) e no DESTINO (destinatário/entrega) do transporte,
+  // nunca na cidade do faturamento. Antes ambos herdavam d.cidade e a ficha saía com a
+  // MESMA cidade nos dois blocos (duplicado).
   const cN=d.coletaNome||d.clienteEmpresa, cC=d.coletaCpf||d.cpfCnpj, cT=d.coletaTel||d.telefone,
-        cE=d.coletaEndereco||'BASE', cB=d.coletaBairro||'BASE', cCi=d.coletaCidade||d.cidade,
-        cU=d.coletaUf||d.uf, cCe=d.coletaCep||d.cep;
+        cE=d.coletaEndereco||'BASE', cB=d.coletaBairro||'BASE', cCi=d.coletaCidade||cidadeDe(d.origem),
+        cU=d.coletaUf||ufDe(d.origem), cCe=d.coletaCep||d.cep;
   const eN=d.entregaNome||d.clienteEmpresa, eC=d.entregaCpf||d.cpfCnpj, eT=d.entregaTel||d.telefone,
-        eE=d.entregaEndereco||'BASE', eB=d.entregaBairro||'BASE', eCi=d.entregaCidade||d.cidade,
-        eU=d.entregaUf||d.uf, eCe=d.entregaCep||d.cep;
+        eE=d.entregaEndereco||'BASE', eB=d.entregaBairro||'BASE', eCi=d.entregaCidade||cidadeDe(d.destino),
+        eU=d.entregaUf||ufDe(d.destino), eCe=d.entregaCep||d.cep;
 
   // ---- Página 1 · Autorização ----
   set('a_num', d.numero); set('a_atend', up(d.atendente)); set('a_data', dataBR(d.dataFechamento));
@@ -3529,7 +3534,7 @@ function renderOrcamentoPage(){
         <option value="Particular">Particular</option>
       </select></div>
       <div class="field"><label>Modelo do veículo *</label><input id="or_modelo" placeholder="Ex.: HONDA/CIVIC 2020"></div>
-      <div class="field"><label>Valor do veículo (R$)</label><input id="or_valor" placeholder="Ex.: 80.000"></div>
+      <div class="field"><label>Valor do veículo (R$)</label><input id="or_valor" inputmode="decimal" placeholder="Ex.: 80.000"></div>
       <div class="field"><label>O veículo funciona / liga?</label><select id="or_funciona">
         <option value="SIM">SIM, funciona</option>
         <option value="NÃO">NÃO funciona</option>
