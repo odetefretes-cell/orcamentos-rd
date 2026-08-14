@@ -160,6 +160,15 @@ Sempre preencha "motivo" com uma frase curta explicando a decisão (ex.:
 "Valor acima do limite", "Dentro do padrão", "Estimativa - leilão", "Moto elétrica").
 Responda SOMENTE no formato estruturado pedido.`;
 
+// Chat com HUMANO atendendo no ChatGuru? (responsável assinalado e não é "Ninguém
+// Delegado"). Se sim, o robô NÃO deve perguntar dado nem cotar — o atendente cuida.
+function temAtendenteHumano(nome){
+  const n = String(nome || '').trim().toLowerCase();
+  if(!n) return false;
+  if(/ningu[eé]m|delegado|sem\s+respons/.test(n)) return false;   // "Ninguém Delegado" etc.
+  return true;
+}
+
 exports.processarLeadCompleto = onDocumentUpdated(
   {
     document: 'crm_leads_intake/{telefone}',
@@ -175,6 +184,22 @@ exports.processarLeadCompleto = onDocumentUpdated(
     // esta função também grava no mesmo documento).
     if (depois.statusIntake !== 'completo') return;
     if (depois.iaProcessado) return;
+
+    // ⚠️ Chat JÁ EM ATENDIMENTO (humano assinalado como responsável no ChatGuru): NÃO
+    // pergunta dado que falta (Fase C) NEM cota. O encaminhador (relaxado p/ pegar
+    // contato espontâneo) repassa até conversa em atendimento; sem isto, o robô
+    // perguntava "me confirma origem/destino/veículo" por cima do atendente (Brendon,
+    // Ruy, Rodrigo...). Contato novo entra "Ninguém Delegado" → responsável vazio → segue.
+    if (temAtendenteHumano(depois.responsavelChatguru)) {
+      await event.data.after.ref.update({
+        iaProcessado: true,
+        statusIntake: 'em_atendimento_humano',
+        iaProcessadoEm: FieldValue.serverTimestamp(),
+        motivoPulo: 'chat em atendimento humano (' + String(depois.responsavelChatguru).trim() + ')',
+      });
+      console.log(`[processarLeadCompleto] ${event.params.telefone}: chat EM ATENDIMENTO (responsável ${depois.responsavelChatguru}) — pula (não pergunta nem cota).`);
+      return;
+    }
 
     const telefone = event.params.telefone;
     const texto = (depois.mensagemCompleta || '').trim()
