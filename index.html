@@ -4697,7 +4697,11 @@ async function crmRecalcularLead(id){
   const db=await carregarTabelaFretes(); if(!db) return false;
   let oR=await resolverCidade(l.origem), dR=await resolverCidade(l.destino);
   const cat=crmCategoriaSugerida(l);                  // categoria pela descrição do veículo
-  let opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  // USA OS GANCHOS DE BASE VIZINHA (igual ao botão "Calcular frete"/crmCalcAuto).
+  // Antes este recálculo automático usava crmGerarOpcoes SEM os hubs — por isso São
+  // Paulo→Rio montava SP→SBC→Rio (2 trechos) em vez da direta SBC→Rio com retirada em
+  // SP. Agora as duas vias (manual e automática) usam a MESMA lógica.
+  let opts=await crmColetarOpcoes(db, oR, dR, cat);
   if(!opts.length){
     // fallback: ancora no hub/base mais próximo (cidade de trajeto vizinha pode ser beco sem saída)
     const of=await ancoraForteMaisProxima(oR.norm,oR.uf), df=await ancoraForteMaisProxima(dR.norm,dR.uf);
