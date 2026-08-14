@@ -202,6 +202,30 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     if(d.statusIntake !== 'automatico' && d.statusIntake !== 'aguardando_humano') return;
     if(d.leadCriado) return;                     // já criado (evita repetir)
 
+    // ⚠️ TRAVA ATÔMICA ANTI-DUPLICAÇÃO (reivindica o ciclo ANTES do trabalho lento).
+    // Dois updates rápidos do intake — ou duas execuções concorrentes da IA que setam
+    // 'aguardando_humano'/'automatico' quase juntas — disparavam esta função em
+    // PARALELO. Cada invocação recriava o lead e ZERAVA avisoHumanoEnviado/
+    // respostaEnviada, então prepararResposta enviava a MESMA mensagem várias vezes ao
+    // cliente (bug real: FIESTA/BIZ receberam 4x no mesmo minuto). O guard `leadCriado`
+    // acima só era gravado no FIM (depois do cálculo), tarde demais. Aqui marcamos
+    // `leadCriado` numa transação logo no início: só a PRIMEIRA invocação prossegue;
+    // as concorrentes param aqui. (Cliente que volta a cotar reabre o ciclo pelo
+    // webhook — branch A/B zera `leadCriado` — então isto não trava recotação legítima.)
+    const intakeRef = event.data.after.ref;
+    const donoDoCiclo = await db.runTransaction(async (tx) => {
+      const s = await tx.get(intakeRef);
+      const cur = s.exists ? (s.data() || {}) : {};
+      if(cur.leadCriado) return false;
+      if(cur.statusIntake !== 'automatico' && cur.statusIntake !== 'aguardando_humano') return false;
+      tx.update(intakeRef, { leadCriado: true, leadCriadoEm: FieldValue.serverTimestamp() });
+      return true;
+    });
+    if(!donoDoCiclo){
+      console.log(`[criarLeadNoCrm] ${event.params.telefone}: ciclo já assumido por outra invocação — ignora (anti-duplicação).`);
+      return;
+    }
+
     const paraHumano = d.statusIntake === 'aguardando_humano';
     const telefone = event.params.telefone;
     const e = d.extraido || {};
@@ -329,10 +353,11 @@ exports.criarLeadNoCrm = onDocumentUpdated(
       }
     }
 
+    // leadCriado já foi reivindicado no início (trava anti-duplicação). Aqui só
+    // gravamos o leadId e o vendedor do rodízio (pra Etapa 5 setar o mesmo no ChatGuru).
     await event.data.after.ref.update({
-      leadCriado: true, leadId,
+      leadId,
       vendedorAtribuido: vendedor || '',   // pra Etapa 5 setar o mesmo no ChatGuru
-      leadCriadoEm: FieldValue.serverTimestamp(),
     });
     console.log(`[criarLeadNoCrm] Lead ${telefone} -> ${leadId} | ${paraHumano ? 'HUMANO (' + (e.motivo || '') + ')' : 'automático'} | vendedor: ${vendedor || '(nenhum)'} | categoria: ${categoria || 'auto'}.`);
   }
