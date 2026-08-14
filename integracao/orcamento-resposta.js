@@ -232,17 +232,34 @@ exports.criarLeadNoCrm = onDocumentUpdated(
 
     const categoria = categoriaDeVeiculo(e.tipoVeiculo, e.orcarComo);
 
-    // Responsável: se o ChatGuru já tiver um, respeita; senão (o normal, pois
-    // todos entram "sem responsável"), o backend distribui por rodízio.
-    let vendedor = canonVendedor(d.responsavelChatguru);
-    if(!vendedor) vendedor = await proximoVendedor();
-
     // CHAVE do lead = últimos 8 dígitos do telefone — A MESMA usada pelo formulário
     // do site (obs-cotacao.js). Assim o lead do site e a atualização do ChatGuru caem
     // no MESMO documento (sem DUPLICAR) e ainda ignora +55/DDD/9º dígito/formatação.
     const chave = String(telefone).replace(/\D/g,'').slice(-8) || String(telefone);
     const leadId = 'lead_wpp_' + chave;
     const ref = db.collection('crm_leads').doc(leadId);
+
+    // ⚠️ TRAVA "JÁ EM ANDAMENTO": o encaminhador (relaxado p/ pegar contato espontâneo)
+    // repassa QUALQUER conversa ativa do cliente — inclusive de quem JÁ está sendo
+    // atendido. Sem isto, o backend recotava e mandava mensagem automática POR CIMA de um
+    // lead que a equipe já trabalha (caso INGRID-1523: lead com frete recebeu mensagem
+    // vazia). Regra: se o lead JÁ existe e saiu da coluna "novo" (a equipe assumiu), o
+    // backend NÃO recota nem envia nada — só a equipe cuida. Lead novo/inexistente segue
+    // o fluxo automático normal.
+    const jaSnap = await ref.get();
+    if(jaSnap.exists){
+      const etapaAtual = String(jaSnap.data().etapa || '').trim();
+      if(etapaAtual && etapaAtual !== 'novo'){
+        console.log(`[criarLeadNoCrm] ${leadId} JÁ EM ANDAMENTO (etapa=${etapaAtual}) — NÃO recota nem envia (equipe cuidando).`);
+        await event.data.after.ref.update({ leadId, emAndamentoIgnorado: true, emAndamentoEm: FieldValue.serverTimestamp() });
+        return;
+      }
+    }
+
+    // Responsável: se o ChatGuru já tiver um, respeita; senão (o normal, pois
+    // todos entram "sem responsável"), o backend distribui por rodízio.
+    let vendedor = canonVendedor(d.responsavelChatguru);
+    if(!vendedor) vendedor = await proximoVendedor();
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
