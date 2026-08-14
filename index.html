@@ -1699,7 +1699,7 @@ async function initData(){
             if(d.id.startsWith('_')){
               // docs reservados: usuários (_acesso) e funis (_etapas) — carregam ao vivo
               if(d.id==='_acesso'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ USUARIOS=li; } }
-              else if(d.id==='_etapas'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ CRM_ETAPAS=li; try{localStorage.setItem(CRM_ETAPAS_KEY,JSON.stringify(CRM_ETAPAS));}catch(_){} } }
+              else if(d.id==='_etapas'){ const li=d.data().lista; if(Array.isArray(li)&&li.length){ CRM_ETAPAS=crmGarantirEtapasEssenciais(li); try{localStorage.setItem(CRM_ETAPAS_KEY,JSON.stringify(CRM_ETAPAS));}catch(_){} } }
               else if(d.id==='_presenca'){ if(typeof CRM_PRESENCA!=='undefined') CRM_PRESENCA=d.data()||{}; }
               else if(d.id==='_rodizio'){ if(typeof CRM_RODIZIO!=='undefined') CRM_RODIZIO=d.data()||{last:''}; }
               return;
@@ -4158,8 +4158,23 @@ const CRM_ETAPAS_DEFAULT = [
   { id:'perdido',    titulo:'Perdido',            icon:'❌', cor:'#c0392b' },
 ];
 const CRM_ETAPAS_KEY = 'obs_crm_etapas';
+// 'novo' e 'perdido' são ESSENCIAIS: leads novos (automação/formulário/manual) caem
+// em 'novo' e leads marcados como perda em 'perdido'. Se a coluna sumir da lista
+// salva (edição de funil, sync antigo, erro), esses leads ficam INVISÍVEIS no Kanban.
+// Este normalizador garante que as duas colunas sempre existam (novo à frente,
+// perdido antes do arquivado). Não força as demais — respeita o funil customizado.
+function crmGarantirEtapasEssenciais(lista){
+  const arr = Array.isArray(lista) ? lista.filter(e=>e && e.id) : [];
+  if(!arr.some(e=>e.id==='novo')) arr.unshift({ id:'novo', titulo:'Novo Lead', icon:'📥', cor:'#9aa7b4' });
+  if(!arr.some(e=>e.id==='perdido')){
+    const perdido = { id:'perdido', titulo:'Perdido', icon:'❌', cor:'#c0392b' };
+    const iArq = arr.findIndex(e=>e.id==='arquivado');
+    if(iArq>=0) arr.splice(iArq, 0, perdido); else arr.push(perdido);
+  }
+  return arr;
+}
 function loadEtapas(){
-  try{ const a=JSON.parse(localStorage.getItem(CRM_ETAPAS_KEY)); if(Array.isArray(a)&&a.length) return a; }catch(_){}
+  try{ const a=JSON.parse(localStorage.getItem(CRM_ETAPAS_KEY)); if(Array.isArray(a)&&a.length) return crmGarantirEtapasEssenciais(a); }catch(_){}
   return CRM_ETAPAS_DEFAULT.map(e=>({...e}));
 }
 let CRM_ETAPAS = loadEtapas();
@@ -4171,7 +4186,7 @@ async function carregarEtapasCloud(){
   if(!(CLOUD_ON && _fb && _fb.getDoc)) return;
   try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_etapas'));
     if(s.exists() && Array.isArray(s.data().lista) && s.data().lista.length){
-      CRM_ETAPAS = s.data().lista; localStorage.setItem(CRM_ETAPAS_KEY, JSON.stringify(CRM_ETAPAS));
+      CRM_ETAPAS = crmGarantirEtapasEssenciais(s.data().lista); localStorage.setItem(CRM_ETAPAS_KEY, JSON.stringify(CRM_ETAPAS));
       if(typeof renderCRM==='function') renderCRM();
     }
   }catch(_){}
