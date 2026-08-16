@@ -566,6 +566,25 @@ function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
       all.push(x);
     }
   }}
+  // COSTURA VIA SBC (hub central da OBS): embarca na ORIGEM real e transborda em SBC.
+  // Cobre o caso em que a origem só ALCANÇA SBC por sub-trecho (Uberlândia via Cegonha/
+  // Transprime, que PASSAM por Uberlândia) — o combinador por adjacência só via Myrelle→
+  // Betim e desviava por Betim, embarcando fora da origem.
+  try{
+    const HUB=nk('sao bernardo do campo','SP');
+    if(!matchKey(nk(oR.norm,oR.uf),HUB) && !matchKey(nk(dR.norm,dR.uf),HUB)){
+      const aa=crmGerarOpcoes(db, nk(oR.norm,oR.uf), HUB, cat).opts.filter(x=>x.total!=null).slice(0,5);
+      const bb=crmGerarOpcoes(db, HUB, nk(dR.norm,dR.uf), cat).opts.filter(x=>x.total!=null).slice(0,6);
+      for(const a of aa){ for(const b of bb){
+        const legs=a.legs.concat(b.legs);
+        const seqC=[nk(normTxt(legs[0].oNome),legs[0].oUF)]; for(const l of legs) seqC.push(nk(normTxt(l.dNome),l.dUF));
+        if(new Set(seqC).size!==seqC.length) continue;   // sem cidade repetida (loop)
+        const sig=legs.map(l=>normTxt(l.transportadora)).join('>')+'|'+normTxt(legs[legs.length-1].dNome)+'/'+(legs[legs.length-1].dUF||'')+'|'+(a.total+b.total);
+        if(seen.has(sig)) continue; seen.add(sig);
+        all.push({ tipo:'combinacao', legs, total:a.total+b.total, prazo:(a.prazo||0)+(b.prazo||0) });
+      }}
+    }
+  }catch(_){}
   // GARANTIA GEOGRÁFICA: a retirada (1º trecho) tem que ficar perto da ORIGEM REAL
   // pedida e a entrega (último trecho) perto do DESTINO REAL — usando as coords da
   // cidade ORIGINAL (oRefCo/dRefCo), NÃO a "encaixada" pela resolverCidade. Sem isto,
@@ -577,11 +596,17 @@ function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
     if(!a) return true;
     return haversine(a,refCo) <= RAIO;
   };
+  const coDe=(nome,uf)=> (coords && coords[normTxt(nome)+'|'+String(uf||'').toUpperCase()]) || null;
+  const distA=(co,refCo)=> (co&&refCo)?haversine(co,refCo):9999;
   const lista = all.filter(x=>{
     const f=x.legs[0], u=x.legs[x.legs.length-1];
     return perto(f.oNome,f.oUF, oRefCo) && perto(u.dNome,u.dUF, dRefCo);
   });
-  lista.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
+  // diretas primeiro; depois preço; EMPATE → embarque mais perto da origem real
+  // (prefere embarcar na própria cidade, ex.: Uberlândia, não num hub vizinho como Araguari).
+  lista.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta')
+      || (a.total??1e12)-(b.total??1e12)
+      || distA(coDe(a.legs[0].oNome,a.legs[0].oUF),oRefCo) - distA(coDe(b.legs[0].oNome,b.legs[0].oUF),oRefCo));
   return lista.slice(0, 60);
 }
 // coords da cidade ORIGINAL (string crua "Cidade UF") — base da garantia geográfica.

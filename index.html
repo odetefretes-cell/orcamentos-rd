@@ -6144,6 +6144,24 @@ async function crmColetarOpcoes(db, oR, dR, cat){
       all.push(x);
     }
   }}
+  // COSTURA VIA SBC (hub central da OBS): embarca na ORIGEM real e transborda em SBC — cobre
+  // origem que só alcança SBC por sub-trecho (Uberlândia via Cegonha/Transprime), que a
+  // adjacência (só Myrelle→Betim) não montava, desviando por Betim fora da origem.
+  try{
+    const HUB=nk('sao bernardo do campo','SP');
+    if(!matchKey(nk(oR.norm,oR.uf),HUB) && !matchKey(nk(dR.norm,dR.uf),HUB)){
+      const aa=crmGerarOpcoes(db, nk(oR.norm,oR.uf), HUB, cat).opts.filter(x=>x.total!=null).slice(0,5);
+      const bb=crmGerarOpcoes(db, HUB, nk(dR.norm,dR.uf), cat).opts.filter(x=>x.total!=null).slice(0,6);
+      for(const a of aa){ for(const b of bb){
+        const legs=a.legs.concat(b.legs);
+        const seqC=[nk(normTxt(legs[0].oNome),legs[0].oUF)]; for(const l of legs) seqC.push(nk(normTxt(l.dNome),l.dUF));
+        if(new Set(seqC).size!==seqC.length) continue;   // sem cidade repetida (loop)
+        const sig2=legs.map(l=>normTxt(l.transportadora)).join('>')+'|'+normTxt(legs[legs.length-1].dNome)+'/'+(legs[legs.length-1].dUF||'')+'|'+(a.total+b.total);
+        if(seen.has(sig2)) continue; seen.add(sig2);
+        all.push({ tipo:'combinacao', legs, total:a.total+b.total, prazo:(a.prazo||0)+(b.prazo||0), _viaOrigem:null, _viaDestino:null });
+      }}
+    }
+  }catch(_){}
   // GARANTIA GEOGRÁFICA (igual ao backend calc-fretes.js): a retirada (1º trecho) tem que
   // ficar perto da ORIGEM REAL e a entrega (último trecho) perto do DESTINO REAL pedidos —
   // usando a cidade ORIGINAL (antes do "encaixe" da resolverCidade). Sem isto, uma cidade
@@ -6160,10 +6178,15 @@ async function crmColetarOpcoes(db, oR, dR, cat){
   const perto=(nomeA,ufA,refCo)=>{ if(!refCo) return true;
     const a=CIDADES_COORDS && CIDADES_COORDS[normTxt(nomeA)+'|'+String(ufA||'').toUpperCase()];
     if(!a) return true; return haversine(a,refCo)<=RAIO; };
+  const coDe=(nome,uf)=> (CIDADES_COORDS && CIDADES_COORDS[normTxt(nome)+'|'+String(uf||'').toUpperCase()]) || null;
+  const distA=(co,refCo)=> (co&&refCo)?haversine(co,refCo):9999;
   const bons = all.filter(x=>{ const f=x.legs[0], u=x.legs[x.legs.length-1];
     return perto(f.oNome,f.oUF,oRefCo) && perto(u.dNome,u.dUF,dRefCo); });
-  // ordena: diretas primeiro, depois por preço; limita a lista p/ não ficar gigante
-  bons.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
+  // diretas primeiro; depois preço; EMPATE → embarque mais perto da origem real (prefere
+  // embarcar na própria cidade, ex.: Uberlândia, não num hub vizinho como Araguari).
+  bons.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta')
+      || (a.total??1e12)-(b.total??1e12)
+      || distA(coDe(a.legs[0].oNome,a.legs[0].oUF),oRefCo) - distA(coDe(b.legs[0].oNome,b.legs[0].oUF),oRefCo));
   return bons.slice(0, 60);
 }
 // aplica uma opção (lista de trechos) ao lead
