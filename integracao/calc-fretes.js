@@ -533,13 +533,72 @@ function crmRecalcCalc(l, db){
 /* ---------------------------------------------------------------------------
    Orquestrador (porta crmRecalcularLead) — muta o objeto `l`
    --------------------------------------------------------------------------- */
+// ---- Ganchos de base vizinha (port do crmNosProximos/crmColetarOpcoes do app) + ----
+// ---- GARANTIA GEOGRÁFICA: a opção só vale se a retirada fica perto da origem E a ----
+// ---- entrega perto do destino pedidos (senão o hub trazia rota que nem chega lá). ----
+function crmNosProximos(db, coords, nc, uf, maxKm, limite){
+  if(!coords) return [];
+  const req=coords[nc+'|'+uf]; if(!req) return [];
+  const proximos=(lista)=>{ const o=[]; for(const b of lista){ const bn=normTxt(b.nome); if(bn===nc&&b.uf===uf) continue;
+      const dk=haversine(req,b.co); if(dk<=maxKm) o.push({ norm:bn, uf:b.uf, nome:b.nome, dist:Math.round(dk) }); }
+    o.sort((a,b)=>a.dist-b.dist); return o; };
+  const lim=limite||2;
+  const hubs = proximos(endpointsComCoords(db,coords)).slice(0, lim);
+  const nos  = proximos(basesComCoords(db,coords)).slice(0, lim);
+  const seen=new Set(), out=[];
+  for(const x of hubs.concat(nos)){ const k=x.norm+'|'+x.uf; if(seen.has(k)) continue; seen.add(k); out.push(x); }
+  out.sort((a,b)=>a.dist-b.dist);
+  return out;
+}
+function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
+  const KM=42, LIM=2, RAIO=45;
+  const oHubs = crmNosProximos(db,coords,oR.norm,oR.uf,KM,LIM);
+  const dHubs = crmNosProximos(db,coords,dR.norm,dR.uf,KM,LIM);
+  const oCands = [{norm:oR.norm,uf:oR.uf,nome:oR.nome||oR.norm,dist:0}].concat(oHubs);
+  const dCands = [{norm:dR.norm,uf:dR.uf,nome:dR.nome||dR.norm,dist:0}].concat(dHubs);
+  const seen=new Set(), all=[];
+  for(const oc of oCands){ for(const dc of dCands){
+    const res = crmGerarOpcoes(db, nk(oc.norm,oc.uf), nk(dc.norm,dc.uf), cat);
+    for(const x of res.opts){
+      const ult=x.legs[x.legs.length-1];
+      const sig = x.legs.map(l=>normTxt(l.transportadora)).join('>')+'|'+normTxt(ult.dNome)+'/'+(ult.dUF||'')+'|'+(x.total==null?'?':x.total);
+      if(seen.has(sig)) continue; seen.add(sig);
+      all.push(x);
+    }
+  }}
+  // GARANTIA GEOGRÁFICA: a retirada (1º trecho) tem que ficar perto da ORIGEM REAL
+  // pedida e a entrega (último trecho) perto do DESTINO REAL — usando as coords da
+  // cidade ORIGINAL (oRefCo/dRefCo), NÃO a "encaixada" pela resolverCidade. Sem isto,
+  // uma cidade não atendida que encaixa numa base a 100+ km (Viçosa→João Monlevade)
+  // passaria batido e mandaria média errada. Sem coordenada de um ponto, não bloqueia.
+  const perto=(nomeA,ufA, refCo)=>{
+    if(!refCo) return true;
+    const a=coords && coords[normTxt(nomeA)+'|'+String(ufA||'').toUpperCase()];
+    if(!a) return true;
+    return haversine(a,refCo) <= RAIO;
+  };
+  const lista = all.filter(x=>{
+    const f=x.legs[0], u=x.legs[x.legs.length-1];
+    return perto(f.oNome,f.oUF, oRefCo) && perto(u.dNome,u.dUF, dRefCo);
+  });
+  lista.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
+  return lista.slice(0, 60);
+}
+// coords da cidade ORIGINAL (string crua "Cidade UF") — base da garantia geográfica.
+function coordsCidadeRaw(coords, raw){
+  if(!coords) return null;
+  const uf=ufTxt(raw).toUpperCase();
+  const nc=normTxt(String(raw||'').replace(new RegExp('[\\s/,()\\-]+'+uf+'\\)?\\s*$','i'),'').replace(/[\/,\-\s(]+$/,''));
+  return coords[nc+'|'+uf] || null;
+}
 function calcularFreteLead(l, db, coords){
   if(!l || !l.origem || !l.destino) return false;
   if(!db) return false;
   _COORDS_SUB = coords || null;   // habilita ordem geográfica no crmSubTrecho
   let oR=resolverCidade(db,coords,l.origem), dR=resolverCidade(db,coords,l.destino);
   const cat=crmCategoriaSugerida(l);
-  let opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  const oRefCo=coordsCidadeRaw(coords,l.origem), dRefCo=coordsCidadeRaw(coords,l.destino);
+  let opts=crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo);   // exata + hubs, com garantia geográfica vs. origem/destino REAIS
   if(!opts.length){
     const of=ancoraForteMaisProxima(db,coords,oR.norm,oR.uf), df=ancoraForteMaisProxima(db,coords,dR.norm,dR.uf);
     if(of) oR={norm:normTxt(of.nome),uf:of.uf,aproximada:true,nome:of.nome,dist:of.dist};

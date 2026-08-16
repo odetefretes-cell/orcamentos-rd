@@ -4697,7 +4697,9 @@ async function crmRecalcularLead(id){
   const db=await carregarTabelaFretes(); if(!db) return false;
   let oR=await resolverCidade(l.origem), dR=await resolverCidade(l.destino);
   const cat=crmCategoriaSugerida(l);                  // categoria pela descrição do veículo
-  let opts=crmGerarOpcoes(db, nk(oR.norm,oR.uf), nk(dR.norm,dR.uf), cat).opts;
+  // usa hubs de base vizinha + garantia geográfica (mesma lógica do "Calcular frete" e do
+  // backend calc-fretes.js) — as três vias de cálculo ficam idênticas.
+  let opts=await crmColetarOpcoes(db, oR, dR, cat);
   if(!opts.length){
     // fallback: ancora no hub/base mais próximo (cidade de trajeto vizinha pode ser beco sem saída)
     const of=await ancoraForteMaisProxima(oR.norm,oR.uf), df=await ancoraForteMaisProxima(dR.norm,dR.uf);
@@ -6142,9 +6144,27 @@ async function crmColetarOpcoes(db, oR, dR, cat){
       all.push(x);
     }
   }}
+  // GARANTIA GEOGRÁFICA (igual ao backend calc-fretes.js): a retirada (1º trecho) tem que
+  // ficar perto da ORIGEM REAL e a entrega (último trecho) perto do DESTINO REAL pedidos —
+  // usando a cidade ORIGINAL (antes do "encaixe" da resolverCidade). Sem isto, uma cidade
+  // não atendida que encaixa numa base a 100+ km (Viçosa→João Monlevade) traria uma rota
+  // que nem chega ao destino. Sem coordenada de um ponto, não bloqueia.
+  const RAIO=45;
+  const refCoOrig=(cand)=>{
+    let nc=cand.norm, uf=String(cand.uf||'').toUpperCase();
+    if(cand.original){ uf=ufTxt(cand.original).toUpperCase();
+      nc=normTxt(String(cand.original).replace(new RegExp('[\\s/,()\\-]+'+uf+'\\)?\\s*$','i'),'').replace(/[\/,\-\s(]+$/,'')); }
+    return (CIDADES_COORDS && CIDADES_COORDS[nc+'|'+uf]) || null;
+  };
+  const oRefCo=refCoOrig(oR), dRefCo=refCoOrig(dR);
+  const perto=(nomeA,ufA,refCo)=>{ if(!refCo) return true;
+    const a=CIDADES_COORDS && CIDADES_COORDS[normTxt(nomeA)+'|'+String(ufA||'').toUpperCase()];
+    if(!a) return true; return haversine(a,refCo)<=RAIO; };
+  const bons = all.filter(x=>{ const f=x.legs[0], u=x.legs[x.legs.length-1];
+    return perto(f.oNome,f.oUF,oRefCo) && perto(u.dNome,u.dUF,dRefCo); });
   // ordena: diretas primeiro, depois por preço; limita a lista p/ não ficar gigante
-  all.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
-  return all.slice(0, 60);
+  bons.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta') || (a.total??1e12)-(b.total??1e12));
+  return bons.slice(0, 60);
 }
 // aplica uma opção (lista de trechos) ao lead
 function crmAplicarOpcao(id, x){
