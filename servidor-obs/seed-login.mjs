@@ -154,13 +154,21 @@ try {
   if (!codigo) { log('ERRO: nao recebi o codigo a tempo. Rode o script de novo.'); await browser.close(); process.exit(1); }
   log(`Codigo recebido (${codigo.length} digitos). Preenchendo...`);
 
-  const campoCod = page.locator('input[type="text"]:visible, input[type="tel"]:visible, input[type="number"]:visible, input[inputmode="numeric"]:visible, input[name*="cod" i], input[name*="token" i], input[name*="otp" i], input[autocomplete="one-time-code"]').first();
-  let ok = false;
-  if (await campoCod.count()) { await campoCod.fill(codigo).then(() => { ok = true; }).catch(() => {}); }
-  if (!ok) {
-    const campos = page.locator('input:visible');
-    const n = await campos.count();
-    for (let k = 0; k < Math.min(n, codigo.length); k++) { await campos.nth(k).fill(codigo[k]).catch(() => {}); }
+  const digs = codigo.replace(/\D/g, '').split('');
+  const caixas = page.locator('input[name="code_number"], input[autocomplete="one-time-code"], input[inputmode="numeric"]:visible, input[type="number"]:visible, input[type="tel"]:visible');
+  const nb = await caixas.count().catch(() => 0);
+  if (nb >= 2) {
+    log(`Detectei ${nb} caixinhas de 1 digito — preenchendo uma a uma (${digs.length} digitos).`);
+    for (let k = 0; k < Math.min(nb, digs.length); k++) {
+      await caixas.nth(k).click().catch(() => {});
+      await caixas.nth(k).fill(digs[k]).catch(() => {});
+      await page.waitForTimeout(120);
+    }
+  } else if (nb === 1) {
+    await caixas.first().fill(codigo).catch(() => {});
+  } else {
+    const alt = page.locator('input[type="text"]:visible, input[name*="cod" i], input[name*="token" i], input[name*="otp" i]').first();
+    if (await alt.count()) await alt.fill(codigo).catch(() => {});
   }
   await page.waitForTimeout(600);
   await Promise.race([
