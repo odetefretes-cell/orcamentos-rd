@@ -1,0 +1,21 @@
+# === SEGREDOS: nunca versionar ===
+.env
+.env.*
+!.env.example
+*serviceAccount*.json
+*service-account*.json
+*firebase-adminsdk*.json
+*.pem
+*.key
+
+# === estado/sessao do navegador (contem cookies de login) ===
+estado/
+*sessao*.json
+*storageState*.json
+
+# === lixo de execucao ===
+node_modules/
+logs/
+*.log
+*.png
+.DS_Store
