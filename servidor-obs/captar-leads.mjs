@@ -90,7 +90,57 @@ async function mensagensCliente(chatId) {
   }, chatId);
 }
 
+// ---------- Extração por IA (Claude) p/ mensagens livres (sem formulário) ----------
+async function extrairIA(mensagens) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return { erro: 'sem ANTHROPIC_API_KEY' };
+  const modelo = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+  const tool = {
+    name: 'registrar_lead',
+    description: 'Registra os dados de transporte de veículo informados pelo cliente na conversa.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ehLead: { type: 'boolean', description: 'true SE a conversa é um pedido de transporte de veículo com dados (origem/destino/veículo). false se for só dúvida, saudação, retorno de cliente já atendido, ou conversa sem pedido novo.' },
+        nome: { type: 'string', description: 'nome do cliente, se informado' },
+        veiculo: { type: 'string', description: 'modelo do veículo (ex.: "Onix 2020")' },
+        valorVeiculo: { type: 'number', description: 'valor do veículo em reais, inteiro (ex.: "50 mil"->50000, "R$ 83.000"->83000). 0 se não informado.' },
+        origem: { type: 'string', description: 'cidade e UF de origem (ex.: "Guarulhos SP")' },
+        destino: { type: 'string', description: 'cidade e UF de destino' },
+        funciona: { type: 'boolean', description: 'o veículo funciona/liga? (true se sim ou não informado)' },
+        blindado: { type: 'boolean', description: 'é blindado?' },
+      },
+      required: ['ehLead', 'nome', 'veiculo', 'valorVeiculo', 'origem', 'destino', 'funciona', 'blindado'],
+    },
+  };
+  const body = {
+    model: modelo, max_tokens: 1000,
+    system: 'Você extrai dados de transporte de veículo de conversas de WhatsApp da OBS Transportes (transporte de carros e motos por cegonha/guincho). NUNCA invente: o que o cliente não informou fica vazio (0 para valor). Se a conversa NÃO for um pedido de transporte com dados (só dúvida, "ok", saudação, retorno), marque ehLead=false.',
+    tools: [tool], tool_choice: { type: 'tool', name: 'registrar_lead' },
+    messages: [{ role: 'user', content: 'Mensagens do cliente (em ordem):\n' + mensagens.join('\n') }],
+  };
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) return { erro: 'HTTP ' + r.status + ' ' + JSON.stringify(j).slice(0, 200) };
+    const use = (j.content || []).find(c => c.type === 'tool_use');
+    return use ? use.input : { erro: 'sem tool_use na resposta' };
+  } catch (e) { return { erro: String(e && e.message || e) }; }
+}
+
 try {
+  if (process.argv.includes('--demo-ia')) {
+    log('===== DEMO da extração por IA (não usa o ChatGuru) =====');
+    const casos = [
+      ['DEVE ser lead', ['Boa tarde! Preciso transportar um Honda Civic 2019', 'de São Paulo SP para Salvador BA', 'o carro funciona normal, vale uns 90 mil']],
+      ['NÃO é lead (dúvida)', ['a entrega não é feita no local?', 'ok', 'combinado']],
+    ];
+    for (const [rot, msgs] of casos) { log(`\n[${rot}] ${JSON.stringify(msgs)}`); log('  IA →', JSON.stringify(await extrairIA(msgs))); }
+    log('\n(demo — nada gravado)');
+    await browser.close(); process.exit(0);
+  }
   log(`===== CAPTAÇÃO ${DRY_RUN ? '(DRY_RUN — só mostra, NÃO grava)' : '⚠️ AO VIVO (VAI GRAVAR)'} =====\n`);
   await page.goto(BASE + '/chats', { waitUntil: 'domcontentloaded', timeout: 45000 });
   await page.waitForTimeout(3000);
@@ -122,28 +172,40 @@ try {
     log(`\n--- ${nomeChat || '(sem nome)'} | ${telefone} | chatId=${c.id} ---`);
     if (jaExiste) { log('  ⏭️  JÁ EXISTE no CRM (últimos 8 dígitos ou nome) → PULA.'); pula++; continue; }
 
+    // extrai: formulário (regex, instantâneo) OU IA (mensagens livres)
+    let d = null, fonte = '';
     if (tpl) {
-      const lead = {
-        id: 'lead_wpp_' + chave,
-        nome: tpl.Nome || nomeChat || '',
-        telefone,
-        email: tpl['E-mail'] || '',
-        veiculoDesc: tpl['Veículo'] || '',
-        valorVeiculo: soDig(tpl['Valor do veículo'] || ''),
-        origem: tpl.Origem || '',
-        destino: tpl.Destino || '',
-        funciona: simNao(tpl['Funciona/liga']) ? 'SIM' : 'NÃO',
-        blindado: /sim/i.test(tpl.Blindado || '') ? 'SIM' : 'NÃO',
-        origemLead: 'whatsapp', etapa: 'novo', prioridade: 'quente',
-      };
-      log('  ✅ CRIARIA este lead (formulário completo):');
-      log('     ', JSON.stringify(lead));
-      criaria++;
+      d = { nome: tpl.Nome, veiculo: tpl['Veículo'], valorVeiculo: soDig(tpl['Valor do veículo']), origem: tpl.Origem, destino: tpl.Destino, funciona: simNao(tpl['Funciona/liga']), blindado: /sim/i.test(tpl.Blindado || ''), email: tpl['E-mail'] || '', ehLead: true };
+      fonte = 'formulário';
     } else {
-      log('  🤖 SEM formulário — precisa da IA pra extrair das mensagens livres:');
-      msgs.slice(0, 10).forEach(m => log('      • ' + m.replace(/https?:\/\/\S+/g, '[url]').replace(/\s+/g, ' ').slice(0, 200)));
-      precisaIA++;
+      const ia = await extrairIA(msgs);
+      if (ia.erro) { log('  ⚠️  IA falhou:', ia.erro); msgs.slice(0, 6).forEach(m => log('      • ' + m.replace(/https?:\/\/\S+/g, '[url]').replace(/\s+/g, ' ').slice(0, 160))); precisaIA++; continue; }
+      d = ia; fonte = 'IA';
     }
+
+    if (!d.ehLead || !(d.origem || d.destino || d.veiculo)) {
+      log(`  ⏭️  Não é lead novo (${fonte}: sem pedido de transporte) → PULA.`);
+      msgs.slice(0, 4).forEach(m => log('      • ' + m.replace(/https?:\/\/\S+/g, '[url]').replace(/\s+/g, ' ').slice(0, 120)));
+      pula++; continue;
+    }
+
+    const vv = String(d.valorVeiculo ?? '').replace(/\D/g, '');
+    const lead = {
+      id: 'lead_wpp_' + chave,
+      nome: d.nome || nomeChat || '',
+      telefone,
+      email: d.email || '',
+      veiculoDesc: d.veiculo || '',
+      valorVeiculo: (vv && vv !== '0') ? vv : '',
+      origem: d.origem || '',
+      destino: d.destino || '',
+      funciona: d.funciona ? 'SIM' : 'NÃO',
+      blindado: d.blindado ? 'SIM' : 'NÃO',
+      origemLead: 'whatsapp', etapa: 'novo', prioridade: 'quente',
+    };
+    log(`  ✅ CRIARIA este lead (via ${fonte}):`);
+    log('     ', JSON.stringify(lead));
+    criaria++;
   }
 
   log(`\n===== RESUMO: ${criaria} criaria | ${pula} já existem | ${precisaIA} precisam de IA =====`);
