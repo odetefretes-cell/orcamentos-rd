@@ -1636,6 +1636,11 @@ async function initData(){
   const hash=location.hash;
   const liveId = hash.startsWith('#f=') ? decodeURIComponent(hash.slice(3)) : null;
   const isSnap = hash.startsWith('#t=');
+  // SANEAMENTO (auto-cura): a cópia local da tabela de fretes (vários MB) enchia o
+  // localStorage e derrubava o Firestore (QuotaExceeded → o sistema parava de salvar
+  // pra todos). Remove essa cópia no arranque — ao recarregar, cada navegador se limpa
+  // sozinho. A tabela vem da nuvem; não precisa dela no navegador.
+  try{ localStorage.removeItem('obs_tabela_fretes'); }catch(_){}
   if(CLOUD_ON){
     try{
       const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
@@ -5741,7 +5746,9 @@ async function atualizarTabelaFretes(){
         await _fb.setDoc(_fb.doc(_fb.fs,'fretes','_tabela'), Object.assign({ data:str.slice(0,CH), comp:'', partes }, meta));
       }
     }
-    try{ localStorage.setItem('obs_tabela_fretes', str); }catch(_){}
+    // NÃO cacheia a tabela no localStorage: são vários MB e estouravam a cota do navegador
+    // (~5MB), derrubando o Firestore (QuotaExceededError → não salvava nada). A tabela já vem
+    // da nuvem (fretes/_tabela) e, em último caso, do arquivo estático tabela-fretes.json.
     TABELA_FRETES = crmPreencherInversos(tabela);   // aplica na hora (preenche preço do sentido inverso)
     TAB_CIDADES=null; TAB_CIDADES_TODAS={}; BASES_COORDS=null; ANCORAS_FORTES=null; HUBS_SET=null; ENDPOINTS_COORDS=null;   // recria listas/bases/hubs da nova tabela
     if(st){ st.style.color='#16a34a'; st.textContent=`✔ Publicado: ${tabela.rotas.length} rotas, ${Object.keys(tabela.cidades).length} cidades. ${CLOUD_ON?'Todos recebem ao atualizar a página.':'(sem nuvem — salvo só neste computador)'}`; }
