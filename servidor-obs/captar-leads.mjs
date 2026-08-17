@@ -183,14 +183,18 @@ try {
 
   const chats = await filaAbertosSemDelegado();
   if (chats.erro) { log('❌ Erro ao ler a fila:', chats.erro); await browser.close(); process.exit(1); }
-  log(`Fila "Ninguém Delegado + ABERTO": ${chats.length} conversa(s).\n`);
+  log(`Fila "Ninguém Delegado + ABERTO": ${chats.length} conversa(s).`);
 
-  // Dedup: carrega telefones (últimos 8) e nomes já existentes no CRM
-  log('Carregando leads existentes do CRM (pra não duplicar)...');
-  const snap = await db.collection('crm_leads').select('telefone', 'nome').get();
+  // Dedup: só carrega o CRM quando HÁ lead na fila (evita ler 1750 docs em cada rodada vazia).
   const fones = new Set(), nomes = new Set();
-  snap.forEach(doc => { const d = doc.data(); const u = ult8(d.telefone); if (u) fones.add(u); if (d.nome) nomes.add(String(d.nome).trim().toLowerCase()); });
-  log(`  ${snap.size} leads no CRM (${fones.size} telefones distintos).\n`);
+  if (chats.length) {
+    log('Carregando leads existentes do CRM (pra não duplicar)...');
+    const snap = await db.collection('crm_leads').select('telefone', 'nome').get();
+    snap.forEach(doc => { const d = doc.data(); const u = ult8(d.telefone); if (u) fones.add(u); if (d.nome) nomes.add(String(d.nome).trim().toLowerCase()); });
+    log(`  ${snap.size} leads no CRM (${fones.size} telefones distintos).`);
+  } else {
+    log('Fila vazia — nada a fazer nesta rodada.');
+  }
 
   let criaria = 0, pula = 0, precisaIA = 0;
   for (const c of chats) {
