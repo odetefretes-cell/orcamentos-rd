@@ -1,0 +1,4 @@
+# NUNCA subir segredos nem dependências pro GitHub
+.env
+node_modules/
+*.log

@@ -1,0 +1,15 @@
+{
+  "name": "obs-robo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Robô de rotinas da OBS Transportes no servidor (VPS): captação de leads, auditoria e afins. Roda 24h; lê o ChatGuru raspando a tela (Playwright) e grava no Firestore. NÃO substitui o backend do Firebase — é um sistema à parte, aditivo.",
+  "type": "commonjs",
+  "scripts": {
+    "testar": "node testar-conexao.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "firebase-admin": "^12.7.0",
+    "playwright": "^1.48.2"
+  }
+}
