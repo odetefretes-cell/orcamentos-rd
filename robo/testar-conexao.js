@@ -12,14 +12,25 @@
    Rodar no VPS:  cd robo && npm install && node testar-conexao.js
    ============================================================================ */
 require('dotenv').config();
+const fs = require('fs');
 const admin = require('firebase-admin');
 
+// Aceita a chave do Firebase de 3 jeitos (o mais fácil primeiro):
+//  1) arquivo robo/serviceAccount.json (só salvar o JSON baixado ali) — PADRÃO;
+//  2) FIREBASE_SERVICE_ACCOUNT = caminho de um arquivo .json;
+//  3) FIREBASE_SERVICE_ACCOUNT = o JSON inteiro numa linha.
+function carregarCredencial() {
+  const v = (process.env.FIREBASE_SERVICE_ACCOUNT || './serviceAccount.json').trim();
+  if (v.startsWith('{')) return JSON.parse(v);
+  if (fs.existsSync(v)) return JSON.parse(fs.readFileSync(v, 'utf8'));
+  return null;
+}
+
 async function testarFirestore() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!raw) { console.log('❌ Firestore: falta a variável FIREBASE_SERVICE_ACCOUNT.'); return; }
   let cred;
-  try { cred = JSON.parse(raw); }
-  catch (e) { console.log('❌ Firestore: FIREBASE_SERVICE_ACCOUNT não é um JSON válido.'); return; }
+  try { cred = carregarCredencial(); }
+  catch (e) { console.log('❌ Firestore: chave inválida —', e.message); return; }
+  if (!cred) { console.log('❌ Firestore: não achei a chave. Salve o JSON em robo/serviceAccount.json (ou aponte FIREBASE_SERVICE_ACCOUNT).'); return; }
   admin.initializeApp({ credential: admin.credential.cert(cred) });
   const db = admin.firestore();
   const cfg = await db.collection('crm_config').doc('config').get();

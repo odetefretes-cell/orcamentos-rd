@@ -1,4 +1,5 @@
 # NUNCA subir segredos nem dependências pro GitHub
 .env
+serviceAccount*.json
 node_modules/
 *.log
