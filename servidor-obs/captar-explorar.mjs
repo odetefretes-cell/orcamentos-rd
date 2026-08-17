@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /* ============================================================================
- *  captar-explorar.mjs — SÓ LEITURA. Usa a sessão salva do ChatGuru e:
- *    1) lista as conversas EM ABERTO delegadas aos 3 atendentes;
- *    2) mostra, de algumas, os campos do bot + as mensagens do cliente.
- *  NÃO grava nada (nem no ChatGuru, nem no Firestore). Serve pra provar que a
- *  leitura pelas APIs internas do ChatGuru funciona com a sessão salva.
- *
+ *  captar-explorar.mjs — SÓ LEITURA. Usa a sessão salva do ChatGuru para:
+ *    1) descobrir o filtro certo que lista as conversas EM ABERTO (testa variações);
+ *    2) mostrar os "Ninguém Delegado" (fluxo principal de leads);
+ *    3) de alguns, os campos do bot + as mensagens do cliente.
+ *  NÃO grava nada (nem ChatGuru, nem Firestore).
  *  Uso (como obsrobo, em /opt/obs-robo):  node captar-explorar.mjs
  * ========================================================================== */
 import fs from 'node:fs';
@@ -23,7 +22,7 @@ const ATTEND = {
 };
 const log = (...a) => console.log(...a);
 
-if (!fs.existsSync(SESSAO)) { log('ERRO: sessão não encontrada em', SESSAO, '— rode o seed-login.mjs primeiro.'); process.exit(1); }
+if (!fs.existsSync(SESSAO)) { log('ERRO: sessão não encontrada em', SESSAO, '— rode o seed-login.mjs.'); process.exit(1); }
 
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const ctx = await browser.newContext({
@@ -32,30 +31,30 @@ const ctx = await browser.newContext({
 });
 const page = await ctx.newPage();
 
-async function chatlistAbertos() {
-  return await page.evaluate(async () => {
-    const payload = { page_num: 0, filter_order_by: '', filter_tag: [], filter_tag_rule: 'or',
-      filter_user_rule: 'or', filter_user: { users: [], groups: [], noDelegated: false },
-      filter_phone: '', filter_funnel_step: [], filter_status: 'ABERTO',
+// Consulta o /chatlist/store. Faz JSON.parse pelo CORPO (o ChatGuru manda content-type
+// text/html mesmo sendo JSON). status='' = todos; noDeleg=true = só "Ninguém Delegado".
+async function consultar(status, noDeleg, pageNum) {
+  return await page.evaluate(async (args) => {
+    const { status, noDeleg, pageNum } = args;
+    const payload = { page_num: pageNum || 0, filter_order_by: '', filter_tag: [], filter_tag_rule: 'or',
+      filter_user_rule: 'or', filter_user: { users: [], groups: [], noDelegated: !!noDeleg },
+      filter_phone: '', filter_funnel_step: [], filter_status: status,
       filter_search_number: '', filter_search_name: '', filter_new_messages: '',
       filter_archived: '', filter_broadcast: '', filter_favorited: '', filter_scheduled: '' };
     const meta = document.querySelector('meta[name="csrf-token"]');
-    const tokenMeta = meta ? meta.getAttribute('content') : '';
     const cm = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
-    const tokenCookie = cm ? decodeURIComponent(cm[1]) : '';
     const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
-    if (tokenMeta) headers['X-CSRF-TOKEN'] = tokenMeta;
-    if (tokenCookie) headers['X-XSRF-TOKEN'] = tokenCookie;
-    const r = await fetch('/chatlist/store', { method: 'POST', headers, body: JSON.stringify(payload) });
-    const status = r.status;
-    const ct = r.headers.get('content-type') || '';
-    const finalUrl = r.url;
-    const text = await r.text();
-    const diag = { status, ct, finalUrl, temMeta: !!tokenMeta, temCookie: !!tokenCookie };
-    if (ct.includes('json')) { try { return { ok: true, data: JSON.parse(text) }; } catch (e) { return { erro: 'JSON inválido', ...diag, amostra: text.slice(0, 400) }; } }
-    return { erro: 'não-JSON', ...diag, amostra: text.slice(0, 400).replace(/\s+/g, ' ') };
-  });
+    if (meta) headers['X-CSRF-TOKEN'] = meta.getAttribute('content');
+    if (cm) headers['X-XSRF-TOKEN'] = decodeURIComponent(cm[1]);
+    let r; try { r = await fetch('/chatlist/store', { method: 'POST', headers, body: JSON.stringify(payload) }); }
+    catch (e) { return { erro: 'fetch falhou: ' + String(e && e.message || e) }; }
+    const httpStatus = r.status; const text = await r.text();
+    let data = null; try { data = JSON.parse(text); } catch (e) {}
+    if (data) return { ok: true, data };
+    return { erro: 'não parseou JSON', httpStatus, amostra: text.slice(0, 400).replace(/\s+/g, ' ') };
+  }, { status, noDeleg, pageNum });
 }
+
 async function customFields(chatId) {
   return await page.evaluate(async (id) => {
     try {
@@ -69,10 +68,7 @@ async function customFields(chatId) {
       const html = await r.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const out = {};
-      doc.querySelectorAll('tr').forEach(tr => {
-        const tds = tr.querySelectorAll('td');
-        if (tds.length >= 2) { const k = (tds[0].innerText || '').trim(); const v = (tds[1].innerText || '').trim(); if (k) out[k] = v; }
-      });
+      doc.querySelectorAll('tr').forEach(tr => { const tds = tr.querySelectorAll('td'); if (tds.length >= 2) { const k = (tds[0].innerText || '').trim(); const v = (tds[1].innerText || '').trim(); if (k) out[k] = v; } });
       return out;
     } catch (e) { return { _erro: String(e && e.message || e) }; }
   }, chatId);
@@ -91,49 +87,55 @@ async function mensagensCliente(chatId) {
   }, chatId);
 }
 
+function resumo(r) { return r.ok ? `total=${r.data.total_chats}, retornou=${(r.data.chats || []).length}` : `ERRO: ${r.erro}${r.amostra ? ' | ' + r.amostra : ''}`; }
+
 try {
   log('Abrindo o ChatGuru com a sessão salva...');
   await page.goto(BASE + '/chats', { waitUntil: 'domcontentloaded', timeout: 45000 });
   await page.waitForTimeout(3000);
-  if (/\/login/i.test(page.url())) {
-    log('❌ A sessão expirou (voltou pro login). Rode o seed-login.mjs de novo pra renovar.');
-    await browser.close(); process.exit(2);
-  }
-  log('Sessão OK. Buscando conversas EM ABERTO...\n');
+  if (/\/login/i.test(page.url())) { log('❌ Sessão expirou (voltou pro login). Rode o seed-login.mjs.'); await browser.close(); process.exit(2); }
+  log('Sessão OK.\n');
 
-  const res = await chatlistAbertos();
-  if (res.erro) {
-    log('❌ Erro ao listar /chatlist/store:', res.erro);
-    log('   status:', res.status, '| content-type:', res.ct, '| URL final:', res.finalUrl);
-    log('   csrf meta:', res.temMeta, '| csrf cookie:', res.temCookie);
-    log('   Resposta (trecho):', res.amostra);
-    await browser.close(); process.exit(1);
-  }
-  const todos = (res.data && res.data.chats) || [];
+  log('===== TESTE DE FILTROS (pra achar o que traz os chats) =====');
+  const testes = [
+    ['ABERTO', false, 'A) ABERTO, todos'],
+    ['ABERTO', true, 'B) ABERTO, só Ninguém Delegado'],
+    ['', false, 'C) sem status, todos'],
+    ['aberto', false, 'D) aberto (minúsculo), todos'],
+  ];
+  const resultados = {};
+  for (const [st, nd, rot] of testes) { const r = await consultar(st, nd, 0); resultados[rot] = r; log(`  ${rot}: ${resumo(r)}`); await page.waitForTimeout(300); }
 
-  // FLUXO PRINCIPAL: "Ninguém Delegado" (users_delegated_ids vazio) — é de onde saem os leads novos.
-  const semDeleg = todos.filter(c => !((c.users_delegated_ids || []).length))
-    .map(c => ({ id: c.id, name: c.name, wa: c.wa_chat_id }));
-  // SECUNDÁRIO: delegados aos 3 operadores (retornos esporádicos).
+  // escolhe a melhor lista disponível (prioriza a que traz mais chats)
+  let melhor = null, melhorN = -1;
+  for (const rot in resultados) { const r = resultados[rot]; const n = r.ok ? (r.data.chats || []).length : -1; if (n > melhorN) { melhorN = n; melhor = r; } }
+  const todos = (melhor && melhor.ok && melhor.data.chats) || [];
+
+  if (!todos.length) {
+    log('\n⚠️ Nenhuma variação trouxe chats. Pode ser permissão do usuário do robô no ChatGuru');
+    log('   (precisa de "Ver Todos os Chats" ativo) ou não há abertos agora. Me manda este print.');
+    await browser.close(); process.exit(0);
+  }
+
+  const semDeleg = todos.filter(c => !((c.users_delegated_ids || []).length)).map(c => ({ id: c.id, name: c.name, wa: c.wa_chat_id }));
   const dosOper = todos.filter(c => (c.users_delegated_ids || []).some(id => ATTEND[id]))
     .map(c => { const aid = (c.users_delegated_ids || []).find(id => ATTEND[id]); return { id: c.id, name: c.name, wa: c.wa_chat_id, attendant: ATTEND[aid] }; });
 
-  log(`===== ABERTOS: ${todos.length} no total =====`);
-  log(`  ▶ NINGUÉM DELEGADO (fluxo principal de leads): ${semDeleg.length}`);
-  log(`  ▶ delegados aos 3 operadores (retornos esporádicos): ${dosOper.length}`);
-  log('\n--- NINGUÉM DELEGADO (os que viram lead) ---');
-  semDeleg.forEach((a, i) => log(`${String(i + 1).padStart(2)}. ${a.name || '(sem nome)'} — ${a.wa || a.id}`));
+  log(`\n===== Usando a melhor lista: ${todos.length} chats =====`);
+  log(`  ▶ NINGUÉM DELEGADO (fluxo principal): ${semDeleg.length}`);
+  log(`  ▶ delegados aos 3 operadores: ${dosOper.length}`);
+  log('\n--- NINGUÉM DELEGADO ---');
+  semDeleg.slice(0, 40).forEach((a, i) => log(`${String(i + 1).padStart(2)}. ${a.name || '(sem nome)'} — ${a.wa || a.id}`));
 
-  const AMOSTRA = Math.min(4, semDeleg.length);
-  log(`\n===== AMOSTRA dos ${AMOSTRA} primeiros SEM DELEGADO (campos do bot + mensagens do cliente) =====`);
+  const base = semDeleg.length ? semDeleg : todos.map(c => ({ id: c.id, name: c.name, wa: c.wa_chat_id }));
+  const AMOSTRA = Math.min(4, base.length);
+  log(`\n===== AMOSTRA de ${AMOSTRA} (campos do bot + mensagens do cliente) =====`);
   for (let i = 0; i < AMOSTRA; i++) {
-    const a = semDeleg[i];
+    const a = base[i];
     log(`\n--- ${i + 1}) ${a.name || '(sem nome)'} | ${a.wa || ''} | chatId=${a.id} ---`);
-    const cf = await customFields(a.id);
-    log('  Campos do bot:', JSON.stringify(cf));
+    log('  Campos do bot:', JSON.stringify(await customFields(a.id)));
     const msgs = await mensagensCliente(a.id);
-    log('  Mensagens do cliente:');
-    msgs.forEach(m => log('     • ' + m));
+    log('  Mensagens do cliente:'); msgs.forEach(m => log('     • ' + m));
     await page.waitForTimeout(400);
   }
   log('\n===== fim (nada foi gravado) =====');
