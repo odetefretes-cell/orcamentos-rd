@@ -53,6 +53,8 @@ function parseTemplate(txt) {
   return out;
 }
 const simNao = v => /^sim|^s$|^liga|funciona/i.test(String(v || '').trim());
+// Limpa placeholders que a IA às vezes devolve quando o dado não foi informado.
+function limpoTxt(s) { s = String(s || '').trim(); if (/^(<?unknown>?|n\/?a|não informado|nao informado|desconhecido|indefinido|-+)$/i.test(s)) return ''; return s; }
 
 // ---------- ChatGuru (leitura) ----------
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -192,13 +194,13 @@ try {
     const vv = String(d.valorVeiculo ?? '').replace(/\D/g, '');
     const lead = {
       id: 'lead_wpp_' + chave,
-      nome: d.nome || nomeChat || '',
+      nome: limpoTxt(d.nome) || nomeChat || '',
       telefone,
-      email: d.email || '',
-      veiculoDesc: d.veiculo || '',
+      email: limpoTxt(d.email),
+      veiculoDesc: limpoTxt(d.veiculo),
       valorVeiculo: (vv && vv !== '0') ? vv : '',
-      origem: d.origem || '',
-      destino: d.destino || '',
+      origem: limpoTxt(d.origem),
+      destino: limpoTxt(d.destino),
       funciona: d.funciona ? 'SIM' : 'NÃO',
       blindado: d.blindado ? 'SIM' : 'NÃO',
       origemLead: 'whatsapp', etapa: 'novo', prioridade: 'quente',
