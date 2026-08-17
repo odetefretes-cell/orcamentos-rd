@@ -71,9 +71,10 @@ async function diagnostico(page, tag) {
 }
 
 async function estaLogado(page) {
-  const nPass = await page.locator('input[type=password]:visible').count().catch(() => 0);
   const url = page.url();
-  return /\/chats?(\b|\/|\?|$)/i.test(url) || (!/login|signin/i.test(url) && nPass === 0);
+  if (/\/login|\/signin/i.test(url)) return false;   // URL de login = NÃO logado (mesmo com ?uri=/chats)
+  const nPass = await page.locator('input[type=password]:visible').count().catch(() => 0);
+  return /\/chats?(\b|\/|\?|$)/i.test(url) || nPass === 0;
 }
 async function ehTelaCodigo(page) {
   const html = (await page.content().catch(() => '')).toLowerCase();
