@@ -56,6 +56,25 @@ const simNao = v => /^sim|^s$|^liga|funciona/i.test(String(v || '').trim());
 // Limpa placeholders que a IA às vezes devolve quando o dado não foi informado.
 function limpoTxt(s) { s = String(s || '').trim(); if (/^(<?unknown>?|n\/?a|não informado|nao informado|desconhecido|indefinido|-+)$/i.test(s)) return ''; return s; }
 
+// Rodízio de vendedor — MESMO contador do backend (crm_config/rodizio) p/ distribuição justa.
+const VENDEDORES = (process.env.VENDEDORES || 'Yasmim Freitas,Thiago Lucca,Flavia Ottati').split(',').map(s => s.trim()).filter(Boolean);
+const ATTEND_ID = {   // vendedor do CRM → ID do atendente no ChatGuru (p/ delegar)
+  'Yasmim Freitas': 'U697742aabe1efe4ea6f09c8c',
+  'Thiago Lucca': 'U68b217e269ff36d6cae7fbd7',
+  'Flavia Ottati': 'U67ec4c84cd147df9a46d6c1c',
+};
+async function proximoVendedor(consome) {
+  const ref = db.collection('crm_config').doc('rodizio');
+  if (!consome) { const s = await ref.get(); const n = (s.exists && Number(s.data().contador)) || 0; return VENDEDORES[n % VENDEDORES.length]; }
+  let escolhido = VENDEDORES[0];
+  await db.runTransaction(async tx => {
+    const s = await tx.get(ref); const n = (s.exists && Number(s.data().contador)) || 0;
+    escolhido = VENDEDORES[n % VENDEDORES.length];
+    tx.set(ref, { contador: n + 1, ultimo: escolhido, atualizadoEm: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  });
+  return escolhido;
+}
+
 // ---------- ChatGuru (leitura) ----------
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const ctx = await browser.newContext({ storageState: SESSAO, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', viewport: { width: 1440, height: 900 },
@@ -90,6 +109,20 @@ async function mensagensCliente(chatId) {
       return arr.map(x => String(x.m.text || '')).filter(Boolean);
     } catch (e) { return []; }
   }, chatId);
+}
+async function delegarChatGuru(chatId, userId) {
+  return await page.evaluate(async (args) => {
+    const { chatId, userId } = args;
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    const cm = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' };
+    if (meta) headers['X-CSRF-TOKEN'] = meta.getAttribute('content');
+    if (cm) headers['X-XSRF-TOKEN'] = decodeURIComponent(cm[1]);
+    try {
+      const r = await fetch('/chat/' + chatId + '/delegate', { method: 'POST', headers, body: 'users_ids%5B%5D=' + encodeURIComponent(userId) });
+      return { status: r.status, ok: r.ok };
+    } catch (e) { return { status: 0, ok: false, erro: String(e && e.message || e) }; }
+  }, { chatId, userId });
 }
 
 // ---------- Extração por IA (Claude) p/ mensagens livres (sem formulário) ----------
@@ -205,9 +238,35 @@ try {
       blindado: d.blindado ? 'SIM' : 'NÃO',
       origemLead: 'whatsapp', etapa: 'novo', prioridade: 'quente',
     };
-    log(`  ✅ CRIARIA este lead (via ${fonte}):`);
-    log('     ', JSON.stringify(lead));
-    criaria++;
+    const vendedor = await proximoVendedor(!DRY_RUN);   // DRY_RUN: só prevê (não consome); AO VIVO: consome o rodízio
+    const userId = ATTEND_ID[vendedor] || '';
+    lead.vendedor = vendedor;
+
+    if (DRY_RUN) {
+      log(`  ✅ CRIARIA (via ${fonte}) → vendedor(rodízio): ${vendedor} | delegaria no ChatGuru: ${userId || '?'}`);
+      log('     ', JSON.stringify(lead));
+      criaria++;
+    } else {
+      const docLead = {
+        ...lead, chatId: c.id,
+        dataEntrada: new Date().toISOString().slice(0, 10),
+        ultimaInteracao: new Date().toISOString(),
+        timeline: [{ data: new Date().toISOString(), tipo: 'criacao', texto: 'Lead captado do ChatGuru (Ninguém Delegado) pelo robô do servidor.' }],
+        capturadoRobo: true,
+      };
+      try {
+        await db.collection('crm_leads').doc(lead.id).create(docLead);
+        fones.add(chave);   // dedup em memória p/ o resto desta rodada
+        let delg = '(sem ID de vendedor)';
+        if (userId) { const dr = await delegarChatGuru(c.id, userId); delg = dr.ok ? `delegado a ${vendedor}` : `delegar FALHOU (HTTP ${dr.status})`; }
+        log(`  ✅ CRIADO ${lead.id} | vendedor ${vendedor} | ${delg}`);
+        criaria++;
+      } catch (e) {
+        const msg = String(e && e.message || e);
+        if (/already exists/i.test(msg)) { log(`  ⏭️  ${lead.id} já existe (corrida) → PULA.`); pula++; }
+        else { log(`  ⚠️  Falhou criar ${lead.id}: ${msg.slice(0, 140)}`); }
+      }
+    }
   }
 
   log(`\n===== RESUMO: ${criaria} criaria | ${pula} já existem | ${precisaIA} precisam de IA =====`);
