@@ -39,18 +39,32 @@ async function chatlistAbertos() {
       filter_phone: '', filter_funnel_step: [], filter_status: 'ABERTO',
       filter_search_number: '', filter_search_name: '', filter_new_messages: '',
       filter_archived: '', filter_broadcast: '', filter_favorited: '', filter_scheduled: '' };
-    const r = await fetch('/chatlist/store', { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(payload) });
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    const tokenMeta = meta ? meta.getAttribute('content') : '';
+    const cm = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+    const tokenCookie = cm ? decodeURIComponent(cm[1]) : '';
+    const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    if (tokenMeta) headers['X-CSRF-TOKEN'] = tokenMeta;
+    if (tokenCookie) headers['X-XSRF-TOKEN'] = tokenCookie;
+    const r = await fetch('/chatlist/store', { method: 'POST', headers, body: JSON.stringify(payload) });
+    const status = r.status;
     const ct = r.headers.get('content-type') || '';
-    if (!r.ok) return { erro: 'HTTP ' + r.status };
-    if (!ct.includes('json')) return { erro: 'resposta não-JSON (sessão pode ter expirado)' };
-    return await r.json();
+    const finalUrl = r.url;
+    const text = await r.text();
+    const diag = { status, ct, finalUrl, temMeta: !!tokenMeta, temCookie: !!tokenCookie };
+    if (ct.includes('json')) { try { return { ok: true, data: JSON.parse(text) }; } catch (e) { return { erro: 'JSON inválido', ...diag, amostra: text.slice(0, 400) }; } }
+    return { erro: 'não-JSON', ...diag, amostra: text.slice(0, 400).replace(/\s+/g, ' ') };
   });
 }
 async function customFields(chatId) {
   return await page.evaluate(async (id) => {
     try {
-      const r = await fetch('/chat/custom_fields/' + id + '/view', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const meta = document.querySelector('meta[name="csrf-token"]');
+      const cm = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+      const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+      if (meta) headers['X-CSRF-TOKEN'] = meta.getAttribute('content');
+      if (cm) headers['X-XSRF-TOKEN'] = decodeURIComponent(cm[1]);
+      const r = await fetch('/chat/custom_fields/' + id + '/view', { method: 'POST', headers });
       if (!r.ok) return { _erro: 'HTTP ' + r.status };
       const html = await r.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -87,23 +101,34 @@ try {
   }
   log('Sessão OK. Buscando conversas EM ABERTO...\n');
 
-  const j = await chatlistAbertos();
-  if (j.erro) { log('❌ Erro ao listar:', j.erro); await browser.close(); process.exit(1); }
-  const todos = j.chats || [];
-  const alvos = todos.filter(c => (c.users_delegated_ids || []).some(id => ATTEND[id]))
+  const res = await chatlistAbertos();
+  if (res.erro) {
+    log('❌ Erro ao listar /chatlist/store:', res.erro);
+    log('   status:', res.status, '| content-type:', res.ct, '| URL final:', res.finalUrl);
+    log('   csrf meta:', res.temMeta, '| csrf cookie:', res.temCookie);
+    log('   Resposta (trecho):', res.amostra);
+    await browser.close(); process.exit(1);
+  }
+  const todos = (res.data && res.data.chats) || [];
+
+  // FLUXO PRINCIPAL: "Ninguém Delegado" (users_delegated_ids vazio) — é de onde saem os leads novos.
+  const semDeleg = todos.filter(c => !((c.users_delegated_ids || []).length))
+    .map(c => ({ id: c.id, name: c.name, wa: c.wa_chat_id }));
+  // SECUNDÁRIO: delegados aos 3 operadores (retornos esporádicos).
+  const dosOper = todos.filter(c => (c.users_delegated_ids || []).some(id => ATTEND[id]))
     .map(c => { const aid = (c.users_delegated_ids || []).find(id => ATTEND[id]); return { id: c.id, name: c.name, wa: c.wa_chat_id, attendant: ATTEND[aid] }; });
 
-  log(`===== ABERTOS: ${todos.length} no total | ${alvos.length} delegados aos 3 atendentes =====`);
-  const porAt = {}; for (const a of alvos) porAt[a.attendant] = (porAt[a.attendant] || 0) + 1;
-  for (const k in porAt) log(`   ${k}: ${porAt[k]}`);
-  log('');
-  alvos.forEach((a, i) => log(`${String(i + 1).padStart(2)}. [${a.attendant}] ${a.name || '(sem nome)'} — ${a.wa || a.id}`));
+  log(`===== ABERTOS: ${todos.length} no total =====`);
+  log(`  ▶ NINGUÉM DELEGADO (fluxo principal de leads): ${semDeleg.length}`);
+  log(`  ▶ delegados aos 3 operadores (retornos esporádicos): ${dosOper.length}`);
+  log('\n--- NINGUÉM DELEGADO (os que viram lead) ---');
+  semDeleg.forEach((a, i) => log(`${String(i + 1).padStart(2)}. ${a.name || '(sem nome)'} — ${a.wa || a.id}`));
 
-  const AMOSTRA = Math.min(3, alvos.length);
-  log(`\n===== AMOSTRA dos ${AMOSTRA} primeiros (campos do bot + mensagens do cliente) =====`);
+  const AMOSTRA = Math.min(4, semDeleg.length);
+  log(`\n===== AMOSTRA dos ${AMOSTRA} primeiros SEM DELEGADO (campos do bot + mensagens do cliente) =====`);
   for (let i = 0; i < AMOSTRA; i++) {
-    const a = alvos[i];
-    log(`\n--- ${i + 1}) [${a.attendant}] ${a.name || '(sem nome)'} | ${a.wa || ''} | chatId=${a.id} ---`);
+    const a = semDeleg[i];
+    log(`\n--- ${i + 1}) ${a.name || '(sem nome)'} | ${a.wa || ''} | chatId=${a.id} ---`);
     const cf = await customFields(a.id);
     log('  Campos do bot:', JSON.stringify(cf));
     const msgs = await mensagensCliente(a.id);
