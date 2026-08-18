@@ -41,6 +41,13 @@ $DOMINIO {
         try_files /teste.html
         file_server
     }
+    # cópia de teste do SISTEMA (index.html + ponte para a API) — modo teste
+    @app path /app /app.html
+    handle @app {
+        root * /opt/obs-api/publico
+        try_files /app.html
+        file_server
+    }
     # todo o resto vai pra API
     handle {
         reverse_proxy $ALVO

@@ -137,7 +137,7 @@ app.get('/api/eu', rota(async (req, res) => {
 // listar uma coleção
 app.get('/api/:col', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
-  const r = await pool.query(`SELECT id, data FROM "${req.params.col}"`);
+  const r = await pool.query(`SELECT id, data FROM "${req.params.col}" ORDER BY id`);
   res.json(r.rows.map(x => ({ id: x.id, ...x.data })));
 }));
 
