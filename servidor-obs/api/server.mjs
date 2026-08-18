@@ -152,15 +152,55 @@ app.get('/api/:col/:id', rota(async (req, res) => {
   res.json({ id: r.rows[0].id, ...r.rows[0].data });
 }));
 
-// gravar/atualizar um documento (upsert)
+// gravar/atualizar um documento (upsert).
+//  ?merge=1  → mescla os campos no topo (jsonb ||), preservando o que já existe
+//              (mesmo efeito do setDoc {merge:true} do Firestore). ATÔMICO.
+//  sem merge → substitui o documento inteiro.
 app.put('/api/:col/:id', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
-  await pool.query(
-    `INSERT INTO "${req.params.col}" (id, data, updated_at) VALUES ($1, $2::jsonb, now())
-     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
-    [req.params.id, JSON.stringify(req.body || {})]
-  );
+  const merge = req.query.merge === '1' || req.query.merge === 'true';
+  if (merge) {
+    await pool.query(
+      `INSERT INTO "${req.params.col}" (id, data, updated_at) VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (id) DO UPDATE SET data = "${req.params.col}".data || EXCLUDED.data, updated_at = now()`,
+      [req.params.id, JSON.stringify(req.body || {})]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO "${req.params.col}" (id, data, updated_at) VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+      [req.params.id, JSON.stringify(req.body || {})]
+    );
+  }
   res.json({ ok: true, id: req.params.id });
+}));
+
+// RODÍZIO de vendedor — contador ATÔMICO em crm_config/rodizio (evita dois leads
+// pegarem o mesmo vendedor). Body: { vendedores: ["Yasmim...","Thiago...","Flavia..."] }.
+// Retorna { ok, vendedor, contador }. Uma transação: lê, escolhe, incrementa.
+app.post('/api/rodizio/next', rota(async (req, res) => {
+  const vend = Array.isArray(req.body && req.body.vendedores) ? req.body.vendedores.filter(Boolean) : [];
+  if (!vend.length) return res.status(400).json({ ok: false, erro: 'lista de vendedores vazia' });
+  const cli = await pool.connect();
+  try {
+    await cli.query('BEGIN');
+    const r = await cli.query(`SELECT data FROM crm_config WHERE id='rodizio' FOR UPDATE`);
+    const atual = r.rows.length ? (r.rows[0].data || {}) : {};
+    const n = Number(atual.contador) || 0;
+    const escolhido = vend[n % vend.length];
+    const novo = { ...atual, contador: n + 1, ultimo: escolhido, atualizadoEm: new Date().toISOString() };
+    await cli.query(
+      `INSERT INTO crm_config (id, data, updated_at) VALUES ('rodizio', $1::jsonb, now())
+       ON CONFLICT (id) DO UPDATE SET data = $1::jsonb, updated_at = now()`,
+      [JSON.stringify(novo)]
+    );
+    await cli.query('COMMIT');
+    res.json({ ok: true, vendedor: escolhido, contador: n + 1 });
+  } catch (e) {
+    await cli.query('ROLLBACK'); throw e;
+  } finally {
+    cli.release();
+  }
 }));
 
 // apagar um documento
