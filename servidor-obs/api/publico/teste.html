@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OBS — Teste do servidor novo</title>
+<style>
+  :root { --azul:#1746a2; --verde:#1a7f37; --cinza:#f4f5f7; --borda:#dfe3e8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; background:var(--cinza); color:#1a1a1a; }
+  .wrap { max-width:640px; margin:32px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid var(--borda); border-radius:14px; padding:24px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:#667; font-size:14px; margin:0 0 20px; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
+  input { width:100%; padding:12px; border:1px solid var(--borda); border-radius:10px; font-size:15px; }
+  button { width:100%; margin-top:18px; padding:13px; border:0; border-radius:10px; background:var(--azul); color:#fff; font-size:16px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  .msg { margin-top:14px; padding:12px 14px; border-radius:10px; font-size:14px; display:none; }
+  .msg.erro { background:#fdecea; color:#a3261c; display:block; }
+  .ok { border-left:5px solid var(--verde); }
+  .linha { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--borda); font-size:15px; }
+  .linha:last-child { border-bottom:0; }
+  .val { font-weight:700; }
+  .verde { color:var(--verde); }
+  .peq { font-size:12px; color:#889; margin-top:10px; }
+  #painel { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card" id="cardLogin">
+    <h1>🔐 Teste do servidor novo — OBS</h1>
+    <p class="sub">Entre com seu e-mail e senha da OBS (os mesmos do sistema). Isto <b>não altera nada</b> — só confere se o novo servidor reconhece você e mostra os dados do banco novo.</p>
+    <label>E-mail</label>
+    <input id="email" type="email" autocomplete="username" placeholder="voce@obstransportes.com.br">
+    <label>Senha</label>
+    <input id="senha" type="password" autocomplete="current-password" placeholder="sua senha">
+    <button id="btn">Entrar e testar</button>
+    <div class="msg erro" id="erro"></div>
+  </div>
+
+  <div class="card ok" id="painel">
+    <h1>✅ Funcionou!</h1>
+    <p class="sub">Seu login foi reconhecido pelo servidor novo e os dados vieram do banco no seu servidor Hostinger.</p>
+    <div class="linha"><span>Logado como</span><span class="val" id="quem">—</span></div>
+    <div class="linha"><span>Leads no banco novo</span><span class="val verde" id="qtd">—</span></div>
+    <div class="linha"><span>Endereço da API</span><span class="val" id="apiurl">—</span></div>
+    <p class="peq">Cada peça desta corrente funcionou: seu login → o servidor conferiu que você é da equipe → leu o PostgreSQL no seu servidor. É a base do sistema novo, provada de ponta a ponta.</p>
+  </div>
+
+</div>
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyC4rDP5_lQ6o_ASjM_ndauC2HCq4JxnKuQ",
+    authDomain: "obs-fretes.firebaseapp.com",
+    projectId: "obs-fretes",
+    storageBucket: "obs-fretes.firebasestorage.app",
+    messagingSenderId: "307588629600",
+    appId: "1:307588629600:web:0914b25247953b56b06f05"
+  };
+  const API = location.origin;   // mesma origem: https://api.obstransportes.com.br
+
+  const app = initializeApp(FIREBASE_CONFIG);
+  const auth = getAuth(app);
+
+  const $ = s => document.querySelector(s);
+  const btn = $('#btn'), erro = $('#erro');
+  const mostrarErro = t => { erro.textContent = t; erro.style.display = 'block'; };
+
+  btn.addEventListener('click', async () => {
+    erro.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Verificando...';
+    try {
+      const email = $('#email').value.trim();
+      const senha = $('#senha').value;
+      // 1) login no Firebase (mesmo do sistema)
+      const cred = await signInWithEmailAndPassword(auth, email, senha);
+      const idToken = await cred.user.getIdToken();
+      // 2) o servidor novo confere quem sou eu
+      const rEu = await fetch(API + '/api/eu', { headers: { Authorization: 'Bearer ' + idToken } });
+      const eu = await rEu.json();
+      if (!rEu.ok || !eu.ok) throw new Error(eu.erro || 'O servidor não reconheceu seu login (e-mail fora da lista da equipe?)');
+      // 3) lê os leads do banco novo
+      const rLeads = await fetch(API + '/api/crm_leads', { headers: { Authorization: 'Bearer ' + idToken } });
+      const leads = await rLeads.json();
+      if (!rLeads.ok) throw new Error(leads.erro || 'Não consegui ler os leads');
+      // 4) mostra o resultado
+      $('#quem').textContent = eu.autor;
+      $('#qtd').textContent = Array.isArray(leads) ? leads.length.toLocaleString('pt-BR') : '—';
+      $('#apiurl').textContent = API.replace('https://', '');
+      $('#cardLogin').style.display = 'none';
+      $('#painel').style.display = 'block';
+    } catch (e) {
+      const m = String(e && e.message || e);
+      if (m.includes('auth/invalid-credential') || m.includes('auth/wrong-password') || m.includes('auth/user-not-found'))
+        mostrarErro('E-mail ou senha incorretos.');
+      else if (m.includes('auth/invalid-email')) mostrarErro('E-mail inválido.');
+      else mostrarErro(m);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Entrar e testar';
+    }
+  });
+</script>
+</body>
+</html>

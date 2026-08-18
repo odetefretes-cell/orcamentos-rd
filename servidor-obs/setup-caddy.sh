@@ -34,7 +34,17 @@ fi
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMINIO {
     encode gzip
-    reverse_proxy $ALVO
+    # página de teste (estática) — separada da produção
+    @teste path /teste /teste.html
+    handle @teste {
+        root * /opt/obs-api/publico
+        try_files /teste.html
+        file_server
+    }
+    # todo o resto vai pra API
+    handle {
+        reverse_proxy $ALVO
+    }
 }
 EOF
 echo "==> /etc/caddy/Caddyfile escrito."
