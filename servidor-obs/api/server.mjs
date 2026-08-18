@@ -141,7 +141,8 @@ app.get('/api/eu', rota(async (req, res) => {
 app.get('/api/:col', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
   const r = await pool.query(`SELECT id, data FROM "${req.params.col}" ORDER BY id`);
-  res.json(r.rows.map(x => ({ id: x.id, ...x.data })));
+  // a CHAVE da linha sempre vence (um "id" dentro do JSONB não pode sobrescrever)
+  res.json(r.rows.map(x => ({ ...x.data, id: x.id })));
 }));
 
 // ler um documento
@@ -149,7 +150,7 @@ app.get('/api/:col/:id', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
   const r = await pool.query(`SELECT id, data FROM "${req.params.col}" WHERE id = $1`, [req.params.id]);
   if (!r.rows.length) return res.status(404).json({ erro: 'não encontrado' });
-  res.json({ id: r.rows[0].id, ...r.rows[0].data });
+  res.json({ ...r.rows[0].data, id: r.rows[0].id });
 }));
 
 // gravar/atualizar um documento (upsert).
