@@ -543,6 +543,10 @@ exports.enviarPendentesPG = onSchedule(
 
     for(const d of leads){
       if(!d || !d._intakeTelefone) continue;   // só leads da automação
+      // SEGURANÇA: só age em leads AINDA na coluna "Novo Lead". Se um humano já
+      // moveu o lead (contato, orçamento, etc.), NÃO fala por cima do atendente —
+      // evita reprocessar leads antigos/em atendimento (bug do "aviso por cima").
+      if(d.etapa !== 'novo') continue;
       const leadId = d.id;
       try {
         // ---- ATENÇÃO HUMANA: manda 1 aviso e silencia ----
