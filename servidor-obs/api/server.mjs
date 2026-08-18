@@ -20,6 +20,25 @@ const pool = new pg.Pool({
 const COLECOES = new Set(['crm_leads', 'fretes', 'publico', 'clientes', 'crm_config']);
 const app = express();
 app.use(express.json({ limit: '8mb' }));
+app.set('trust proxy', 1);   // atrás do Caddy (HTTPS)
+
+// ---- CORS (só os endereços do nosso app) ------------------------------------
+// Quem pode chamar a API pelo navegador. Ajuste em CORS_ORIGENS no .env se mudar.
+const ORIGENS = new Set(
+  (process.env.CORS_ORIGENS || 'https://sistema.obstransportes.com.br')
+    .split(',').map(s => s.trim()).filter(Boolean)
+);
+app.use((req, res, next) => {
+  const o = req.get('origin');
+  if (o && ORIGENS.has(o)) {
+    res.set('Access-Control-Allow-Origin', o);
+    res.set('Vary', 'Origin');
+    res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-api-token');
+    res.set('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 // ---- Autenticação por token -------------------------------------------------
 // Toda rota /api (menos /api/health) exige o token no cabeçalho:
