@@ -9,6 +9,7 @@
  * ========================================================================== */
 import express from 'express';
 import pg from 'pg';
+import crypto from 'node:crypto';
 const d = await import('dotenv'); d.config({ path: '/etc/obs-db/.env', quiet: true });
 
 const pool = new pg.Pool({
@@ -19,6 +20,31 @@ const pool = new pg.Pool({
 const COLECOES = new Set(['crm_leads', 'fretes', 'publico', 'clientes', 'crm_config']);
 const app = express();
 app.use(express.json({ limit: '8mb' }));
+
+// ---- Autenticação por token -------------------------------------------------
+// Toda rota /api (menos /api/health) exige o token no cabeçalho:
+//   Authorization: Bearer <TOKEN>      (ou)   x-api-token: <TOKEN>
+// O token fica em /etc/obs-db/.env como API_TOKEN. Sem API_TOKEN definido, a
+// API se recusa a subir (evita expor os dados sem querer).
+const API_TOKEN = String(process.env.API_TOKEN || '');
+if (!API_TOKEN || API_TOKEN.length < 16) {
+  console.error('[api] ERRO: API_TOKEN ausente ou curto demais em /etc/obs-db/.env (mín. 16 caracteres). Abortando.');
+  process.exit(1);
+}
+const tokenBuf = Buffer.from(API_TOKEN);
+function tokenValido(recebido) {
+  const b = Buffer.from(String(recebido || ''));
+  return b.length === tokenBuf.length && crypto.timingSafeEqual(b, tokenBuf);
+}
+function autenticar(req, res, next) {
+  if (req.path === '/api/health') return next();          // saúde fica aberta (monitoramento)
+  const h = req.get('authorization') || '';
+  const bearer = h.startsWith('Bearer ') ? h.slice(7) : '';
+  const recebido = bearer || req.get('x-api-token') || '';
+  if (!tokenValido(recebido)) return res.status(401).json({ ok: false, erro: 'não autorizado' });
+  next();
+}
+app.use('/api', autenticar);
 
 // pequeno "embrulho" pra tratar erro sem derrubar o servidor
 const rota = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch(e => {
