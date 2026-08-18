@@ -86,4 +86,12 @@ async function listar(col) {
   return Array.isArray(j) ? j : [];
 }
 
-module.exports = { pgDb, proximoVendedorPG, listar, _req: req, BASE };
+/* Trava ATÔMICA de envio: marca `campo`=true SÓ se ainda estiver desligado.
+   Retorna true se ESTE chamador ganhou (pode enviar), false se outro já pegou.
+   `extra` são campos gravados junto (ex.: { respostaEnviadaEm: '...' }). */
+async function claim(col, id, campo, extra) {
+  const j = await req('POST', `/api/${col}/${encodeURIComponent(id)}/claim?campo=${encodeURIComponent(campo)}`, extra || {});
+  return !!(j && j.claimed);
+}
+
+module.exports = { pgDb, proximoVendedorPG, listar, claim, _req: req, BASE };

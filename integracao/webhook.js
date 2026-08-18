@@ -212,8 +212,9 @@ exports.processarLeadCompleto = require('./claude-extrator').processarLeadComple
 // Etapa 5 (Fase A): cria o lead no CRM p/ o sistema calcular a média e prepara
 // a resposta como RASCUNHO (ainda não envia pro cliente).
 const _orc = require('./orcamento-resposta');
-exports.criarLeadNoCrm   = _orc.criarLeadNoCrm;
-exports.prepararResposta = _orc.prepararResposta;
+exports.criarLeadNoCrm    = _orc.criarLeadNoCrm;
+exports.prepararResposta  = _orc.prepararResposta;
+exports.enviarPendentesPG = _orc.enviarPendentesPG;   // verificador de envios (modo PostgreSQL)
 
 // Pré-cadastro do lead do formulário no ChatGuru (chat_add + Cotando=Sim), pra o
 // Opener não disparar o intake por cima do lead que veio pelo formulário do site.

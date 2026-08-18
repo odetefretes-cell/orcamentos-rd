@@ -38,7 +38,9 @@ const MAX_PERGUNTAS = Number(process.env.MAX_PERGUNTAS || 2);   // quantas vezes
    orcamento-resposta: aceita true, "true", 1. Sem isso ligado, não perguntamos nada. */
 async function envioEstaAtivo(){
   try {
-    const snap = await db.collection('crm_config').doc('config').get();
+    const USAR_PG = process.env.OBS_USAR_PG === 'true' || process.env.OBS_USAR_PG === '1';
+    const bd = USAR_PG ? require('./pg-api').pgDb : db;
+    const snap = await bd.collection('crm_config').doc('config').get();
     const v = snap.exists ? snap.data().envioAtivo : undefined;
     return v === true || v === 'true' || v === 1 || v === '1';
   } catch(_){ return false; }
@@ -173,7 +175,7 @@ exports.processarLeadCompleto = onDocumentUpdated(
   {
     document: 'crm_leads_intake/{telefone}',
     region: 'southamerica-east1',
-    secrets: ['ANTHROPIC_API_KEY', 'CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID'],
+    secrets: ['ANTHROPIC_API_KEY', 'CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID', 'OBS_API_TOKEN'],
   },
   async (event) => {
     const depois = event.data && event.data.after && event.data.after.data();

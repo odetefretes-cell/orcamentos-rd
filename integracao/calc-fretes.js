@@ -666,17 +666,21 @@ function carregarCoords(){
 async function carregarTabela(){
   if(TABELA_CACHE && (Date.now() - TABELA_CACHE_AT) < TABELA_TTL_MS) return TABELA_CACHE;
   let db = null;
-  // 1) Firestore fretes/_tabela (a MESMA que o admin importa da planilha)
+  const USAR_PG = process.env.OBS_USAR_PG === 'true' || process.env.OBS_USAR_PG === '1';
+  // 1) tabela fretes/_tabela (a MESMA que o admin importa da planilha).
+  //    Com a chave OBS_USAR_PG ligada, lê do PostgreSQL; senão, do Firestore.
   try {
-    const fsx = getFirestore();
-    const snap = await fsx.collection('fretes').doc('_tabela').get();
+    let getDoc;
+    if(USAR_PG){ const { pgDb } = require('./pg-api'); getDoc = (id) => pgDb.collection('fretes').doc(id).get(); }
+    else { const fsx = getFirestore(); getDoc = (id) => fsx.collection('fretes').doc(id).get(); }
+    const snap = await getDoc('_tabela');
     if(snap.exists && snap.data() && snap.data().data){
       const d = snap.data(); let raw = d.data; const partes = d.partes || 1;
-      for(let i=1;i<partes;i++){ const sp = await fsx.collection('fretes').doc('_tabela_p'+i).get(); if(sp.exists && sp.data() && sp.data().data) raw += sp.data().data; }
+      for(let i=1;i<partes;i++){ const sp = await getDoc('_tabela_p'+i); if(sp.exists && sp.data() && sp.data().data) raw += sp.data().data; }
       if(d.comp === 'gz'){ raw = zlib.gunzipSync(Buffer.from(raw, 'base64')).toString('utf8'); }
       if(raw) db = JSON.parse(raw);
     }
-  } catch(e){ console.warn('[calc-fretes] Firestore _tabela indisponível, tentando arquivo local:', e.message); }
+  } catch(e){ console.warn('[calc-fretes] tabela _tabela indisponível, tentando arquivo local:', e.message); }
   // 2) fallback: arquivo empacotado
   if(!db){
     try { db = JSON.parse(fs.readFileSync(path.join(__dirname,'tabela-fretes.json'),'utf8')); }

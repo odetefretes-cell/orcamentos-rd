@@ -18,11 +18,22 @@
    ============================================================================ */
 
 const { onDocumentUpdated } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { enviarMensagem, atualizarContexto } = require('./chatguru-api');
 const { calcularFrete } = require('./calc-fretes');   // Fase B: cálculo da média no backend (24h)
+const { pgDb, proximoVendedorPG, listar, claim } = require('./pg-api');
 
 const db = getFirestore();
+
+// CHAVE DA VIRADA: com OBS_USAR_PG ligada, os LEADS e o rodízio vão pro PostgreSQL
+// (servidor próprio) e o envio passa pelo verificador `enviarPendentesPG`. Desligada
+// (padrão), tudo funciona exatamente como hoje (Firestore + gatilho prepararResposta).
+const USAR_PG = process.env.OBS_USAR_PG === 'true' || process.env.OBS_USAR_PG === '1';
+// Onde os LEADS moram (o intake continua sempre no Firestore).
+const dbLead = USAR_PG ? pgDb : db;
+// Carimbo de data/hora: sentinela do Firestore OU string ISO (PostgreSQL).
+const tsLead = () => USAR_PG ? new Date().toISOString() : FieldValue.serverTimestamp();
 
 /* Normaliza o nome do vendedor pros 3 nomes canônicos do CRM (igual crmNomeCanon
    no index.html), pra o responsável bater no ChatGuru e no CRM. */
@@ -44,6 +55,8 @@ const VENDEDORES = (process.env.VENDEDORES || 'Yasmim Freitas,Thiago Lucca,Flavi
    distribui de forma justa e alternada entre os vendedores. */
 async function proximoVendedor(){
   if(!VENDEDORES.length) return '';
+  // PostgreSQL: rodízio ATÔMICO no servidor (endpoint /api/rodizio/next).
+  if(USAR_PG) return await proximoVendedorPG(VENDEDORES);
   const ref = db.collection('crm_config').doc('rodizio');
   let escolhido = VENDEDORES[0];
   await db.runTransaction(async (tx) => {
@@ -193,7 +206,7 @@ function montarMensagemValorAlto(lead){
 
 /* ---- ETAPA 5A.1: intake 'automatico' → cria o lead no CRM (app calcula) ---- */
 exports.criarLeadNoCrm = onDocumentUpdated(
-  { document: 'crm_leads_intake/{telefone}', region: 'southamerica-east1' },
+  { document: 'crm_leads_intake/{telefone}', region: 'southamerica-east1', secrets: ['OBS_API_TOKEN'] },
   async (event) => {
     const d = event.data && event.data.after && event.data.after.data();
     if(!d) return;
@@ -237,7 +250,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     // no MESMO documento (sem DUPLICAR) e ainda ignora +55/DDD/9º dígito/formatação.
     const chave = String(telefone).replace(/\D/g,'').slice(-8) || String(telefone);
     const leadId = 'lead_wpp_' + chave;
-    const ref = db.collection('crm_leads').doc(leadId);
+    const ref = dbLead.collection('crm_leads').doc(leadId);   // PostgreSQL ou Firestore (o intake segue no Firestore)
 
     // ⚠️ TRAVA (não criar/recotar/mensagear por cima de quem já está sendo atendido).
     // O encaminhador (relaxado p/ pegar contato espontâneo) repassa QUALQUER conversa
@@ -267,7 +280,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
     let vendedor = canonVendedor(d.responsavelChatguru);
     if(!vendedor) vendedor = await proximoVendedor();
 
-    await db.runTransaction(async (tx) => {
+    await dbLead.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
 
       // Campos de dados — nunca sobrescrevem trajetos/etapa/vendedor já existentes.
@@ -346,7 +359,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
             composicao: calc.composicao || [],
             _calcAuto: true,          // impede o app de recalcular por cima
             _mediaBackend: true,
-            mediaCalculadaEm: FieldValue.serverTimestamp(),
+            mediaCalculadaEm: tsLead(),
             // Reinício de ciclo: reabre o envio JUNTO com a média NOVA (mesma
             // atualização), pra prepararResposta enviar o valor certo — nunca o
             // antigo. Sem isso, o mesmo número recotando não reenviava.
@@ -412,6 +425,9 @@ exports.prepararResposta = onDocumentUpdated(
     secrets: ['CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID'],
   },
   async (event) => {
+    // Modo PostgreSQL: os leads não moram mais no Firestore, então este gatilho
+    // não dispara — quem envia é o verificador `enviarPendentesPG` (abaixo).
+    if(USAR_PG) return;
     const d = event.data && event.data.after && event.data.after.data();
     if(!d) return;
     if(!d._intakeTelefone) return;             // só leads da automação
@@ -502,5 +518,83 @@ exports.prepararResposta = onDocumentUpdated(
       await ref.update({ respostaPreparada: montarMensagem(d), respostaEnviada: false, respostaPreparadaEm: FieldValue.serverTimestamp() });
     }
     console.log(`[prepararResposta] Rascunho pronto para ${event.params.leadId} (envio DESLIGADO).`);
+  }
+);
+
+/* ---- VERIFICADOR DE ENVIOS (modo PostgreSQL) --------------------------------
+   Substitui o gatilho `crm_leads → prepararResposta` quando os leads moram no
+   PostgreSQL. Roda de 1 em 1 min: procura leads da automação com média pronta
+   (ou aviso humano pendente) e ainda NÃO enviados, e envia pelo ChatGuru. A trava
+   ATÔMICA (/claim) garante que a mensagem nunca sai 2x. Serve tanto pro fluxo
+   automático quanto pro botão "Enviar automático" do app (os dois marcam no lead).
+   Fica INERTE enquanto OBS_USAR_PG estiver desligado. */
+exports.enviarPendentesPG = onSchedule(
+  {
+    schedule: 'every 1 minutes',
+    region: 'southamerica-east1',
+    secrets: ['CHATGURU_API_KEY', 'CHATGURU_ACCOUNT_ID', 'CHATGURU_PHONE_ID', 'OBS_API_TOKEN'],
+  },
+  async () => {
+    if(!USAR_PG) return;                       // só no modo servidor novo
+    const ativo = await envioEstaAtivo();
+    let leads;
+    try { leads = await listar('crm_leads'); }
+    catch(e){ console.error('[enviarPendentesPG] erro lendo leads:', (e && e.message) || e); return; }
+
+    for(const d of leads){
+      if(!d || !d._intakeTelefone) continue;   // só leads da automação
+      const leadId = d.id;
+      try {
+        // ---- ATENÇÃO HUMANA: manda 1 aviso e silencia ----
+        if(d.atencaoHumano){
+          if(d.avisoHumanoEnviado || d.erroEnvio) continue;
+          if(!ativo){ continue; }
+          const e = d.extraidoIA || {};
+          const valorAlto = !!e.valorInformado && Number(e.valorVeiculo) > LIMITE_VALOR_HUMANO;
+          const ganhou = await claim('crm_leads', leadId, 'avisoHumanoEnviado',
+            { avisoHumanoTipo: valorAlto ? 'valor_alto' : 'padrao', avisoHumanoEm: new Date().toISOString() });
+          if(!ganhou) continue;                // outra execução já pegou
+          const texto = (valorAlto ? montarMensagemValorAlto(d) : montarMensagemHumano(d)) + sufixoForaExpediente();
+          try {
+            const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
+            await pgDb.collection('crm_leads').doc(leadId).update({ avisoHumanoMessageId: (r && r.message_id) || '' });
+            console.log(`[enviarPendentesPG] AVISO HUMANO (${valorAlto ? 'valor alto' : 'padrão'}) enviado ${leadId}.`);
+          } catch(e2){
+            await pgDb.collection('crm_leads').doc(leadId).update({ avisoHumanoEnviado: false, erroEnvio: String((e2 && e2.message) || e2) });
+            console.error(`[enviarPendentesPG] ERRO aviso humano ${leadId}:`, (e2 && e2.message) || e2);
+          }
+          continue;
+        }
+
+        // ---- AUTOMÁTICO: manda a média ----
+        if(d._semAutoResposta) continue;
+        if(!formatarBRL(d.valorEstimado)) continue;   // ainda sem média válida
+        if(d.respostaEnviada) continue;               // já enviado
+        if(d.erroEnvio) continue;                      // falhou antes; não retenta em loop
+        if(!ativo){ continue; }                        // envio desligado
+        const ganhou = await claim('crm_leads', leadId, 'respostaEnviada', { respostaEnviadaEm: new Date().toISOString() });
+        if(!ganhou) continue;                          // outra execução já pegou o envio
+        const textoBase = d.respostaPreparada || montarMensagem(d);
+        const texto = textoBase + sufixoForaExpediente();
+        try {
+          const r = await enviarMensagem({ chatNumber: d._intakeTelefone, texto });
+          const patch = { respostaPreparada: textoBase, chatguruMessageId: (r && r.message_id) || '' };
+          try {
+            await atualizarContexto({ chatNumber: d._intakeTelefone, variaveis: { MediaEnviada: 'Sim' } });
+            patch.mediaEnviadaMarcada = true; patch.mediaEnviadaErro = '';
+          } catch(e2){
+            patch.mediaEnviadaMarcada = false; patch.mediaEnviadaErro = String((e2 && e2.message) || e2);
+            console.error(`[enviarPendentesPG] média enviada, mas FALHOU marcar MediaEnviada ${leadId}:`, patch.mediaEnviadaErro);
+          }
+          await pgDb.collection('crm_leads').doc(leadId).update(patch);
+          console.log(`[enviarPendentesPG] ENVIADO ${leadId} (msg ${patch.chatguruMessageId}).`);
+        } catch(e){
+          await pgDb.collection('crm_leads').doc(leadId).update({ respostaEnviada: false, erroEnvio: String((e && e.message) || e) });
+          console.error(`[enviarPendentesPG] ERRO ao enviar ${leadId}:`, (e && e.message) || e);
+        }
+      } catch(eLead){
+        console.error(`[enviarPendentesPG] erro no lead ${leadId}:`, (eLead && eLead.message) || eLead);
+      }
+    }
   }
 );
