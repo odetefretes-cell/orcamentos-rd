@@ -61,7 +61,8 @@ sudo -u postgres pg_dump -Fc obs > "$DIR/obs-$TS.dump"
 find "$DIR" -name 'obs-*.dump' -mtime +14 -delete
 BKP
 chmod +x /usr/local/bin/obs-db-backup.sh
-( crontab -l 2>/dev/null | grep -v 'obs-db-backup.sh'; echo '0 3 * * * /usr/local/bin/obs-db-backup.sh >> /var/log/obs-db-backup.log 2>&1' ) | crontab -
+CRON_LINE='0 3 * * * /usr/local/bin/obs-db-backup.sh >> /var/log/obs-db-backup.log 2>&1'
+{ crontab -l 2>/dev/null | grep -v 'obs-db-backup.sh' || true; echo "$CRON_LINE"; } | crontab -
 /usr/local/bin/obs-db-backup.sh || true
 c_ok "Backup diário às 03:00 → $BACKUP_DIR (fiz um agora pra provar)"
 
