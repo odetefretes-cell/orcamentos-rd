@@ -4244,7 +4244,7 @@ async function fazerLogin(){
       const info=equipeDe(email);
       if(!info){ if(err) err.textContent='E-mail sem acesso liberado. Fale com o Luiz (admin).'; try{ await _fb.signOutFn(_fb.auth); }catch(_){} return; }
       entrar(email, info.papel, info.nome, true); return;
-    }catch(e){ if(err) err.textContent=''; /* conta ainda não migrada → tenta a rede de segurança */ }
+    }catch(e){ console.error('[login] Firebase signIn falhou:', (e && (e.code||e.message)) || e, e); if(err) err.textContent=''; /* conta ainda não migrada → tenta a rede de segurança */ }
   }
   // 2) REDE DE SEGURANÇA (transição): método antigo por usuário/senha, enquanto migramos todos.
   const u=email;
