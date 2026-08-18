@@ -1646,10 +1646,112 @@ function backfillPublico(){
   };
   lote();
 }
+// ============ PONTE PARA A API DO SERVIDOR NOVO (modo teste "?api=1") ==========
+// Imita a fatia do Firestore que o app usa (doc/collection/getDoc/setDoc/
+// deleteDoc/writeBatch/onSnapshot), mas falando com a API em API_BASE. O login
+// continua sendo o do Firebase — a ponte usa o token do usuário logado pra
+// autenticar cada chamada. O "tempo real" vira uma checagem periódica (polling).
+// NÃO afeta a produção: só liga quando a URL tem "?api=1".
+function criarPonteAPI(base, tokenFn){
+  const INTERVALO = 8000;                       // ms entre as checagens (~8s)
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  const enc = encodeURIComponent;
+  async function pegarToken(){
+    let tk = await tokenFn().catch(()=>null);
+    let n = 0;
+    while(!tk && n < 600){ await sleep(600); tk = await tokenFn().catch(()=>null); n++; }  // espera o login (até ~6 min)
+    return tk;
+  }
+  async function api(metodo, caminho, corpo){
+    const headers = {};
+    const tk = await pegarToken();
+    if(tk) headers['Authorization'] = 'Bearer '+tk;
+    if(corpo!==undefined) headers['Content-Type'] = 'application/json';
+    const r = await fetch(base+caminho, { method:metodo, headers, body: corpo!==undefined ? JSON.stringify(corpo) : undefined });
+    if(metodo==='GET' && r.status===404) return {__404:true};
+    if(!r.ok){ let msg; try{ msg=(await r.json()).erro; }catch(_){} throw new Error(msg || ('HTTP '+r.status)); }
+    const txt = await r.text();
+    return txt ? JSON.parse(txt) : {};
+  }
+  function mergeProfundo(base, extra){
+    const out = Object.assign({}, base);
+    for(const k in extra){
+      const v = extra[k];
+      if(v && typeof v==='object' && !Array.isArray(v) && base && typeof base[k]==='object' && !Array.isArray(base[k]))
+        out[k] = mergeProfundo(base[k], v);
+      else out[k] = v;
+    }
+    return out;
+  }
+  const docSnap = (id, data) => ({ id, exists:()=>data!=null, data:()=>data, get:(k)=>data?data[k]:undefined });
+  function colSnap(arr){
+    return {
+      metadata:{ hasPendingWrites:false, fromCache:false },
+      size: arr.length, empty: arr.length===0,
+      docs: arr.map(o=>{ const {id, ...data}=o; return docSnap(id, data); }),
+      forEach(f){ arr.forEach(o=>{ const {id, ...data}=o; f(docSnap(id, data)); }); }
+    };
+  }
+  const ponte = {
+    doc:(fs,col,id)=>({__t:'doc', col, id:String(id)}),
+    collection:(fs,col)=>({__t:'col', col}),
+    async getDoc(ref){
+      const j = await api('GET','/api/'+ref.col+'/'+enc(ref.id));
+      if(j && j.__404) return docSnap(ref.id, null);
+      const {id, ...data} = j; return docSnap(ref.id, data);
+    },
+    async setDoc(ref, data, opts){
+      let payload = data;
+      if(opts && opts.merge){ const cur = await ponte.getDoc(ref); payload = mergeProfundo(cur.exists()?cur.data():{}, data); }
+      await api('PUT','/api/'+ref.col+'/'+enc(ref.id), payload);
+    },
+    async deleteDoc(ref){ await api('DELETE','/api/'+ref.col+'/'+enc(ref.id)); },
+    writeBatch(){
+      const ops=[];
+      const b = {
+        set(ref,data,opts){ ops.push(()=>ponte.setDoc(ref,data,opts)); return b; },
+        delete(ref){ ops.push(()=>ponte.deleteDoc(ref)); return b; },
+        async commit(){ for(const op of ops) await op(); }
+      };
+      return b;
+    },
+    onSnapshot(ref, a, b, c){
+      let cb, err;
+      if(typeof a==='function'){ cb=a; err=(typeof b==='function')?b:null; }
+      else { cb=(typeof b==='function')?b:null; err=(typeof c==='function')?c:null; }   // (ref, opts, cb, err)
+      let vivo=true, ultimo=null;
+      const puxar = async ()=>{
+        try{
+          if(ref.__t==='doc'){ const s=await ponte.getDoc(ref); if(vivo && cb) cb(s); }
+          else {
+            const arr = await api('GET','/api/'+ref.col);
+            const chave = JSON.stringify(arr);
+            if(chave!==ultimo){ ultimo=chave; if(vivo && cb) cb(colSnap(arr)); }
+          }
+        }catch(e){ if(vivo && err) err(e); }
+      };
+      puxar();
+      const iv = setInterval(puxar, INTERVALO);
+      return ()=>{ vivo=false; clearInterval(iv); };
+    }
+  };
+  return ponte;
+}
+function mostrarBannerTeste(){
+  if(document.getElementById('bannerTeste')) return;
+  const d=document.createElement('div');
+  d.id='bannerTeste';
+  d.textContent='🧪 MODO TESTE — servidor novo (PostgreSQL). Não é a produção.';
+  d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b45309;color:#fff;font:600 13px system-ui;padding:7px 12px;text-align:center;box-shadow:0 -2px 8px rgba(0,0,0,.25)';
+  (document.body||document.documentElement).appendChild(d);
+}
 async function initData(){
   const hash=location.hash;
   const liveId = hash.startsWith('#f=') ? decodeURIComponent(hash.slice(3)) : null;
   const isSnap = hash.startsWith('#t=');
+  const _params = new URLSearchParams(location.search);
+  const USAR_API = (_params.get('api')==='1' || window.OBS_USAR_API) && !liveId && !isSnap;
+  const API_BASE = _params.get('apibase') || location.origin;
   // SANEAMENTO (auto-cura): a cópia local da tabela de fretes (vários MB) enchia o
   // localStorage e derrubava o Firestore (QuotaExceeded → o sistema parava de salvar
   // pra todos). Remove essa cópia no arranque — ao recarregar, cada navegador se limpa
@@ -1658,17 +1760,26 @@ async function initData(){
   if(CLOUD_ON){
     try{
       const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-      const fsMod =await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
       const app=appMod.initializeApp(FIREBASE_CONFIG);
-      // PERSISTÊNCIA OFFLINE (IndexedDB): as gravações ficam numa fila local que SOBREVIVE ao
-      // fechar/atualizar a aba e são reenviadas sozinhas até chegarem na nuvem — nada se perde
-      // se a conexão cair ou a aba fechar antes de terminar de salvar. Multi-aba habilitado.
-      let fs;
-      try{
-        fs=fsMod.initializeFirestore(app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
-        console.log('☁ Firestore com persistência offline ativada (gravações não se perdem).');
-      }catch(e){ console.warn('Persistência offline indisponível, usando padrão:',e); try{ fs=fsMod.getFirestore(app); }catch(_){ fs=fsMod.getFirestore(app); } }
-      _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
+      let fsMod, fs;
+      if(USAR_API){
+        // ---- MODO TESTE: usa a API do servidor novo no lugar do Firestore ----
+        fsMod = criarPonteAPI(API_BASE, ()=> (_fb && _fb.auth && _fb.auth.currentUser) ? _fb.auth.currentUser.getIdToken() : Promise.resolve(null));
+        fs = {};
+        _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
+        try{ mostrarBannerTeste(); }catch(_){}
+        console.log('🧪 MODO TESTE ligado — dados via API:', API_BASE);
+      } else {
+        fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+        // PERSISTÊNCIA OFFLINE (IndexedDB): as gravações ficam numa fila local que SOBREVIVE ao
+        // fechar/atualizar a aba e são reenviadas sozinhas até chegarem na nuvem — nada se perde
+        // se a conexão cair ou a aba fechar antes de terminar de salvar. Multi-aba habilitado.
+        try{
+          fs=fsMod.initializeFirestore(app, { localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }) });
+          console.log('☁ Firestore com persistência offline ativada (gravações não se perdem).');
+        }catch(e){ console.warn('Persistência offline indisponível, usando padrão:',e); try{ fs=fsMod.getFirestore(app); }catch(_){ fs=fsMod.getFirestore(app); } }
+        _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
+      }
       // Storage (upload de documentos) — opcional; só funciona se o Storage estiver ativado
       try{
         const stMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
