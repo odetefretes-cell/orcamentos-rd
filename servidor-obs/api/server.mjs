@@ -92,8 +92,11 @@ async function usuarioDeFirebase(idToken) {
   try {
     const dec = await firebaseAuth.verifyIdToken(idToken);
     const email = String(dec.email || '').toLowerCase();
-    if (dec.email_verified !== false && EMAILS_EQUIPE.has(email)) return email;
-  } catch (_) { /* token inválido/expirado */ }
+    if (EMAILS_EQUIPE.has(email)) return email;   // a lista dos 7 e-mails é a fronteira de segurança
+    console.warn('[api] login recusado: e-mail fora da lista ->', email);
+  } catch (e) {
+    console.warn('[api] verifyIdToken falhou:', e && e.message || e);
+  }
   return null;
 }
 
