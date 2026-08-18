@@ -1656,15 +1656,16 @@ function criarPonteAPI(base, tokenFn){
   const INTERVALO = 8000;                       // ms entre as checagens (~8s)
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   const enc = encodeURIComponent;
-  async function pegarToken(){
+  async function pegarToken(esperar){
     let tk = await tokenFn().catch(()=>null);
+    if(esperar===false) return tk;                // leitura pública (cliente): não espera login
     let n = 0;
     while(!tk && n < 600){ await sleep(600); tk = await tokenFn().catch(()=>null); n++; }  // espera o login (até ~6 min)
     return tk;
   }
-  async function api(metodo, caminho, corpo){
+  async function api(metodo, caminho, corpo, esperarLogin){
     const headers = {};
-    const tk = await pegarToken();
+    const tk = await pegarToken(esperarLogin);
     if(tk) headers['Authorization'] = 'Bearer '+tk;
     if(corpo!==undefined) headers['Content-Type'] = 'application/json';
     const r = await fetch(base+caminho, { method:metodo, headers, body: corpo!==undefined ? JSON.stringify(corpo) : undefined });
@@ -1696,7 +1697,8 @@ function criarPonteAPI(base, tokenFn){
     doc:(fs,col,id)=>({__t:'doc', col, id:String(id)}),
     collection:(fs,col)=>({__t:'col', col}),
     async getDoc(ref){
-      const j = await api('GET','/api/'+ref.col+'/'+enc(ref.id));
+      const publico = ref.col === 'publico';          // acompanhamento do cliente é leitura pública (sem login)
+      const j = await api('GET','/api/'+ref.col+'/'+enc(ref.id), undefined, !publico);
       if(j && j.__404) return docSnap(ref.id, null);
       const {id, ...data} = j; return docSnap(ref.id, data);
     },
@@ -1750,8 +1752,11 @@ async function initData(){
   const liveId = hash.startsWith('#f=') ? decodeURIComponent(hash.slice(3)) : null;
   const isSnap = hash.startsWith('#t=');
   const _params = new URLSearchParams(location.search);
-  const USAR_API = (_params.get('api')==='1' || window.OBS_USAR_API) && !liveId && !isSnap;
-  const API_BASE = _params.get('apibase') || location.origin;
+  // VIRADA (cutover): com OBS_USAR_API_PADRAO=true, o app passa a usar a API do
+  // servidor novo por padrão (sem precisar de ?api=1). Fica false até a virada.
+  const OBS_USAR_API_PADRAO = false;
+  const USAR_API = (OBS_USAR_API_PADRAO || _params.get('api')==='1' || window.OBS_USAR_API) && !isSnap;
+  const API_BASE = _params.get('apibase') || 'https://api.obstransportes.com.br';
   // SANEAMENTO (auto-cura): a cópia local da tabela de fretes (vários MB) enchia o
   // localStorage e derrubava o Firestore (QuotaExceeded → o sistema parava de salvar
   // pra todos). Remove essa cópia no arranque — ao recarregar, cada navegador se limpa
@@ -1814,11 +1819,15 @@ async function initData(){
         let _pubTem=false;
         fsMod.onSnapshot(fsMod.doc(fs,'publico',liveId), snap=>{
           if(snap.exists()){ _pubTem=true; if(typeof renderClienteView==='function') renderClienteView(snap.data()); }
+          else if(USAR_API && !_pubTem){ renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]}); }
         }, ()=>{});
-        fsMod.onSnapshot(fsMod.doc(fs,'fretes',liveId), snap=>{
-          if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); if(!_pubTem) renderClienteLive(liveId); }
-          else if(!_pubTem) renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
-        }, ()=>{});
+        // fretes/ exige login (não é público) — na API só usamos publico/; no Firebase mantém a reserva
+        if(!USAR_API){
+          fsMod.onSnapshot(fsMod.doc(fs,'fretes',liveId), snap=>{
+            if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); if(!_pubTem) renderClienteLive(liveId); }
+            else if(!_pubTem) renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
+          }, ()=>{});
+        }
       } else if(isSnap){
         // acompanhamento por "foto" (#t=): dados vêm da URL; não precisa de leitura
       } else {
