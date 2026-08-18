@@ -97,12 +97,15 @@ async function calcularSW({ cepOrigem, cepDestino, valorVeiculo, categoria, data
   };
 }
 
-/* Cria/atualiza o lead no CRM (mesma coleção que o app escuta). */
+/* Cria/atualiza o lead no CRM (mesma coleção que o app escuta).
+   Com OBS_USAR_PG ligada, grava no PostgreSQL (servidor novo); senão, Firestore. */
 async function gravarLead(id, dados){
-  await db.collection('crm_leads').doc(id).set(dados, { merge:true });
+  const USAR_PG = process.env.OBS_USAR_PG === 'true' || process.env.OBS_USAR_PG === '1';
+  const bd = USAR_PG ? require('./pg-api').pgDb : db;
+  await bd.collection('crm_leads').doc(id).set(dados, { merge:true });
 }
 
-exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1' }, async (req, res) => {
+exports.obsIntegracao = onRequest({ cors:true, region:'southamerica-east1', secrets:['OBS_API_TOKEN'] }, async (req, res) => {
   try{
     // teste rápido no navegador (GET) — confirma que a função está no ar
     if(req.method === 'GET'){ res.json({ ok:true, servico:'obsIntegracao', dica:'use POST em /cotar e /interesse' }); return; }
