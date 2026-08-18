@@ -1768,12 +1768,13 @@ async function initData(){
       const app=appMod.initializeApp(FIREBASE_CONFIG);
       let fsMod, fs;
       if(USAR_API){
-        // ---- MODO TESTE: usa a API do servidor novo no lugar do Firestore ----
+        // ---- Dados via API do servidor próprio (PostgreSQL) ----
         fsMod = criarPonteAPI(API_BASE, ()=> (_fb && _fb.auth && _fb.auth.currentUser) ? _fb.auth.currentUser.getIdToken() : Promise.resolve(null));
         fs = {};
         _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
-        try{ mostrarBannerTeste(); }catch(_){}
-        console.log('🧪 MODO TESTE ligado — dados via API:', API_BASE);
+        // tarja de aviso SÓ em teste explícito (?api=1) — na produção (padrão) não aparece
+        if(_params.get('api')==='1' || window.OBS_USAR_API){ try{ mostrarBannerTeste(); }catch(_){} }
+        console.log('☁ Dados via API do servidor próprio:', API_BASE);
       } else {
         fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
         // PERSISTÊNCIA OFFLINE (IndexedDB): as gravações ficam numa fila local que SOBREVIVE ao
