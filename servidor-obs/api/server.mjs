@@ -203,6 +203,30 @@ app.post('/api/rodizio/next', rota(async (req, res) => {
   }
 }));
 
+// TRAVA ATÔMICA de envio — marca um campo booleano (ex.: respostaEnviada,
+// avisoHumanoEnviado) SÓ se ainda estiver desligado. Garante que só UMA execução
+// do verificador envia a mensagem ao cliente (evita duplicar no WhatsApp).
+//   POST /api/:col/:id/claim?campo=respostaEnviada   body: { respostaEnviadaEm: "..." }
+//   → { ok, claimed: true }  (você ganhou → pode enviar)  | { claimed: false } (outro já pegou)
+app.post('/api/:col/:id/claim', rota(async (req, res) => {
+  if (!validaCol(req, res)) return;
+  const campo = String(req.query.campo || '');
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(campo)) return res.status(400).json({ ok: false, erro: 'campo inválido' });
+  const extra = (req.body && typeof req.body === 'object') ? req.body : {};
+  const cli = await pool.connect();
+  try {
+    await cli.query('BEGIN');
+    const r = await cli.query(`SELECT data FROM "${req.params.col}" WHERE id = $1 FOR UPDATE`, [req.params.id]);
+    if (!r.rows.length) { await cli.query('ROLLBACK'); return res.status(404).json({ ok: false, erro: 'não encontrado' }); }
+    const cur = r.rows[0].data || {};
+    if (cur[campo]) { await cli.query('COMMIT'); return res.json({ ok: true, claimed: false }); }
+    const novo = { ...cur, [campo]: true, ...extra };
+    await cli.query(`UPDATE "${req.params.col}" SET data = $1::jsonb, updated_at = now() WHERE id = $2`, [JSON.stringify(novo), req.params.id]);
+    await cli.query('COMMIT');
+    res.json({ ok: true, claimed: true });
+  } catch (e) { await cli.query('ROLLBACK'); throw e; } finally { cli.release(); }
+}));
+
 // apagar um documento
 app.delete('/api/:col/:id', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
