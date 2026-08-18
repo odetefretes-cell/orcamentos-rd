@@ -104,6 +104,9 @@ async function autenticar(req, res, next) {
   // saúde fica aberta (monitoramento). O prefixo /api some quando montado com
   // app.use('/api', ...), então aceitamos as duas formas do caminho.
   if (req.path === '/health' || req.path === '/api/health') return next();
+  // acompanhamento do CLIENTE: leitura pública de UM doc de "publico/" (igual às
+  // regras do Firestore — publico é read:if true). Só GET de um id específico.
+  if (req.method === 'GET' && /^(\/api)?\/publico\/[^/]+$/.test(req.path)) { req.autor = 'publico'; return next(); }
   const h = req.get('authorization') || '';
   const bearer = h.startsWith('Bearer ') ? h.slice(7) : '';
   const recebido = bearer || req.get('x-api-token') || '';
