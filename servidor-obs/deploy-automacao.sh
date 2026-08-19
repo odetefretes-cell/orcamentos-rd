@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ============================================================================
+#  Publica/atualiza a AUTOMAÇÃO do WhatsApp no Hostinger (serviço obs-automacao),
+#  substituindo as Cloud Functions. Roda o mesmo pipeline (integracao/) via
+#  PostgreSQL + Express + cron (integracao/vps/).
+#
+#  Pré-requisitos:
+#    - Node + PM2 instalados; API (obs-api) rodando; PostgreSQL no ar.
+#    - /etc/obs-automacao/.env preenchido (ver integracao/vps/.env.example):
+#        OBS_USAR_PG=true, OBS_API_URL, OBS_API_TOKEN, ANTHROPIC_API_KEY,
+#        ANTHROPIC_MODEL, CHATGURU_API_KEY/ACCOUNT_ID/PHONE_ID, LIMITE_VALOR_HUMANO,
+#        LEAD_JANELA_SEGUNDOS, MAX_PERGUNTAS, VENDEDORES, TELEFONE_OBS
+#
+#  Rodar na VPS:  bash deploy-automacao.sh
+# ============================================================================
+set -euo pipefail
+
+REPO="${REPO:-$HOME/obs-repo}"
+BRANCH="${BRANCH:-claude/automate-transport-contract-form-tgvad2}"
+DEST="/opt/obs-automacao"
+
+[ -d "$REPO/.git" ] || { echo "ERRO: repositório não encontrado em $REPO (defina REPO=...)"; exit 1; }
+[ -f /etc/obs-automacao/.env ] || echo "AVISO: /etc/obs-automacao/.env não existe ainda — crie a partir de integracao/vps/.env.example antes de subir o serviço."
+
+echo "==> Baixando a automação de $BRANCH ..."
+cd "$REPO"
+git fetch origin "$BRANCH"
+
+echo "==> Extraindo integracao/ para $DEST (sem tocar no git) ..."
+mkdir -p "$DEST"
+rm -rf "$DEST/integracao"
+git archive "origin/$BRANCH" integracao | tar -x -C "$DEST"
+
+echo "==> Instalando dependências (integracao/vps) ..."
+cd "$DEST/integracao/vps"
+npm install --no-audit --no-fund
+
+echo "==> Rodando o selftest (em memória, não toca em produção) ..."
+node selftest.mjs | tail -4 || { echo "SELFTEST FALHOU — NÃO suba o serviço; me chame."; exit 1; }
+
+echo "==> Subindo/atualizando o serviço obs-automacao no PM2 (como obsrobo) ..."
+su - obsrobo -c "pm2 startOrReload $DEST/integracao/vps/ecosystem.automacao.cjs --update-env || pm2 start $DEST/integracao/vps/ecosystem.automacao.cjs"
+su - obsrobo -c "pm2 save" || true
+
+echo ""
+echo "==> Pronto. Teste:  curl -s http://127.0.0.1:3001/webhook/health"
+echo "==> Depois aponte o webhook do ChatGuru para: https://api.obstransportes.com.br/webhook/chatguru"
+echo "==> VIRADA SEGURA: 1 lead de teste + rollback (voltar a URL do webhook pra Cloud Function)."

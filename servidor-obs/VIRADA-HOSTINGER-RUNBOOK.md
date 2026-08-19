@@ -55,11 +55,21 @@ Depois trocar o **DNS** de `sistema.*` para o IP da VPS (Passo 0). O Caddy emite
 ## 6. Automação no Hostinger (passo sensível — lead de teste + rollback)
 > Enquanto não virar, a automação segue no atual (ou desligada). O robô de envio já
 > está com as correções (não manda pra atendido, não duplica).
-- Subir o serviço `obs-automacao` (PM2) e apontar o **webhook do ChatGuru** para
-  `https://api.obstransportes.com.br/webhook/chatguru`.
-- Disparar **1 lead de teste** pelo WhatsApp e conferir: cria no CRM, calcula a média,
-  e (com `envioAtivo=true`) envia **uma vez**, **não** para quem já tem atendente.
-- **Rollback (1 min)**: voltar a URL do webhook do ChatGuru para a Cloud Function atual.
+1. Criar `/etc/obs-automacao/.env` a partir de `integracao/vps/.env.example` (chaves
+   Anthropic/ChatGuru, `OBS_USAR_PG=true`, `OBS_API_URL`, `OBS_API_TOKEN`).
+2. Subir o serviço (roda o selftest sozinho antes de subir):
+   ```
+   bash ~/obs-repo/servidor-obs/deploy-automacao.sh
+   curl -s http://127.0.0.1:3001/webhook/health
+   ```
+3. Com `envioAtivo=false` ainda, **apontar o webhook do ChatGuru** para
+   `https://api.obstransportes.com.br/webhook/chatguru` e disparar **1 lead de teste**:
+   conferir que cria no CRM e calcula a média (log `pm2 logs obs-automacao`). Nada é
+   enviado enquanto `envioAtivo=false`.
+4. Ligar `envioAtivo=true` e mandar **mais 1 teste**: deve enviar **uma vez**, **não**
+   para quem já tem atendente.
+- **Rollback (1 min)**: voltar a URL do webhook do ChatGuru para a Cloud Function atual
+  (as Cloud Functions seguem intactas). `pm2 stop obs-automacao` se quiser parar o serviço.
 
 ## Kill-switch de envio
 `crm_config/config.envioAtivo = false` (no PostgreSQL) desliga TODO envio automático,
