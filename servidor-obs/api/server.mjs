@@ -242,7 +242,9 @@ app.get('/api/:col', rota(async (req, res) => {
       [sinceMs]
     );
     let deleted = [];
-    try {
+    // Na 1ª carga (since=0) não precisa mandar deleções (o app monta do zero pelos
+    // `changed`). Só reportamos deleções nos ciclos seguintes (since>0).
+    if (sinceMs > 0) try {
       const del = await pool.query(
         `SELECT id FROM deletions WHERE col = $1 AND deleted_at > to_timestamp($2/1000.0)`,
         [col, sinceMs]
