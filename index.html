@@ -1759,7 +1759,7 @@ async function initData(){
   const _params = new URLSearchParams(location.search);
   // VIRADA (cutover): com OBS_USAR_API_PADRAO=true, o app passa a usar a API do
   // servidor novo por padrão (sem precisar de ?api=1). Fica false até a virada.
-  const OBS_USAR_API_PADRAO = true;
+  const OBS_USAR_API_PADRAO = false;   // VOLTA PRO FIREBASE: app usa o Firestore (tempo real) por padrao
   const USAR_API = (OBS_USAR_API_PADRAO || _params.get('api')==='1' || window.OBS_USAR_API) && !isSnap;
   const API_BASE = _params.get('apibase') || 'https://api.obstransportes.com.br';
   // SANEAMENTO (auto-cura): a cópia local da tabela de fretes (vários MB) enchia o
