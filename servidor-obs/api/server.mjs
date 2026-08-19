@@ -115,6 +115,10 @@ async function autenticar(req, res, next) {
   // 2) login da equipe (navegador → Firebase ID token)
   const email = await usuarioDeFirebase(recebido);
   if (email) { req.autor = email; return next(); }
+  // 3) FORMULÁRIO DE PEDIDO do cliente (sem login): GET/PUT de UM frete. A ROTA
+  //    só libera se o frete for um PEDIDO PENDENTE (pedido!=true e cadastrado!=true)
+  //    — igual às regras do Firestore. Frete cadastrado (com CPF/endereço) fica bloqueado.
+  if ((req.method === 'GET' || req.method === 'PUT') && /^(\/api)?\/fretes\/[^/]+$/.test(req.path)) { req.autor = 'publico'; return next(); }
   return res.status(401).json({ ok: false, erro: 'não autorizado' });
 }
 app.use('/api', (req, res, next) => { autenticar(req, res, next).catch(() => res.status(401).json({ ok: false, erro: 'não autorizado' })); });
@@ -125,6 +129,8 @@ const rota = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch(e => {
   res.status(500).json({ ok: false, erro: String(e && e.message || e) });
 });
 const validaCol = (req, res) => { if (!COLECOES.has(req.params.col)) { res.status(404).json({ erro: 'coleção desconhecida' }); return false; } return true; };
+// PEDIDO PENDENTE (frete que o cliente ainda vai preencher): pedido!=true e cadastrado!=true.
+const ehPendente = (d) => !!d && d.pedido !== true && d.cadastrado !== true;
 
 // saúde
 app.get('/api/health', rota(async (req, res) => {
@@ -150,7 +156,12 @@ app.get('/api/:col/:id', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
   const r = await pool.query(`SELECT id, data FROM "${req.params.col}" WHERE id = $1`, [req.params.id]);
   if (!r.rows.length) return res.status(404).json({ erro: 'não encontrado' });
-  res.json({ ...r.rows[0].data, id: r.rows[0].id });
+  const data = r.rows[0].data || {};
+  // cliente sem login só enxerga PEDIDO PENDENTE em fretes (nunca frete cadastrado, com CPF/endereço)
+  if (req.autor === 'publico' && req.params.col === 'fretes' && !ehPendente(data)) {
+    return res.status(404).json({ erro: 'não encontrado' });
+  }
+  res.json({ ...data, id: r.rows[0].id });
 }));
 
 // gravar/atualizar um documento (upsert).
@@ -159,6 +170,13 @@ app.get('/api/:col/:id', rota(async (req, res) => {
 //  sem merge → substitui o documento inteiro.
 app.put('/api/:col/:id', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
+  // cliente sem login: só pode gravar o FORMULÁRIO de um PEDIDO PENDENTE de fretes
+  if (req.autor === 'publico') {
+    if (req.params.col !== 'fretes') return res.status(403).json({ ok: false, erro: 'não autorizado' });
+    const atual = await pool.query(`SELECT data FROM fretes WHERE id = $1`, [req.params.id]);
+    const dAtual = atual.rows.length ? (atual.rows[0].data || {}) : null;
+    if (!ehPendente(dAtual)) return res.status(403).json({ ok: false, erro: 'não autorizado' });
+  }
   const merge = req.query.merge === '1' || req.query.merge === 'true';
   if (merge) {
     await pool.query(
