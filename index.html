@@ -1725,7 +1725,11 @@ function criarPonteAPI(base, tokenFn, opts){
       let vivo=true, ultimo=null;
       const puxar = async ()=>{
         try{
-          if(ref.__t==='doc'){ const s=await ponte.getDoc(ref); if(vivo && cb) cb(s); }
+          if(ref.__t==='doc'){
+            const s=await ponte.getDoc(ref);
+            const chave = JSON.stringify(s.exists()? s.data() : null);   // só avisa se o doc REALMENTE mudou
+            if(chave!==ultimo){ ultimo=chave; if(vivo && cb) cb(s); }
+          }
           else {
             const arr = await api('GET','/api/'+ref.col);
             const chave = JSON.stringify(arr);
@@ -1909,7 +1913,11 @@ async function initData(){
           if(doServidor) CRM_LAST_IDS=new Set(Object.keys(cloud));   // só o servidor define o "conhecido na nuvem"
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           if(_crmResync){ _crmResync=false; try{ if(typeof crmSalvarAuto==='function') crmSalvarAuto(); }catch(_){} }  // reenvia p/ a nuvem o que estava só local
-          const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
+          // NÃO re-desenha o Kanban se a pessoa está ARRASTANDO um card ou DIGITANDO
+          // (a checagem periódica não pode apagar/interromper a ação em andamento).
+          const _arrastando = (typeof crmDragId!=='undefined' && crmDragId);
+          const _digitando = (typeof editandoInput==='function' && (editandoInput($('#viewCrm')) || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'')));
+          const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && !_arrastando && !_digitando && typeof renderCRM==='function') renderCRM();
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
           if(typeof crmNormalizarVendedores==='function') crmNormalizarVendedores();  // vendedor sempre no nome completo (todos os usuários)
           if(typeof crmAdminRotinas==='function') crmAdminRotinas();   // rodízio de responsável (admin)
