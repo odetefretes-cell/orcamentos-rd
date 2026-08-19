@@ -34,6 +34,12 @@ const USAR_PG = process.env.OBS_USAR_PG === 'true' || process.env.OBS_USAR_PG ==
 const dbLead = USAR_PG ? pgDb : db;
 // Carimbo de data/hora: sentinela do Firestore OU string ISO (PostgreSQL).
 const tsLead = () => USAR_PG ? new Date().toISOString() : FieldValue.serverTimestamp();
+// DRY_RUN de envio: quando ligado (OBS_ENVIO_DRYRUN=true), o verificador só ESCREVE
+// no log o que ENVIARIA — NÃO manda nada. Serve pra validar com segurança durante o dia.
+const ENVIO_DRYRUN = process.env.OBS_ENVIO_DRYRUN === 'true' || process.env.OBS_ENVIO_DRYRUN === '1';
+// Janela de "lead fresco": o verificador só envia leads criados/calculados nos últimos
+// N minutos (padrão 15). Impede RESSUSCITAR leads antigos / de clientes já em atendimento.
+const JANELA_FRESCO_MS = Number(process.env.OBS_ENVIO_JANELA_MIN || 15) * 60 * 1000;
 
 /* Normaliza o nome do vendedor pros 3 nomes canônicos do CRM (igual crmNomeCanon
    no index.html), pra o responsável bater no ChatGuru e no CRM. */
@@ -303,6 +309,7 @@ exports.criarLeadNoCrm = onDocumentUpdated(
         motivoAjuste: e.motivoAjuste || '',
         chatId: d.chatId || '',
         _intakeTelefone: telefone,
+        _backendEm: new Date().toISOString(),   // carimbo de criação (freshness do verificador)
         ultimaInteracao: new Date().toISOString(),
       };
       if(categoria) dados.categoria = categoria; // honra "moto elétrica = 300cc"
@@ -404,7 +411,9 @@ exports.criarLeadNoCrm = onDocumentUpdated(
    envio SEM re-deploy: basta pôr envioAtivo=true nesse documento. */
 async function envioEstaAtivo(){
   try {
-    const snap = await db.collection('crm_config').doc('config').get();
+    // No modo PostgreSQL, lê a chave do PostgreSQL (senão o "freio" não funciona).
+    const bd = USAR_PG ? pgDb : db;
+    const snap = await bd.collection('crm_config').doc('config').get();
     const v = snap.exists ? snap.data().envioAtivo : undefined;
     // Aceita booleano true, texto "true" ou número 1 — evita "não envia" só porque
     // o campo foi salvo como texto no console do Firestore (engano comum).
@@ -547,11 +556,17 @@ exports.enviarPendentesPG = onSchedule(
       // moveu o lead (contato, orçamento, etc.), NÃO fala por cima do atendente —
       // evita reprocessar leads antigos/em atendimento (bug do "aviso por cima").
       if(d.etapa !== 'novo') continue;
+      // FRESCOR: só leads recém-criados/calculados (últimos ~15 min). Um lead que ficou
+      // pendente por tempo demais (cliente provavelmente já em atendimento) NÃO é enviado.
+      const _ts = d.mediaCalculadaEm || d._backendEm;
+      const _tms = _ts ? Date.parse(_ts) : 0;
+      if(!_tms || (Date.now() - _tms) > JANELA_FRESCO_MS) continue;
       const leadId = d.id;
       try {
         // ---- ATENÇÃO HUMANA: manda 1 aviso e silencia ----
         if(d.atencaoHumano){
           if(d.avisoHumanoEnviado || d.erroEnvio) continue;
+          if(ENVIO_DRYRUN){ console.log(`[DRY_RUN] AVISO HUMANO -> ${leadId} (${d._intakeTelefone})`); continue; }
           if(!ativo){ continue; }
           const e = d.extraidoIA || {};
           const valorAlto = !!e.valorInformado && Number(e.valorVeiculo) > LIMITE_VALOR_HUMANO;
@@ -575,6 +590,7 @@ exports.enviarPendentesPG = onSchedule(
         if(!formatarBRL(d.valorEstimado)) continue;   // ainda sem média válida
         if(d.respostaEnviada) continue;               // já enviado
         if(d.erroEnvio) continue;                      // falhou antes; não retenta em loop
+        if(ENVIO_DRYRUN){ console.log(`[DRY_RUN] MÉDIA -> ${leadId} (${d._intakeTelefone}) R$ ${d.valorEstimado}`); continue; }
         if(!ativo){ continue; }                        // envio desligado
         const ganhou = await claim('crm_leads', leadId, 'respostaEnviada', { respostaEnviadaEm: new Date().toISOString() });
         if(!ganhou) continue;                          // outra execução já pegou o envio
