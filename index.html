@@ -1654,7 +1654,7 @@ function backfillPublico(){
 // NÃO afeta a produção: só liga quando a URL tem "?api=1".
 function criarPonteAPI(base, tokenFn, opts){
   const clienteModo = !!(opts && opts.clienteModo);   // link do cliente (liveId): nunca há login
-  const INTERVALO = 12000;                      // ms entre as checagens (~12s) — releitura menos agressiva
+  const INTERVALO = 7000;                       // ms entre as checagens (~7s) — awareness rápido entre pessoas
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   const enc = encodeURIComponent;
   async function pegarToken(esperar){
@@ -1704,9 +1704,14 @@ function criarPonteAPI(base, tokenFn, opts){
       const {id, ...data} = j; return docSnap(ref.id, data);
     },
     async setDoc(ref, data, opts){
-      let payload = data;
-      if(opts && opts.merge){ const cur = await ponte.getDoc(ref); payload = mergeProfundo(cur.exists()?cur.data():{}, data); }
-      await api('PUT','/api/'+ref.col+'/'+enc(ref.id), payload);
+      if(opts && opts.merge){
+        // MERGE ATÔMICO no servidor (jsonb ||): junta SÓ os campos enviados e preserva o resto —
+        // inclusive o que OUTRA pessoa mudou em outro campo ao mesmo tempo. É o que evita a
+        // sobrescrita (o "sumiu depois do F5"). Sem ida extra de leitura (mais rápido também).
+        await api('PUT','/api/'+ref.col+'/'+enc(ref.id)+'?merge=1', data);
+      } else {
+        await api('PUT','/api/'+ref.col+'/'+enc(ref.id), data);
+      }
     },
     async deleteDoc(ref){ await api('DELETE','/api/'+ref.col+'/'+enc(ref.id)); },
     writeBatch(){
@@ -1925,7 +1930,7 @@ async function initData(){
             if(typeof crmDragId!=='undefined' && crmDragId) return false;                 // arrastando
             if(typeof editandoInput==='function' && editandoInput(vc)) return false;       // editando um campo do CRM
             if(/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'')) return false; // foco em campo
-            if(Date.now() - (window._crmAcaoTs||0) < 5000) return false;                   // mexeu há <5s
+            if(Date.now() - (window._crmAcaoTs||0) < 2000) return false;                   // mexeu há <2s (só evita atropelar o clique)
             return true;
           };
           const vc=$('#viewCrm');
@@ -1933,7 +1938,7 @@ async function initData(){
             if(_podeRedesenhar()){ renderCRM(); }
             else {   // adiado: tenta de novo quando a pessoa parar (o modelo já está atualizado; nada se perde)
               clearTimeout(window._crmRepaintT);
-              window._crmRepaintT = setTimeout(function(){ try{ if(_podeRedesenhar()) renderCRM(); }catch(_){} }, 5200);
+              window._crmRepaintT = setTimeout(function(){ try{ if(_podeRedesenhar()) renderCRM(); }catch(_){} }, 2200);
             }
           }
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
@@ -4413,6 +4418,21 @@ let CRM_DIRTY = {};             // id -> _ts local aguardando confirmação (imp
 let _crmResync = false;         // sinaliza que há leads locais mais novos p/ reenviar à nuvem
 function _leadSemTs(l){ const o={}; for(const k in l){ if(k!=='_ts') o[k]=l[k]; } return o; }
 function _leadJSON(l){ try{ return JSON.stringify(_leadSemTs(l)); }catch(_){ return ''; } }
+// PATCH campo-a-campo: devolve só os campos de TOPO que mudaram em relação ao último
+// estado confirmado (base). Assim gravamos apenas o que ESTA pessoa alterou e o servidor
+// junta de forma atômica — a edição de um colega em OUTRO campo não é apagada. (Remoções
+// de campo são raras no CRM e não são enviadas; o merge não apaga — trade-off aceito.)
+function _leadPatch(l, base){
+  const patch = {};
+  for(const k in l){
+    if(k==='_ts' || k==='_novo') continue;
+    let a, b;
+    try{ a = JSON.stringify(l[k]); }catch(_){ a = undefined; }
+    try{ b = base ? JSON.stringify(base[k]) : undefined; }catch(_){ b = undefined; }
+    if(a !== b) patch[k] = l[k];
+  }
+  return patch;
+}
 // saveCRM é async e RETORNA a Promise da gravação na nuvem — quem precisa de durabilidade
 // (ex.: marcar perdas em lote) faz `await saveCRM()` e só reporta "concluído" quando a nuvem
 // confirmar. Os demais chamadores continuam usando fire-and-forget (ignoram a Promise).
@@ -4428,12 +4448,18 @@ async function saveCRM(){
   for(const id in persistir){
     const l=persistir[id]; const j=_leadJSON(l);
     if(CRM_SAVED[id]===j) continue;                 // não mudou desde a última gravação → não regrava
+    // base = último estado confirmado (para saber SÓ o que mudou). Calcular ANTES de sobrescrever.
+    let base=null; if(CRM_SAVED[id]){ try{ base=JSON.parse(CRM_SAVED[id]); }catch(_){ base=null; } }
     l._ts = Date.now();                              // marca a versão desta gravação
     CRM_DIRTY[id] = l._ts;                           // aguardando o eco da nuvem (não deixa reverter)
     CRM_SAVED[id] = j;
-    // grava uma cópia SANEADA: JSON.stringify remove undefined e converte NaN/Infinity→null,
-    // valores que o Firestore RECUSA (um único campo inválido derrubaria a gravação).
-    let clean; try{ clean = JSON.parse(JSON.stringify(l)); }catch(_){ clean = l; }
+    // PATCH: manda só os campos alterados (base!=null) → não sobrescreve o que o colega mudou.
+    // Lead NOVO (sem base) manda o documento inteiro (é uma inserção).
+    let dados = base ? _leadPatch(l, base) : _leadSemTs(l);
+    dados._ts = l._ts;                               // sempre envia o _ts (pro eco não reverter)
+    dados.id = id;                                   // garante o id no documento
+    // saneamento: JSON.stringify remove undefined e converte NaN/Infinity→null (Firestore recusa).
+    let clean; try{ clean = JSON.parse(JSON.stringify(dados)); }catch(_){ clean = dados; }
     ops.push({tipo:'set', id, data:clean, oque:'lead '+((l&&l.nome)||id)});
   }
   // apaga da nuvem só o que ESTE cliente removeu (estava e saiu) — nunca o que nunca vimos
