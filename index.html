@@ -1654,7 +1654,7 @@ function backfillPublico(){
 // NÃO afeta a produção: só liga quando a URL tem "?api=1".
 function criarPonteAPI(base, tokenFn, opts){
   const clienteModo = !!(opts && opts.clienteModo);   // link do cliente (liveId): nunca há login
-  const INTERVALO = 8000;                       // ms entre as checagens (~8s)
+  const INTERVALO = 12000;                      // ms entre as checagens (~12s) — releitura menos agressiva
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   const enc = encodeURIComponent;
   async function pegarToken(esperar){
@@ -1913,11 +1913,29 @@ async function initData(){
           if(doServidor) CRM_LAST_IDS=new Set(Object.keys(cloud));   // só o servidor define o "conhecido na nuvem"
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           if(_crmResync){ _crmResync=false; try{ if(typeof crmSalvarAuto==='function') crmSalvarAuto(); }catch(_){} }  // reenvia p/ a nuvem o que estava só local
-          // NÃO re-desenha o Kanban se a pessoa está ARRASTANDO um card ou DIGITANDO
-          // (a checagem periódica não pode apagar/interromper a ação em andamento).
-          const _arrastando = (typeof crmDragId!=='undefined' && crmDragId);
-          const _digitando = (typeof editandoInput==='function' && (editandoInput($('#viewCrm')) || /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'')));
-          const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && !_arrastando && !_digitando && typeof renderCRM==='function') renderCRM();
+          // NÃO re-desenha o Kanban se a pessoa está ARRASTANDO, DIGITANDO ou
+          // MEXENDO agora (a checagem periódica não pode atropelar a ação em
+          // andamento — isso dava a impressão de "não salvou", pois o redesenho
+          // levava o scroll pro topo e o card sumia da vista, mesmo já salvo).
+          // As ações da PRÓPRIA pessoa (mover/editar) chamam renderCRM direto, então
+          // aparecem na hora; aqui adiamos SÓ o redesenho vindo do polling (mudança
+          // de outra pessoa) por alguns segundos e ele acontece sozinho ao parar.
+          const _podeRedesenhar = () => {
+            const vc=$('#viewCrm'); if(!(vc && vc.style.display!=='none')) return false;
+            if(typeof crmDragId!=='undefined' && crmDragId) return false;                 // arrastando
+            if(typeof editandoInput==='function' && editandoInput(vc)) return false;       // editando um campo do CRM
+            if(/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'')) return false; // foco em campo
+            if(Date.now() - (window._crmAcaoTs||0) < 5000) return false;                   // mexeu há <5s
+            return true;
+          };
+          const vc=$('#viewCrm');
+          if(vc && vc.style.display!=='none' && typeof renderCRM==='function'){
+            if(_podeRedesenhar()){ renderCRM(); }
+            else {   // adiado: tenta de novo quando a pessoa parar (o modelo já está atualizado; nada se perde)
+              clearTimeout(window._crmRepaintT);
+              window._crmRepaintT = setTimeout(function(){ try{ if(_podeRedesenhar()) renderCRM(); }catch(_){} }, 5200);
+            }
+          }
           if(typeof crmAutoCalcSite==='function') crmAutoCalcSite();   // calcula sozinho leads do site/WhatsApp
           if(typeof crmNormalizarVendedores==='function') crmNormalizarVendedores();  // vendedor sempre no nome completo (todos os usuários)
           if(typeof crmAdminRotinas==='function') crmAdminRotinas();   // rodízio de responsável (admin)
@@ -4462,6 +4480,17 @@ function initCRM(){
   CRM_LAST_IDS = new Set();   // ainda não confirmamos a nuvem — o 1º onSnapshot preenche (leads locais não confirmados são preservados)
   CRM_SAVED = {}; CRM_DIRTY = {};
 }
+// Marca QUANDO a pessoa mexeu no CRM (clique/tecla/arrasto). A releitura periódica
+// usa isto pra NÃO redesenhar por cima de quem está trabalhando (ver onSnapshot de
+// crm_leads). Registrado uma única vez, na fase de captura, pra pegar qualquer alvo.
+(function(){
+  try{
+    const marcar = e => { const t=e.target; if(t && t.closest && t.closest('#viewCrm')) window._crmAcaoTs = Date.now(); };
+    document.addEventListener('pointerdown', marcar, true);
+    document.addEventListener('keydown', marcar, true);
+    document.addEventListener('dragstart', marcar, true);
+  }catch(_){}
+})();
 
 // ---- Render Métricas ----
 function renderCRMMetrics(){
@@ -4684,7 +4713,16 @@ function renderCRM(){
       <div class="kanban-cards" data-etapa="arquivado">${corpo}</div>
     </div>`;
   }
+  // PRESERVA a posição de rolagem: sem isto, todo redesenho (inclusive quando OUTRA
+  // pessoa mexe) joga o scroll pro topo e o card que a pessoa está olhando "some" da
+  // vista — dava a sensação de que a alteração não foi salva. Guardamos o scroll de
+  // cada coluna (por etapa) e o horizontal do board, e restauramos após o innerHTML.
+  const _scrollH = board.scrollLeft;
+  const _scrollCols = {};
+  board.querySelectorAll('.kanban-cards').forEach(c => { _scrollCols[c.dataset.etapa] = c.scrollTop; });
   board.innerHTML = colsHTML + arqColHTML;
+  board.scrollLeft = _scrollH;
+  board.querySelectorAll('.kanban-cards').forEach(c => { const s=_scrollCols[c.dataset.etapa]; if(s) c.scrollTop = s; });
 
   // inicializar drag & drop nas colunas
   board.querySelectorAll('.kanban-cards').forEach(col => {
