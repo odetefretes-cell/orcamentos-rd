@@ -562,6 +562,19 @@ exports.enviarPendentesPG = onSchedule(
       const _tms = _ts ? Date.parse(_ts) : 0;
       if(!_tms || (Date.now() - _tms) > JANELA_FRESCO_MS) continue;
       const leadId = d.id;
+      // ATENDENTE HUMANO — checagem FRESCA (corrige o "mandou pra cliente em atendimento").
+      // O card pode continuar em "Novo" mesmo quando um humano JÁ assumiu o chat no
+      // ChatGuru. O `responsavelChatguru` gravado no LEAD é do momento da criação (velho);
+      // o do INTAKE é mantido atualizado pelos eventos do ChatGuru. Então, antes de enviar,
+      // relê o intake: se houver um responsável humano (ou marca de "assumido"), NÃO envia.
+      try {
+        const inSnap = await db.collection('crm_leads_intake').doc(String(d._intakeTelefone)).get();
+        const intake = (inSnap && inSnap.exists) ? inSnap.data() : null;
+        if(intake && (canonVendedor(intake.responsavelChatguru) || intake.assumidoPorHumano)){
+          console.log(`[enviarPendentesPG] ${leadId}: chat JÁ em atendimento humano (${intake.responsavelChatguru || 'assumido'}) — NÃO envia.`);
+          continue;
+        }
+      } catch(eIn){ /* sem intake acessível: segue com os guards de etapa/frescor abaixo */ }
       try {
         // ---- ATENÇÃO HUMANA: manda 1 aviso e silencia ----
         if(d.atencaoHumano){
@@ -579,8 +592,10 @@ exports.enviarPendentesPG = onSchedule(
             await pgDb.collection('crm_leads').doc(leadId).update({ avisoHumanoMessageId: (r && r.message_id) || '' });
             console.log(`[enviarPendentesPG] AVISO HUMANO (${valorAlto ? 'valor alto' : 'padrão'}) enviado ${leadId}.`);
           } catch(e2){
-            await pgDb.collection('crm_leads').doc(leadId).update({ avisoHumanoEnviado: false, erroEnvio: String((e2 && e2.message) || e2) });
-            console.error(`[enviarPendentesPG] ERRO aviso humano ${leadId}:`, (e2 && e2.message) || e2);
+            // NÃO desmarca avisoHumanoEnviado: a trava já foi pega; se o envio falhou
+            // DEPOIS de entregar, desmarcar reenviaria (duplicata). Registra o erro à parte.
+            await pgDb.collection('crm_leads').doc(leadId).update({ avisoHumanoErro: String((e2 && e2.message) || e2) });
+            console.error(`[enviarPendentesPG] ERRO aviso humano ${leadId} (NÃO reenvia):`, (e2 && e2.message) || e2);
           }
           continue;
         }
@@ -609,8 +624,12 @@ exports.enviarPendentesPG = onSchedule(
           await pgDb.collection('crm_leads').doc(leadId).update(patch);
           console.log(`[enviarPendentesPG] ENVIADO ${leadId} (msg ${patch.chatguruMessageId}).`);
         } catch(e){
-          await pgDb.collection('crm_leads').doc(leadId).update({ respostaEnviada: false, erroEnvio: String((e && e.message) || e) });
-          console.error(`[enviarPendentesPG] ERRO ao enviar ${leadId}:`, (e && e.message) || e);
+          // NÃO desmarca respostaEnviada: a trava (claim) já foi pega ANTES do envio.
+          // Se o WhatsApp entregou mas a resposta HTTP falhou, desmarcar reenviaria a
+          // mesma média (duplicata que aconteceu hoje). Registra o erro à parte; um humano
+          // vê no CRM e reenvia manualmente se realmente não chegou.
+          await pgDb.collection('crm_leads').doc(leadId).update({ ultimoErroEnvio: String((e && e.message) || e) });
+          console.error(`[enviarPendentesPG] ERRO ao enviar ${leadId} (NÃO reenvia):`, (e && e.message) || e);
         }
       } catch(eLead){
         console.error(`[enviarPendentesPG] erro no lead ${leadId}:`, (eLead && eLead.message) || eLead);
