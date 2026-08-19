@@ -1,0 +1,17 @@
+{
+  "name": "obs-automacao-vps",
+  "version": "1.0.0",
+  "description": "OBS Transportes — automação de leads STANDALONE (VPS Hostinger): roda o pipeline das Cloud Functions inalterado, com stubs vendorizados de firebase-functions/firebase-admin + Express + node-cron sobre PostgreSQL (via API).",
+  "main": "orquestrador.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node orquestrador.js",
+    "selftest": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3"
+  }
+}
