@@ -40,7 +40,9 @@ echo "==> Rodando o selftest (em memória, não toca em produção) ..."
 node selftest.mjs | tail -4 || { echo "SELFTEST FALHOU — NÃO suba o serviço; me chame."; exit 1; }
 
 echo "==> Subindo/atualizando o serviço obs-automacao no PM2 (como obsrobo) ..."
-su - obsrobo -c "pm2 startOrReload $DEST/integracao/vps/ecosystem.automacao.cjs --update-env || pm2 start $DEST/integracao/vps/ecosystem.automacao.cjs"
+# Sobe o ORQUESTRADOR direto pelo nome (o PM2 não trata .cjs como config em pacote
+# ESM; e o orquestrador já lê o .env de /etc/obs-automacao/.env sozinho).
+su - obsrobo -c "cd $DEST/integracao/vps && pm2 delete obs-automacao 2>/dev/null; pm2 delete ecosystem.automacao 2>/dev/null; pm2 start orquestrador.js --name obs-automacao --time --max-memory-restart 400M"
 su - obsrobo -c "pm2 save" || true
 
 echo ""
