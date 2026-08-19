@@ -17,7 +17,7 @@ d.config({ path: '/etc/obs-robo/.env', quiet: true }); // reaproveita a conta de
 const pool = new pg.Pool({
   host: process.env.PGHOST || '127.0.0.1', port: Number(process.env.PGPORT || 5432),
   database: process.env.PGDATABASE, user: process.env.PGUSER, password: process.env.PGPASSWORD,
-  max: 10,
+  max: Number(process.env.PG_POOL_MAX || 30),
 });
 const COLECOES = new Set(['crm_leads', 'fretes', 'publico', 'clientes', 'crm_config']);
 const app = express();
@@ -146,7 +146,13 @@ app.get('/api/eu', rota(async (req, res) => {
 // listar uma coleção
 app.get('/api/:col', rota(async (req, res) => {
   if (!validaCol(req, res)) return;
-  const r = await pool.query(`SELECT id, data FROM "${req.params.col}" ORDER BY id`);
+  // A tabela de fretes (`_tabela`, `_tabela_p1`…) é um blob gzip de vários MB.
+  // O app NÃO precisa dela na varredura da coleção (lê pelo caminho de 1 doc,
+  // GET /api/fretes/_tabela) e ainda ignora docs começando com "_". Tirar daqui
+  // evita baixar megabytes a cada polling e saturar o pool de conexões.
+  const r = await pool.query(
+    `SELECT id, data FROM "${req.params.col}" WHERE id NOT LIKE '\\_tabela%' ORDER BY id`
+  );
   // a CHAVE da linha sempre vence (um "id" dentro do JSONB não pode sobrescrever)
   res.json(r.rows.map(x => ({ ...x.data, id: x.id })));
 }));
