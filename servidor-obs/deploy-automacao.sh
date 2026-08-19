@@ -24,7 +24,8 @@ DEST="/opt/obs-automacao"
 
 echo "==> Baixando a automação de $BRANCH ..."
 cd "$REPO"
-git fetch origin "$BRANCH"
+# cria/atualiza a ref origin/<branch> (o fetch simples não cria → git archive falharia)
+git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH"
 
 echo "==> Extraindo integracao/ para $DEST (sem tocar no git) ..."
 mkdir -p "$DEST"

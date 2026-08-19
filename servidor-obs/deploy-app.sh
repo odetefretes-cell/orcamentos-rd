@@ -17,7 +17,9 @@ mkdir -p "$APP_DIR"
 
 echo "==> Atualizando o app de $BRANCH ..."
 cd "$REPO"
-git fetch origin "$BRANCH"
+# Traz a branch E cria/atualiza a ref origin/<branch> (o fetch simples não cria,
+# e aí `git show origin/<branch>` falhava com "invalid object name").
+git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH"
 git show "origin/$BRANCH:index.html" > "$APP_DIR/index.html"
 # assets locais que o app ainda referencia (se existirem na branch)
 for f in logo.svg tabela-fretes.json cidades-coords.json; do
