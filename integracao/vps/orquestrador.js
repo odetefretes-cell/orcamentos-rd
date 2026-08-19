@@ -31,7 +31,7 @@ Module._initPaths();
 /* ---- 2) Ambiente -------------------------------------------------------------
    .env carregado pelo dotenv (ou pelo PM2 via env). Este serviço SEMPRE fala
    com o PostgreSQL (via a API do servidor), então força OBS_USAR_PG. */
-try { require('dotenv').config(); } catch (_) { /* dotenv opcional */ }
+try { require('dotenv').config({ path: process.env.DOTENV_CONFIG_PATH || '/etc/obs-automacao/.env' }); } catch (_) { /* dotenv opcional */ }
 if (!process.env.OBS_USAR_PG) process.env.OBS_USAR_PG = 'true';
 
 const express = require('express');
