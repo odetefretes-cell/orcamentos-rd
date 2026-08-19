@@ -1652,13 +1652,14 @@ function backfillPublico(){
 // continua sendo o do Firebase — a ponte usa o token do usuário logado pra
 // autenticar cada chamada. O "tempo real" vira uma checagem periódica (polling).
 // NÃO afeta a produção: só liga quando a URL tem "?api=1".
-function criarPonteAPI(base, tokenFn){
+function criarPonteAPI(base, tokenFn, opts){
+  const clienteModo = !!(opts && opts.clienteModo);   // link do cliente (liveId): nunca há login
   const INTERVALO = 8000;                       // ms entre as checagens (~8s)
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   const enc = encodeURIComponent;
   async function pegarToken(esperar){
     let tk = await tokenFn().catch(()=>null);
-    if(esperar===false) return tk;                // leitura pública (cliente): não espera login
+    if(clienteModo || esperar===false) return tk;  // cliente (link público) não espera login
     let n = 0;
     while(!tk && n < 600){ await sleep(600); tk = await tokenFn().catch(()=>null); n++; }  // espera o login (até ~6 min)
     return tk;
@@ -1769,7 +1770,7 @@ async function initData(){
       let fsMod, fs;
       if(USAR_API){
         // ---- Dados via API do servidor próprio (PostgreSQL) ----
-        fsMod = criarPonteAPI(API_BASE, ()=> (_fb && _fb.auth && _fb.auth.currentUser) ? _fb.auth.currentUser.getIdToken() : Promise.resolve(null));
+        fsMod = criarPonteAPI(API_BASE, ()=> (_fb && _fb.auth && _fb.auth.currentUser) ? _fb.auth.currentUser.getIdToken() : Promise.resolve(null), { clienteModo: !!liveId });
         fs = {};
         _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
         // tarja de aviso SÓ em teste explícito (?api=1) — na produção (padrão) não aparece
@@ -1820,15 +1821,13 @@ async function initData(){
         let _pubTem=false;
         fsMod.onSnapshot(fsMod.doc(fs,'publico',liveId), snap=>{
           if(snap.exists()){ _pubTem=true; if(typeof renderClienteView==='function') renderClienteView(snap.data()); }
-          else if(USAR_API && !_pubTem){ renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]}); }
         }, ()=>{});
-        // fretes/ exige login (não é público) — na API só usamos publico/; no Firebase mantém a reserva
-        if(!USAR_API){
-          fsMod.onSnapshot(fsMod.doc(fs,'fretes',liveId), snap=>{
-            if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); if(!_pubTem) renderClienteLive(liveId); }
-            else if(!_pubTem) renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
-          }, ()=>{});
-        }
+        // frete/pedido: rastreio (cadastrado) e o FORMULÁRIO DE PEDIDO (pendente). Na API é
+        // leitura/gravação PÚBLICA só de pedido pendente (o servidor bloqueia frete cadastrado).
+        fsMod.onSnapshot(fsMod.doc(fs,'fretes',liveId), snap=>{
+          if(snap.exists()){ MEM[liveId]=snap.data(); LAST[liveId]=JSON.parse(JSON.stringify(MEM[liveId])); if(!_pubTem) renderClienteLive(liveId); }
+          else if(!_pubTem) renderClienteView({st:'ANDAMENTO',h:[{t:new Date().toISOString(),x:'Pedido não encontrado. Confira o link com a OBS Transportes.'}]});
+        }, ()=>{});
       } else if(isSnap){
         // acompanhamento por "foto" (#t=): dados vêm da URL; não precisa de leitura
       } else {
