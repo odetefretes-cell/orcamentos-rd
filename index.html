@@ -1728,6 +1728,11 @@ function criarPonteAPI(base, tokenFn, opts){
       if(typeof a==='function'){ cb=a; err=(typeof b==='function')?b:null; }
       else { cb=(typeof b==='function')?b:null; err=(typeof c==='function')?c:null; }   // (ref, opts, cb, err)
       let vivo=true, ultimo=null;
+      // DELTA (coleção): mantém um cursor e um mapa local id->doc. A cada ciclo pede
+      // SÓ o que mudou desde o cursor (GET /api/col?since=cursor). Isso ACABA com o
+      // congestionamento — em vez de baixar a coleção inteira a cada 7s, baixa só a
+      // diferença (quase nada quando está parado). 1ª vez cursor=0 → traz tudo.
+      let cursor=null, localMap={}, temMapa=false;
       const puxar = async ()=>{
         try{
           if(ref.__t==='doc'){
@@ -1736,9 +1741,18 @@ function criarPonteAPI(base, tokenFn, opts){
             if(chave!==ultimo){ ultimo=chave; if(vivo && cb) cb(s); }
           }
           else {
-            const arr = await api('GET','/api/'+ref.col);
-            const chave = JSON.stringify(arr);
-            if(chave!==ultimo){ ultimo=chave; if(vivo && cb) cb(colSnap(arr)); }
+            const resp = await api('GET','/api/'+ref.col+'?since='+(cursor==null?0:cursor));
+            if(resp && Array.isArray(resp.changed)){
+              let mudou=false;
+              for(const d of resp.changed){ if(d && d.id!=null){ localMap[d.id]=d; mudou=true; } }
+              for(const id of (resp.deleted||[])){ if(localMap[id]!==undefined){ delete localMap[id]; mudou=true; } }
+              if(resp.now!=null) cursor=resp.now;
+              if(mudou || !temMapa){ temMapa=true; if(vivo && cb) cb(colSnap(Object.values(localMap))); }
+            } else if(Array.isArray(resp)){
+              // compatível com servidor SEM delta: trata como lista completa
+              const chave=JSON.stringify(resp);
+              if(chave!==ultimo){ ultimo=chave; localMap={}; for(const d of resp){ if(d && d.id!=null) localMap[d.id]=d; } temMapa=true; if(vivo && cb) cb(colSnap(resp)); }
+            }
           }
         }catch(e){ if(vivo && err) err(e); }
       };
@@ -1767,6 +1781,8 @@ async function initData(){
   const OBS_USAR_API_PADRAO = true;
   const USAR_API = (OBS_USAR_API_PADRAO || _params.get('api')==='1' || window.OBS_USAR_API) && !isSnap;
   const API_BASE = _params.get('apibase') || 'https://api.obstransportes.com.br';
+  // Expõe o modo/endereço pro login próprio (fazerLogin) e pro token das chamadas.
+  window.OBS_USAR_API_ATIVO = USAR_API; window.OBS_API_BASE = API_BASE;
   // SANEAMENTO (auto-cura): a cópia local da tabela de fretes (vários MB) enchia o
   // localStorage e derrubava o Firestore (QuotaExceeded → o sistema parava de salvar
   // pra todos). Remove essa cópia no arranque — ao recarregar, cada navegador se limpa
@@ -1779,7 +1795,8 @@ async function initData(){
       let fsMod, fs;
       if(USAR_API){
         // ---- Dados via API do servidor próprio (PostgreSQL) ----
-        fsMod = criarPonteAPI(API_BASE, ()=> (_fb && _fb.auth && _fb.auth.currentUser) ? _fb.auth.currentUser.getIdToken() : Promise.resolve(null), { clienteModo: !!liveId });
+        // LOGIN PRÓPRIO: o token das chamadas é o JWT guardado pelo /api/login (sem Firebase).
+        fsMod = criarPonteAPI(API_BASE, ()=> Promise.resolve(obsApiToken()), { clienteModo: !!liveId });
         fs = {};
         _fb={fs, doc:fsMod.doc, setDoc:fsMod.setDoc, deleteDoc:fsMod.deleteDoc, getDoc:fsMod.getDoc, writeBatch:fsMod.writeBatch};
         // tarja de aviso SÓ em teste explícito (?api=1) — na produção (padrão) não aparece
@@ -1801,8 +1818,10 @@ async function initData(){
         const stMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js');
         _fb.storage=stMod.getStorage(app); _fb.ref=stMod.ref; _fb.uploadBytes=stMod.uploadBytes; _fb.getDownloadURL=stMod.getDownloadURL;
       }catch(e){ console.warn('Storage indisponível:',e); }
-      // Authentication (login real por pessoa) — Fase 1 de segurança
-      try{
+      // Authentication (login real por pessoa).
+      // NO MODO API (Hostinger) NÃO carregamos o Firebase Auth — o login é próprio
+      // (POST /api/login → token JWT). Só carrega o Firebase Auth no modo Firebase.
+      if(!USAR_API) try{
         const authMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
         _fb.auth=authMod.getAuth(app);
         _fb.signIn=authMod.signInWithEmailAndPassword;
@@ -1892,8 +1911,10 @@ async function initData(){
                 if(cts>=lts){ merged[id]=c; delete CRM_DIRTY[id]; CRM_SAVED[id]=_leadJSON(c); }  // servidor confirmou → aceita
                 else { merged[id]=CRM_LEADS[id]||c; }                                             // nossa edição é mais nova → mantém local
               } else { merged[id]=CRM_LEADS[id]||c; }        // snapshot otimista NÃO confirma nada
-            } else if(doServidor && CRM_LEADS[id] && +(CRM_LEADS[id]._ts||0) > +(c._ts||0)){
-              // versão LOCAL é mais nova (edição de uma sessão anterior que não chegou na nuvem) → mantém e reenvia
+            } else if(doServidor && _crmSyncFeita && CRM_LEADS[id] && +(CRM_LEADS[id]._ts||0) > +(c._ts||0)){
+              // versão LOCAL é mais nova (edição desta sessão que ainda não chegou na nuvem) → mantém e reenvia.
+              // SÓ depois da 1ª sincronização: no 1º snapshot confiamos no servidor. Isso evita que
+              // um _ts velho no cache do navegador (sessão anterior) dispare um RE-SAVE em massa (flood).
               merged[id]=CRM_LEADS[id]; CRM_DIRTY[id]=+(CRM_LEADS[id]._ts||0); _crmResync=true;
             } else { merged[id]=c; if(doServidor) CRM_SAVED[id]=_leadJSON(c); }
           }
@@ -1916,6 +1937,7 @@ async function initData(){
           for(const k in merged){ if(merged[k] && !merged[k].id) merged[k].id=k; }
           CRM_LEADS=merged;
           if(doServidor) CRM_LAST_IDS=new Set(Object.keys(cloud));   // só o servidor define o "conhecido na nuvem"
+          if(doServidor) _crmSyncFeita=true;                          // a partir daqui, resync de local-mais-novo é permitido
           try{ localStorage.setItem(CRM_KEY, JSON.stringify(CRM_LEADS)); }catch(_){}
           if(_crmResync){ _crmResync=false; try{ if(typeof crmSalvarAuto==='function') crmSalvarAuto(); }catch(_){} }  // reenvia p/ a nuvem o que estava só local
           // NÃO re-desenha o Kanban se a pessoa está ARRASTANDO, DIGITANDO ou
@@ -4256,6 +4278,16 @@ async function carregarUsuariosNuvem(){
     try{ const s=await _fb.getDoc(_fb.doc(_fb.fs,'fretes','_acesso')); if(s.exists()&&Array.isArray(s.data().lista)&&s.data().lista.length){ USUARIOS=s.data().lista; } }catch(_){}
   }
 }
+// Token do login próprio (JWT do /api/login), guardado no navegador.
+const API_TOKEN_KEY='obs_api_token';
+function obsApiToken(){ try{ return localStorage.getItem(API_TOKEN_KEY)||null; }catch(_){ return null; } }
+// Aviso (uma vez) de sessão expirada / sem permissão → pede login de novo.
+let _authAvisado=false;
+function _avisarAuthFalhou(){
+  if(_authAvisado) return; _authAvisado=true;
+  try{ flash('Sua sessão expirou. Faça login de novo para salvar.','erro'); }catch(_){}
+  try{ const lo=$('#loginOverlay'); if(lo){ lo.style.display='flex'; setTimeout(()=>$('#loginUser')?.focus(),100); } }catch(_){}
+}
 async function fazerLogin(){
   const raw=($('#loginUser').value||'').trim(), email=raw.toLowerCase(), s=$('#loginPass').value||'';
   const err=$('#loginErro'); if(err) err.textContent='';
@@ -4263,9 +4295,28 @@ async function fazerLogin(){
     sessaoUser={user, papel, nome, ts:Date.now(), auth:!!viaAuth};
     localStorage.setItem(SESSAO_KEY, JSON.stringify(sessaoUser));
     $('#loginOverlay').style.display='none'; $('#loginPass').value='';
+    _authAvisado=false;   // sessão renovada
     aplicarPermissoes(); flash('Bem-vindo(a), '+nome+' ✔');
     if(typeof crmIniciarPresenca==='function') crmIniciarPresenca();   // rodízio: marca online
   };
+  // 0) LOGIN PRÓPRIO (Hostinger) — e-mail + senha conferidos no servidor (POST /api/login).
+  //    É o login oficial no modo API. NÃO cai no método antigo se falhar (retorna).
+  if(window.OBS_USAR_API_ATIVO){
+    if(!email.includes('@')){ if(err) err.textContent='Use seu e-mail para entrar.'; return; }
+    if(err) err.textContent='Entrando…';
+    try{
+      const r=await fetch((window.OBS_API_BASE||'')+'/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, senha:s}) });
+      const j=await r.json().catch(()=>({}));
+      if(r.ok && j.token){
+        try{ localStorage.setItem(API_TOKEN_KEY, j.token); }catch(_){}
+        const info=(typeof equipeDe==='function')?equipeDe(email):null;
+        entrar(j.email||email, j.papel||(info&&info.papel)||'operacional', j.nome||(info&&info.nome)||email, true);
+        return;
+      }
+      if(err) err.textContent = j.erro || 'E-mail ou senha inválidos.';
+    }catch(e){ if(err) err.textContent='Não consegui falar com o servidor. Tente de novo.'; }
+    return;
+  }
   // 1) LOGIN REAL (Firebase Authentication) — e-mail + senha. Só quem tem conta entra.
   if(_fb && _fb.auth && _fb.signIn && email.includes('@')){
     if(err) err.textContent='Entrando…';
@@ -4284,7 +4335,7 @@ async function fazerLogin(){
   if(!found){ if(err) err.textContent='Usuário ou senha inválidos.'; return; }
   entrar(found.user, found.papel, found.nome||found.user, false);
 }
-function logout(){ try{ if(_fb && _fb.auth && _fb.signOutFn) _fb.signOutFn(_fb.auth); }catch(_){} localStorage.removeItem(SESSAO_KEY); location.reload(); }
+function logout(){ try{ if(_fb && _fb.auth && _fb.signOutFn) _fb.signOutFn(_fb.auth); }catch(_){} try{ localStorage.removeItem(API_TOKEN_KEY); }catch(_){} localStorage.removeItem(SESSAO_KEY); location.reload(); }
 function aplicarPermissoes(){
   if(!sessaoUser) return;
   // FONTE DA VERDADE: se o e-mail logado está no mapa oficial, papel e nome vêm dele.
@@ -4416,6 +4467,7 @@ let CRM_LAST_IDS = new Set();   // ids que já vimos na nuvem (p/ distinguir "ap
 let CRM_SAVED = {};             // id -> JSON (sem _ts) do que já foi gravado/confirmado na nuvem
 let CRM_DIRTY = {};             // id -> _ts local aguardando confirmação (impede o onSnapshot de reverter)
 let _crmResync = false;         // sinaliza que há leads locais mais novos p/ reenviar à nuvem
+let _crmSyncFeita = false;      // já houve a 1ª sincronização com o servidor? (evita flood de cache velho)
 function _leadSemTs(l){ const o={}; for(const k in l){ if(k!=='_ts') o[k]=l[k]; } return o; }
 function _leadJSON(l){ try{ return JSON.stringify(_leadSemTs(l)); }catch(_){ return ''; } }
 // PATCH campo-a-campo: devolve só os campos de TOPO que mudaram em relação ao último
@@ -4479,7 +4531,18 @@ async function _crmGravarOps(ops){
     // que outra pessoa (ou o Make/ChatGuru) mudou ao mesmo tempo. Sem isso, um setDoc completo
     // reescrevia o documento inteiro e revertia a edição de quem estava com uma visão mais nova.
     try{ if(op.tipo==='del') await deleteDoc(refOf(op.id)); else await setDoc(refOf(op.id), op.data, {merge:true}); return true; }
-    catch(e){ _syncErro(op.oque||'gravação CRM', e); return false; }
+    catch(e){
+      const msg=String((e&&e.message)||e);
+      // RECUSA DE LOGIN/PERMISSÃO (401/403): não adianta retentar — isso causava um
+      // "loop" de gravações falhando (flood). Limpa a marca de pendente desse lead e
+      // pede login de novo, uma vez. Erros normais (rede/5xx) seguem o caminho antigo.
+      if(/HTTP 40[13]\b|não autorizado|nao autorizado/i.test(msg)){
+        try{ if(typeof CRM_DIRTY!=='undefined') delete CRM_DIRTY[op.id]; }catch(_){}
+        if(typeof _avisarAuthFalhou==='function') _avisarAuthFalhou();
+        return false;
+      }
+      _syncErro(op.oque||'gravação CRM', e); return false;
+    }
   };
   if(!writeBatch){                                   // sem writeBatch: um a um, isolado
     const r = await Promise.all(ops.map(gravarUm));
