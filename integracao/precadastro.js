@@ -52,16 +52,22 @@ exports.preCadastrarLead = onRequest(
       if (b.veiculo) variaveis.Veiculo = String(b.veiculo);
       if (b.valor)   variaveis.Valor   = String(b.valor);
 
-      // O chat_add cria o chat, mas ele não fica consultável na MESMA hora (leva ~1-2s
-      // pra propagar) → chat_update_context pode dar "Chat não encontrado". Repetimos
-      // algumas vezes com espera curta.
+      // O chat_add cria o chat, mas ele não fica consultável na MESMA hora (às vezes
+      // leva mais que 1-2s pra propagar) → chat_update_context dá "Chat não encontrado".
+      // Repetimos com PACIÊNCIA: uma espera inicial + várias tentativas com espera
+      // crescente. Isto roda no servidor de forma independente do navegador — o site
+      // já seguiu pro WhatsApp (fetch com abort em 4s), então dar mais tempo aqui só
+      // aumenta a chance de gravar Cotando=Sim, sem atrasar o cliente.
       let marcouContexto = false, erroContexto = '';
-      for (let tentativa = 1; tentativa <= 3 && !marcouContexto; tentativa++) {
+      const MAX_TENTATIVAS = 6;
+      await new Promise(r => setTimeout(r, 1500));   // deixa o chat propagar antes da 1ª tentativa
+      for (let tentativa = 1; tentativa <= MAX_TENTATIVAS && !marcouContexto; tentativa++) {
         try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; }
         catch (e) {
           erroContexto = e.message || String(e);
           const propagando = /encontrad|not found/i.test(erroContexto);
-          if (tentativa < 3 && propagando) { await new Promise(r => setTimeout(r, 1500)); }
+          // espera crescente (2s, 2.5s, 3s, …) só enquanto o chat ainda está propagando
+          if (tentativa < MAX_TENTATIVAS && propagando) { await new Promise(r => setTimeout(r, 1500 + tentativa * 500)); }
           else { console.warn('[preCadastrarLead] chat_update_context falhou:', erroContexto); break; }
         }
       }

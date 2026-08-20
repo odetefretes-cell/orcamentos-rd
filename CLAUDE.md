@@ -1,15 +1,67 @@
 # OBS Transportes — Sistema de Orçamentos + Automação de Leads
 
-Contexto do projeto para o Claude Code. Última atualização: **10/08/2026**.
+Contexto do projeto para o Claude Code. Última atualização: **20/08/2026**.
 
-> **Resumo em uma frase:** app single-file (`index.html`) de CRM/orçamentos que roda
-> no Firebase (Firestore + Hosting), mais um backend de **Cloud Functions** (pasta
-> `integracao/`) que automatiza a entrada de leads pelo ChatGuru, calcula a média do
-> frete e envia o orçamento no WhatsApp — 24h, sem depender do navegador aberto.
+> **Resumo em uma frase:** app single-file (`index.html`) de CRM/orçamentos + backend de
+> automação (pasta `integracao/`) que recebe leads pelo ChatGuru, calcula a média do frete
+> e envia o orçamento no WhatsApp — 24h, sem navegador aberto. **Desde 20/08/2026 tudo roda
+> numa VPS Hostinger (fora do Firebase/Cloud):** app estático + login próprio + PostgreSQL +
+> automação em PM2, atrás do Caddy (HTTPS automático).
+
+---
+
+## 0. ⚡ ARQUITETURA ATUAL — migração para a Hostinger (20/08/2026)
+
+O sistema saiu **100% do Google/Firebase** no dia a dia. O que roda hoje:
+
+| Peça | Onde roda agora | Detalhe |
+|---|---|---|
+| App / CRM | VPS Hostinger — `https://sistema.obstransportes.com.br` | `index.html` estático em `/opt/obs-app`, servido pelo Caddy |
+| Login | VPS (login próprio, tabela `usuarios`) | scrypt + JWT HS256 no `crypto` nativo — **sem Firebase Auth** |
+| Banco | **PostgreSQL 16** na VPS (db `obs`, user `obs_app`) | substitui o Firestore; mesmas "coleções" viram tabelas `(id text, data jsonb, updated_at)` |
+| API do app | VPS — `https://api.obstransportes.com.br` → `obs-api` (:3000) | `servidor-obs/api/server.mjs` (Express). Delta sync `?since=`, saves por campo `?merge=1` |
+| Automação | VPS — `obs-automacao` (:3001) | mesmo pipeline `integracao/` rodando via `integracao/vps/` (stubs Firebase + facade PG + cron). Webhook do ChatGuru → `https://api.obstransportes.com.br/webhook/chatguru` |
+| Formulário do site | github.io (não-Google) | `integracao/obs-cotacao.js` — pré-cadastra no ChatGuru pela VPS (`/webhook/precadastro`) e leva o cliente pro WhatsApp. **Não grava mais no Firestore.** |
+| Firebase / Cloud Functions | **Só rollback** (plano B) | manter alguns dias; NÃO desligar até estabilizar |
+
+**VPS:** IP `187.127.53.211`, Ubuntu 24.04, usuário app `obsrobo`. Processos no **PM2 do `obsrobo`**
+(`pm2 list` como root vem vazio — use `su - obsrobo -c "pm2 ..."`). Reverse proxy **Caddy**
+(`/etc/caddy/Caddyfile`): `sistema.*` → estático; `api.*` → `/webhook/*` ao 3001, resto ao 3000.
+⚠️ O Caddy usa **`handle /webhook/*`** (NÃO `handle_path`) — o serviço espera o caminho completo.
+
+**Segredos na VPS:** `/etc/obs-db/.env` (Postgres + `SESSION_SECRET`), `/etc/obs-automacao/.env`
+(Anthropic/ChatGuru/`OBS_API_TOKEN`), `/etc/obs-robo/.env` (service account do Firebase p/ scripts).
+
+**Scripts de operação:** pasta `servidor-obs/` (branch `obs-servidor-bootstrap`, clonada na VPS em `~/obs-repo`):
+- `deploy-app.sh` — publica o `index.html` em `/opt/obs-app`.
+- `deploy-automacao.sh` — extrai `integracao/` da branch de dev, roda selftest e sobe o `obs-automacao`.
+- `setup-hosting.sh` — (re)escreve o Caddyfile (app + api + webhook).
+- `seed-usuarios.mjs` — cria/reseta os usuários do login próprio.
+- `copiar-para-postgres.mjs` / `pg-para-firebase.mjs` — cópia Firestore↔Postgres (migração / rollback).
+- `VIRADA-HOSTINGER-RUNBOOK.md` — passo a passo da virada + rollback.
+
+**Deploy hoje:**
+- **App:** editar `index.html` (branch de dev) → na VPS `bash ~/obs-repo/servidor-obs/deploy-app.sh`.
+- **Automação:** editar `integracao/` (branch de dev) → na VPS `bash ~/obs-repo/servidor-obs/deploy-automacao.sh`.
+- **Formulário:** `integracao/obs-cotacao.js` é servido pelo **github.io a partir da `main`** — publicar exige atualizar esse arquivo na `main` (o github.io propaga em ~minutos).
+
+**Kill switch do envio:** `crm_config/config.envioAtivo` (linha no Postgres). Ligar:
+`su - postgres -c "psql -d obs -c \"UPDATE crm_config SET data = data || '{\\\"envioAtivo\\\":true}'::jsonb WHERE id='config';\""`.
+O log da automação mostra `[envioEstaAtivo] LIGADO/DESLIGADO` a cada ciclo.
+
+**Rollback rápido (se precisar do Google de volta):** reverter as 3 URLs de webhook no ChatGuru
+para as Cloud Functions + o DNS de `sistema.*` para o Firebase. Detalhes no RUNBOOK.
+
+> As seções abaixo (§1–§11) descrevem a lógica de negócio, o fluxo e a config do ChatGuru,
+> que **continuam válidos**. Onde citam "Firebase/Firestore/Cloud Functions/Cloud Shell",
+> leia como a peça equivalente da §0 (PostgreSQL / VPS / PM2 / terminal da Hostinger).
 
 ---
 
 ## 1. Onde as coisas rodam
+
+> ⚠️ **Histórico (pré-migração).** Esta tabela descreve a infra **antiga** no Firebase, hoje
+> mantida só como rollback. A infra **atual** (Hostinger/PostgreSQL) está na **§0**.
 
 | Peça | Onde | Observações |
 |---|---|---|
@@ -140,6 +192,12 @@ Grupo de diálogos "ChatGuru Integrações":
 7. **Falar com Atendente** (`6a79d1af…`) — frases "quero atendente/humano" → **AGUARDANDO +
    DELEGAR Comercial (rodízio) + não lido** + `Cotando=Nao`. (No backend, IA marca `pediuAtendente`.)
 
+> ⚠️ **Pós-migração (20/08/2026):** os 3 diálogos que fazem POST pro backend — **[1] Webhook
+> Lead Novo**, **[2] Gerar Orçamento** e **[6] Encaminhar Resposta** — agora apontam para
+> **`https://api.obstransportes.com.br/webhook/chatguru`** (VPS), não mais pra Cloud Function.
+> Rollback = voltar essas 3 URLs pras Cloud Functions. O pré-cadastro do formulário virou
+> **`https://api.obstransportes.com.br/webhook/precadastro`**.
+
 **`MediaEnviada`** é **variável de contexto**. Botão [2] grava por "Contexto de Saída"; nos leads do
 formulário o **backend grava via API** (`chat_update_context` em `prepararResposta`) — **confirmado em
 produção**. `Cotando` liga/desliga o encaminhador [6].
@@ -158,13 +216,19 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
 
 ## 9. Ligar/desligar e testar
 
-- **Ligar o envio real:** `crm_config/config.envioAtivo = true`. Desligar: `false`.
-- **Teste automático 24h:** com o navegador **fechado**, dispare um lead pelo formulário →
-  a média deve chegar sozinha. Log: `firebase functions:log --only criarLeadNoCrm` (procure
-  `média backend R$ ...`).
-- Roteiro completo: `integracao/ROTEIRO-DE-TESTE.md`.
-- Logs úteis: `firebase functions:log --only prepararResposta` (procure `ENVIADO`,
-  `ERRO ao enviar`, `AVISO HUMANO`, `enviando para 55...`).
+> Comandos **atuais (VPS)**. Os antigos `firebase functions:log` valem só se voltar pro rollback.
+
+- **Ligar o envio real:** ver o comando de `envioAtivo` na §0. Desligar = `false` no mesmo lugar.
+- **Ver o log da automação (na VPS):** `su - obsrobo -c "pm2 logs obs-automacao"` (ao vivo) ou
+  `su - obsrobo -c "pm2 logs obs-automacao --lines 200 --nostream"` (histórico). Procure
+  `LEAD RECEBIDO`, `média backend R$ ...`, `ENVIADO`, `AVISO HUMANO`, `enviando para 55...`,
+  `[envioEstaAtivo]`. ⚠️ Os processos estão no **PM2 do `obsrobo`** (o do root vem vazio).
+- **Teste automático 24h:** dispare um lead pelo formulário → a média deve chegar em ~2-3 min
+  (acúmulo 60s + cron + IA + envio). Use um número **sem responsável** no ChatGuru (contato já
+  em atendimento é pulado de propósito — trava anti-"falar por cima do atendente").
+- **Saúde dos serviços:** `curl -s https://api.obstransportes.com.br/api/health` (app) e
+  `curl -s https://api.obstransportes.com.br/webhook/health` (automação).
+- Roteiro completo: `integracao/ROTEIRO-DE-TESTE.md` (fluxo) e `servidor-obs/VIRADA-HOSTINGER-RUNBOOK.md` (infra).
 
 ---
 
@@ -176,7 +240,11 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
 - [ ] **Retorno de cliente antigo (contato direto):** o Opener não dispara sozinho (`!new_chat`); o atendente aciona manual. Avaliar automação melhor no futuro.
 - [ ] Limpar leads **duplicados antigos** (`lead_wpp_{número completo}`) criados antes da correção de chave.
 - [ ] Manter `calc-fretes.js` **em sincronia** com a lógica de cálculo do `index.html` (é uma cópia fiel; se mudar a regra no app, atualizar aqui).
-- [ ] **Node 20** das Functions é descontinuado em **30/10/2026** — migrar pra Node 22 antes disso.
+- [x] **Sair do Firebase/Cloud (20/08/2026):** migrado 100% pra VPS Hostinger (ver §0). Firebase mantido só como rollback (aposentar depois de estabilizar). ⇒ a pendência do Node 20 das Functions deixou de ser bloqueante.
+- [ ] **Encaminhamento de resposta que ecoa o Opener:** cliente que **copia o bloco de perguntas** e responde por cima pode não cair no `anything_else` do encaminhador [6] → resposta não chega ao backend (caso André Bonfanti). Ajustar o gatilho no ChatGuru; enquanto isso, atendente aciona **[2] Gerar Orçamento** manual (contato sem responsável cota na hora).
+- [ ] **Aposentar o Google:** depois de alguns dias estável, desligar Cloud Functions + Firestore (e migrar/parar o Firebase Hosting). Rotacionar senhas dos 7 usuários e as chaves de API (foram exibidas na instalação).
+- [ ] **Saldo WABA (ChatGuru):** manter recarregado — se zerar, o WhatsApp para de entregar as estimativas mesmo com tudo funcionando.
+- [ ] (Baixado de prioridade) **Node 20** das Functions descontinua em 30/10/2026 — só relevante se o rollback pro Firebase virar permanente.
 
 ---
 
@@ -201,3 +269,10 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    - **`pediuAtendente`**: cliente que pede pessoa vai pra humano sem o robô perguntar dados.
    - `MediaEnviada` via API **confirmada em produção** (log `MediaEnviada=Sim marcada`).
    - Config completa do ChatGuru versionada em `integracao/CHATGURU-CONFIGURACAO.md`.
+7. **Migração para a Hostinger (20/08/2026) — saída do Firebase/Cloud (ver §0):**
+   - App servido pela VPS (`sistema.obstransportes.com.br`) + **login próprio** (scrypt+JWT, sem Firebase Auth).
+   - **PostgreSQL** no lugar do Firestore; API `server.mjs` com **delta sync** (`?since=`) e **saves por campo** (`?merge=1`) — resolve o "não salva" (flood de polling / concorrência) da versão Firestore.
+   - Automação idêntica (`integracao/`) rodando na VPS via `integracao/vps/` (stubs Firebase + facade PG + driver/cron), no **PM2 do `obsrobo`**.
+   - **Caddy** (HTTPS automático) com `handle /webhook/*` → 3001. Bug corrigido no dia: era `handle_path` (cortava o `/webhook` → 404 no webhook do ChatGuru).
+   - **Formulário do site** tirado do Google: pré-cadastro agora em `/webhook/precadastro` (VPS) e **sem gravação no Firestore** (o lead entra pela automação).
+   - Validado em produção com leads reais (médias corretas + `ENVIADO`). Firebase/Cloud mantidos só como rollback.
