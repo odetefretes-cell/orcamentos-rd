@@ -50,7 +50,9 @@ $APP_DOMINIO {
 $API_DOMINIO {
     encode gzip
     # webhook do ChatGuru e endpoints da automação → serviço obs-automacao (3001)
-    handle_path /webhook/* {
+    # IMPORTANTE: usar "handle" (NÃO "handle_path") — o serviço espera o caminho
+    # completo /webhook/chatguru. O handle_path cortaria o /webhook e daria 404.
+    handle /webhook/* {
         reverse_proxy $AUTOMACAO_ALVO
     }
     # todo o resto → API principal (3000)
