@@ -3,19 +3,17 @@
      <div id="obs-cotacao"></div>
      <script src="https://odetefretes-cell.github.io/orcamentos-rd/integracao/obs-cotacao.js" defer></script>
    Este arquivo cria o formulário (estilo + campos + Estado→Cidade via IBGE) e grava
-   o lead direto no CRM da OBS (Firebase). Atualizações são automáticas. */
+   o lead no CRM da OBS pela automação (servidor próprio Hostinger, sem Google).
+   Atualizações são automáticas. */
 (function () {
   'use strict';
   if (window.__obsCotacao) return; window.__obsCotacao = true;
 
-  var FIREBASE_CONFIG = {
-    apiKey: "AIzaSyC4rDP5_lQ6o_ASjM_ndauC2HCq4JxnKuQ",
-    authDomain: "obs-fretes.firebaseapp.com",
-    projectId: "obs-fretes",
-    storageBucket: "obs-fretes.firebasestorage.app",
-    messagingSenderId: "307588629600",
-    appId: "1:307588629600:web:0914b25247953b56b06f05"
-  };
+  // Servidor próprio da OBS (Hostinger) — SEM Firebase/Google. O lead é criado no CRM
+  // pela AUTOMAÇÃO quando a mensagem "Solicitação de orçamento…" chega no ChatGuru
+  // (dedup pela chave lead_wpp_{últimos8}, a mesma daqui). Por isso o formulário não
+  // grava mais direto no banco — só pré-cadastra no ChatGuru e leva o cliente pro WhatsApp.
+  var API_BASE = 'https://api.obstransportes.com.br';
   // Ponte Make → RD Station (o navegador manda pro Make; o Make entrega no RD pelo servidor, sem bloqueio CORS)
   var MAKE_WEBHOOK = 'https://hook.us2.make.com/s1a9hk0iu3oyn80or2dkvdslppgt2utz';
   // WhatsApp oficial da OBS (ChatGuru) — o formulário leva o cliente pra cá com a mensagem pronta,
@@ -23,7 +21,7 @@
   var WPP_NUMERO = '5511932225311';
   // Pré-cadastro no ChatGuru (backend): cria o chat + liga Cotando=Sim ANTES da
   // mensagem chegar, pra o Opener não disparar o intake por cima do lead do formulário.
-  var PRECADASTRO_URL = 'https://southamerica-east1-obs-fretes.cloudfunctions.net/preCadastrarLead';
+  var PRECADASTRO_URL = API_BASE + '/webhook/precadastro';
   function preCadastrarChatguru(lead) {
     try {
       var ctrl = ('AbortController' in window) ? new AbortController() : null;
@@ -151,16 +149,6 @@
         .catch(function (e) { alvo.innerHTML = '<option value="">(cidade indisponível — descreva na observação)</option>'; alvo.disabled = false; console.error('IBGE', e); });
     }
 
-    // Firebase (carrega só ao enviar)
-    var _db = null, _fb = null;
-    function db() {
-      if (_db) return Promise.resolve(_db);
-      return import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js').then(function (appMod) {
-        return import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js').then(function (fsMod) {
-          _fb = fsMod; var app = appMod.initializeApp(FIREBASE_CONFIG, 'obs-form-cot'); _db = fsMod.getFirestore(app); return _db;
-        });
-      });
-    }
 
     // envia o lead para a ponte Make (que entrega no RD Station pelo servidor) — em paralelo ao CRM
     function enviarRD(lead) {
@@ -213,16 +201,13 @@
       // com as informações e a janela de 24h aberta (aí a equipe responde o orçamento direto).
       var waUrl = 'https://wa.me/' + WPP_NUMERO + '?text=' + encodeURIComponent(montarMsgWpp(lead));
       // PRÉ-CADASTRO no ChatGuru PRIMEIRO (liga Cotando=Sim antes da mensagem chegar —
-      // barra o Opener). Depois grava no CRM + RD (melhor esforço). O redirecionamento
-      // acontece de qualquer forma (todas as etapas são tolerantes a falha).
+      // barra o Opener), no servidor próprio (Hostinger). Depois envia ao RD (melhor
+      // esforço). O lead entra no CRM pela automação quando a mensagem chega no ChatGuru.
+      // O redirecionamento acontece de qualquer forma (todas as etapas toleram falha).
       preCadastrarChatguru(lead).then(function () {
-        return db().then(function (base) {
-          return _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
-        }).then(function () {
-          try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
-        });
+        try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
       }).catch(function (e) {
-        console.error('CRM/RD (segue pro WhatsApp mesmo assim):', e);
+        console.error('pré-cadastro/RD (segue pro WhatsApp mesmo assim):', e);
       }).then(function () {
         form.hidden = true; host.querySelector('#obsOk').hidden = false;   // mensagem de "abrindo o WhatsApp"
         window.location.href = waUrl;                                       // → WhatsApp / ChatGuru

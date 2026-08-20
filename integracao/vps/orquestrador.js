@@ -71,6 +71,18 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
+// CORS — o formulário do site (github.io) chama /webhook/precadastro pelo NAVEGADOR,
+// que exige cabeçalho de permissão + responder o preflight OPTIONS. O stub do VPS não
+// aplica o `cors:true` das funções, então tratamos aqui. Endpoints públicos, sem
+// cookie/token e sem dado sensível na resposta → liberar '*' é seguro (só afeta browser).
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.status(204).end(); return; }
+  next();
+});
+
 // Health
 app.get('/webhook/health', (req, res) => {
   res.json({ ok: true, servico: 'obs-automacao', pgMode: process.env.OBS_USAR_PG === 'true', ts: new Date().toISOString() });
@@ -83,9 +95,12 @@ app.all('/webhook/chatguru', (req, res) => chatguruWebhook(req, res));
 app.all('/cotar', (req, res) => obsIntegracao(req, res));
 app.all('/interesse', (req, res) => obsIntegracao(req, res));
 
-// Pré-cadastro do formulário do site + disparo do Opener
-app.all('/precadastro', (req, res) => preCadastrarLead(req, res));
-app.all('/opener', (req, res) => openerDisparou(req, res));
+// Pré-cadastro do formulário do site + disparo do Opener.
+// Expomos TAMBÉM sob /webhook/* porque o Caddy só encaminha /webhook/* para este
+// serviço (3001). Assim o formulário chama https://api.obstransportes.com.br/webhook/precadastro.
+// (As rotas curtas seguem para compatibilidade/uso interno.)
+app.all(['/precadastro', '/webhook/precadastro'], (req, res) => preCadastrarLead(req, res));
+app.all(['/opener', '/webhook/opener'], (req, res) => openerDisparou(req, res));
 
 app.listen(PORT, HOST, () => {
   console.log(`[orquestrador] HTTP ouvindo em http://${HOST}:${PORT}`);
