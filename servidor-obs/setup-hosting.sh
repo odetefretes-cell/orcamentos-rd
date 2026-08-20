@@ -42,6 +42,11 @@ cat > /etc/caddy/Caddyfile <<EOF
 $APP_DOMINIO {
     encode gzip
     root * $APP_DIR
+    # Anti-cache: força o navegador a REVALIDAR o index.html a cada carga (via ETag).
+    # Sem isto, o navegador prende a versão antiga do app depois de um deploy — foi o
+    # que derrubou o login da equipe na virada (app velho em cache). Barato: se nada
+    # mudou, volta 304 e usa o cache; se mudou, baixa a versão nova na hora.
+    header Cache-Control "no-cache"
     try_files {path} /index.html
     file_server
 }
