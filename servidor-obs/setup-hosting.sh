@@ -16,8 +16,10 @@ set -euo pipefail
 
 APP_DOMINIO="${APP_DOMINIO:-sistema.obstransportes.com.br}"
 API_DOMINIO="${API_DOMINIO:-api.obstransportes.com.br}"
+CONTAAZUL_DOMINIO="${CONTAAZUL_DOMINIO:-contaazul.obstransportes.com.br}"
 API_ALVO="127.0.0.1:3000"
 AUTOMACAO_ALVO="127.0.0.1:3001"
+CONTAAZUL_ALVO="127.0.0.1:3002"
 APP_DIR="/opt/obs-app"
 
 echo "==> Hospedagem: app=$APP_DOMINIO  api=$API_DOMINIO"
@@ -64,6 +66,12 @@ $API_DOMINIO {
     handle {
         reverse_proxy $API_ALVO
     }
+}
+
+# ---- INTEGRAÇÃO CONTA AZUL (backend Node na porta 3002) ----
+$CONTAAZUL_DOMINIO {
+    encode gzip
+    reverse_proxy $CONTAAZUL_ALVO
 }
 EOF
 echo "==> /etc/caddy/Caddyfile escrito (app + api + webhook)."

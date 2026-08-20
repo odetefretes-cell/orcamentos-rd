@@ -1,0 +1,162 @@
+// Rotas que o sistema OBS chama. Protegidas pelo segredo compartilhado.
+//   POST /obs/venda    → registra a venda (receita) do frete
+//   POST /obs/despesa  → lança a despesa do prestador (com trava de duplicidade)
+//   GET  /obs/status   → o que já foi lançado para um frete (para a tela do OBS)
+import { Router } from 'express';
+import { z } from 'zod';
+import { config } from '../config.js';
+import { requireObsSecret } from '../middleware/sharedSecret.js';
+import { garantirPessoa } from '../contaazul/pessoas.js';
+import { idServico } from '../contaazul/servicos.js';
+import { idCategoria, idCentroCusto } from '../contaazul/categorias.js';
+import { criarVenda } from '../contaazul/vendas.js';
+import { criarContaAPagar } from '../contaazul/financeiro.js';
+import { mapVenda } from '../domain/mapVenda.js';
+import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
+import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete } from '../store/ledger.js';
+import { log } from '../logger.js';
+
+export const obsRouter = Router();
+obsRouter.use(requireObsSecret);
+
+const pessoaSchema = z.object({
+  nome: z.string().min(1),
+  documento: z.string().optional(),
+  email: z.string().optional(),
+  telefone: z.string().optional(),
+});
+
+const vendaSchema = z.object({
+  frete: z.union([z.number(), z.string()]),
+  modal: z.enum(['cegonha', 'guincho']).default('cegonha'),
+  valor: z.number().positive(),
+  formaPagamento: z.enum(['PIX_50_50', 'PIX_100', 'CARTAO', 'FATURAMENTO_PJ']),
+  data: z.string().optional(),
+  previsaoChegada: z.string().optional(),
+  vencimento: z.string().optional(),
+  cliente: pessoaSchema,
+  origem: z.string().optional(),
+  destino: z.string().optional(),
+  veiculo: z.string().optional(),
+  placa: z.string().optional(),
+  descricao: z.string().optional(),
+});
+
+const despesaSchema = z.object({
+  prestador: pessoaSchema,
+  valor: z.number().positive(),
+  modal: z.enum(['cegonha', 'guincho']).default('cegonha'),
+  dataCompetencia: z.string().optional(),
+  vencimento: z.string().optional(),
+  pixKey: z.string().optional(),
+  forcar: z.boolean().optional(), // ignora a trava de duplicidade (confirmação explícita)
+  itens: z.array(z.object({
+    frete: z.union([z.number(), z.string()]),
+    placa: z.string().min(1),
+  })).min(1),
+});
+
+const centroPara = (modal) =>
+  modal === 'guincho' ? config.catalogo.centroCustoGuincho : config.catalogo.centroCustoPadrao;
+
+// ---------- VENDA ----------
+obsRouter.post('/venda', async (req, res, next) => {
+  try {
+    const input = vendaSchema.parse(req.body);
+
+    const existente = acharVenda(input.frete);
+    if (existente) {
+      return res.status(200).json({
+        ok: true, duplicado: true,
+        mensagem: 'Frete já registrado no Conta Azul — não foi criado de novo.',
+        ca: { id: existente.ca_id, numero: existente.ca_numero },
+      });
+    }
+
+    const [idCliente, idCat, idCC] = await Promise.all([
+      garantirPessoa({ ...input.cliente, perfis: ['CLIENTE'] }),
+      idCategoria(config.catalogo.categoriaReceita),
+      idCentroCusto(centroPara(input.modal)),
+    ]);
+
+    const payload = mapVenda(input, {
+      idCliente,
+      idServico: idServico(input.modal),
+      idCategoria: idCat,
+      idCentroCusto: idCC,
+    });
+
+    const venda = await criarVenda(payload);
+    registrarVenda({
+      frete: input.frete, valor: input.valor,
+      caId: venda.id, caNumero: venda.numero, status: 'criado', payload,
+    });
+
+    log.info('Venda registrada', { frete: input.frete, caId: venda.id });
+    res.status(201).json({ ok: true, duplicado: false, ca: { id: venda.id, numero: venda.numero } });
+  } catch (e) { next(mapZod(e)); }
+});
+
+// ---------- DESPESA ----------
+obsRouter.post('/despesa', async (req, res, next) => {
+  try {
+    const input = despesaSchema.parse(req.body);
+    const pares = paresDespesa(input);
+    if (pares.length === 0) return res.status(400).json({ erro: 'Nenhum item (frete+placa) válido.' });
+
+    // Trava de duplicidade ANTES de tocar no Conta Azul.
+    if (!input.forcar) {
+      const conflitos = conflitosDespesa(pares);
+      if (conflitos.length) {
+        return res.status(409).json({
+          ok: false, duplicado: true,
+          mensagem: 'Placa+frete já lançada antes. Pagar de novo pode duplicar. Reenvie com "forcar": true se for intencional.',
+          conflitos,
+        });
+      }
+    }
+
+    const [idFornecedor, idCat, idCC] = await Promise.all([
+      garantirPessoa({ ...input.prestador, perfis: ['FORNECEDOR'] }),
+      idCategoria(config.catalogo.categoriaDespesa),
+      idCentroCusto(centroPara(input.modal)),
+    ]);
+
+    const payload = mapDespesa(input, { idFornecedor, idCategoria: idCat, idCentroCusto: idCC });
+
+    // 202: assíncrono, sem id. Reconciliação preenche o ca_id depois.
+    const { status } = await criarContaAPagar(payload);
+
+    const reg = registrarDespesa({
+      pares, valor: input.valor,
+      status: 'pendente_reconciliacao', payload, caId: null,
+    });
+    if (reg.duplicado) {
+      // corrida rara: alguém lançou o mesmo par entre a checagem e agora.
+      log.warn('Despesa criada no CA mas ledger acusou duplicidade (corrida).', { pares });
+    }
+
+    log.info('Despesa lançada (aguardando reconciliação)', { fretes: pares.map((p) => p.frete), httpCA: status });
+    res.status(202).json({
+      ok: true, duplicado: false,
+      status: 'pendente_reconciliacao',
+      mensagem: 'Despesa criada no Conta Azul. O número é confirmado pela reconciliação em alguns minutos. Pague pelo CA de Bolso.',
+    });
+  } catch (e) { next(mapZod(e)); }
+});
+
+// ---------- STATUS ----------
+obsRouter.get('/status', (req, res) => {
+  const { frete } = req.query;
+  if (!frete) return res.status(400).json({ erro: 'Informe ?frete=' });
+  res.json({ frete, lancamentos: porFrete(String(frete)) });
+});
+
+function mapZod(e) {
+  if (e?.name === 'ZodError') {
+    const err = new Error('Payload inválido: ' + e.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; '));
+    err.status = 400;
+    return err;
+  }
+  return e;
+}

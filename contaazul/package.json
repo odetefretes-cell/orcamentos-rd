@@ -1,0 +1,22 @@
+{
+  "name": "obs-contaazul-integration",
+  "version": "0.1.0",
+  "description": "Backend de integracao entre o sistema OBS Transportes e o Conta Azul Pro (API v2). Registra vendas (receita do frete) e lanca despesas de prestador, com OAuth2, trava de duplicidade e reconciliacao do 202 assincrono.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.js",
+    "mock-ca": "node tools/run-mock.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "zod": "^3.24.1"
+  },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,108 @@
+// Ledger local: registra o que foi lançado, garante idempotência (não lançar
+// duas vezes) e guarda os pendentes de reconciliação do 202.
+import { getDb } from './db.js';
+
+// ---------- VENDA ----------
+
+export function acharVenda(frete) {
+  return getDb()
+    .prepare(`SELECT * FROM launches WHERE tipo='venda' AND frete=?`)
+    .get(String(frete)) || null;
+}
+
+/**
+ * Registra a venda. Idempotente por frete (dedup_key = venda:frete).
+ * Se já existe, devolve { duplicado:true, existente }.
+ */
+export function registrarVenda({ frete, valor, caId, caNumero, status, payload }) {
+  const db = getDb();
+  const dedup = `venda:${frete}`;
+  const existente = db.prepare('SELECT * FROM launches WHERE dedup_key=?').get(dedup);
+  if (existente) return { duplicado: true, existente };
+  const info = db.prepare(`
+    INSERT INTO launches (tipo, frete, placa, dedup_key, ca_id, ca_numero, valor, status, payload_json, created_at)
+    VALUES ('venda', @frete, NULL, @dedup, @caId, @caNumero, @valor, @status, @payload, @now)
+  `).run({
+    frete: String(frete), dedup, caId: caId || null, caNumero: caNumero != null ? String(caNumero) : null,
+    valor, status, payload: JSON.stringify(payload || {}), now: Date.now(),
+  });
+  return { duplicado: false, id: info.lastInsertRowid };
+}
+
+// ---------- DESPESA ----------
+
+/**
+ * Verifica se algum par (frete, placa) já foi lançado. Retorna os conflitos.
+ * @param {Array<{frete:string,placa:string}>} pares
+ */
+export function conflitosDespesa(pares) {
+  const db = getDb();
+  const stmt = db.prepare('SELECT frete, placa, launch_id FROM despesa_pairs WHERE frete=? AND placa=?');
+  const conflitos = [];
+  for (const p of pares) {
+    const hit = stmt.get(p.frete, p.placa);
+    if (hit) conflitos.push(hit);
+  }
+  return conflitos;
+}
+
+/**
+ * Registra a despesa (uma linha em launches + N linhas em despesa_pairs),
+ * numa transação. Se houver conflito de par, NÃO grava e devolve os conflitos.
+ * @param {object} args { pares, valor, status, payload, caId? }
+ */
+export function registrarDespesa({ pares, valor, status, payload, caId }) {
+  const db = getDb();
+  const fretes = [...new Set(pares.map((p) => p.frete))];
+  const dedup = 'despesa:' + pares.map((p) => `${p.frete}/${p.placa}`).sort().join('|');
+
+  const tx = db.transaction(() => {
+    const conflitos = conflitosDespesa(pares);
+    if (conflitos.length) return { duplicado: true, conflitos };
+
+    const jaTemDedup = db.prepare('SELECT id FROM launches WHERE dedup_key=?').get(dedup);
+    if (jaTemDedup) return { duplicado: true, conflitos: [], existente: jaTemDedup };
+
+    const info = db.prepare(`
+      INSERT INTO launches (tipo, frete, placa, dedup_key, ca_id, ca_numero, valor, status, payload_json, created_at)
+      VALUES ('despesa', @frete, NULL, @dedup, @caId, NULL, @valor, @status, @payload, @now)
+    `).run({
+      frete: fretes.join(','), dedup, caId: caId || null,
+      valor, status, payload: JSON.stringify(payload || {}), now: Date.now(),
+    });
+    const launchId = info.lastInsertRowid;
+
+    const insPair = db.prepare('INSERT INTO despesa_pairs (frete, placa, launch_id) VALUES (?, ?, ?)');
+    for (const p of pares) insPair.run(p.frete, p.placa, launchId);
+
+    return { duplicado: false, id: launchId };
+  });
+
+  return tx();
+}
+
+// ---------- RECONCILIAÇÃO / STATUS ----------
+
+export function despesasPendentes() {
+  return getDb()
+    .prepare(`SELECT * FROM launches WHERE tipo='despesa' AND status='pendente_reconciliacao'`)
+    .all();
+}
+
+export function marcarReconciliado(launchId, caId) {
+  getDb().prepare(`
+    UPDATE launches SET ca_id=@caId, status='reconciliado', reconciled_at=@now WHERE id=@id
+  `).run({ id: launchId, caId, now: Date.now() });
+}
+
+export function marcarErro(launchId, erro) {
+  getDb().prepare('UPDATE launches SET status=?, erro=? WHERE id=?')
+    .run('erro', String(erro).slice(0, 500), launchId);
+}
+
+export function porFrete(frete) {
+  return getDb()
+    .prepare(`SELECT id, tipo, frete, ca_id, ca_numero, valor, status, created_at, reconciled_at
+              FROM launches WHERE frete = ? OR frete LIKE ? ORDER BY created_at DESC`)
+    .all(String(frete), `%${frete}%`);
+}
