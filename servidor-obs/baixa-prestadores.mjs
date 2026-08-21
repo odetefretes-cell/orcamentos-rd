@@ -131,6 +131,21 @@ async function main() {
     console.log(`  ${c}: ${comCampo.length}/${comAberto.length}  ${isos.length ? `(${isos[0]} … ${isos[isos.length - 1]})` : ''}`);
   }
 
+  // 2b) HISTOGRAMA mês a mês do que está EM ABERTO (pela prioridade de data)
+  const porMes = {};
+  for (const x of comAberto) {
+    const { iso } = dataFrete(x.f);
+    const mes = iso ? iso.slice(0, 7) : 'sem-data';
+    if (!porMes[mes]) porMes[mes] = { fretes: 0, prest: 0 };
+    porMes[mes].fretes++; porMes[mes].prest += x.abertos.length;
+  }
+  console.log('\nEM ABERTO por mês (data do frete):');
+  let acFret = 0, acPrest = 0;
+  for (const mes of Object.keys(porMes).sort()) {
+    acFret += porMes[mes].fretes; acPrest += porMes[mes].prest;
+    console.log(`  ${mes}: ${porMes[mes].fretes} fretes / ${porMes[mes].prest} prestadores   (acumulado até aqui: ${acFret} fretes / ${acPrest} prestadores)`);
+  }
+
   // 3) aplicando a prioridade CAMPOS_DATA + o corte
   let semData = 0, foraCorte = 0;
   let leadsAfetados = 0, prestBaixados = 0, prestLegado = 0;
