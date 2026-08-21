@@ -46,13 +46,32 @@ if [ ! -f "$DEST/.env" ]; then
   echo ""
 fi
 
-echo "==> Subindo/atualizando obs-contaazul no PM2 (como obsrobo) ..."
+echo "==> Subindo/atualizando obs-contaazul via SYSTEMD (como obsrobo) ..."
 chown -R obsrobo:obsrobo "$DEST"
-# --cwd $DEST é ESSENCIAL: o app usa `import 'dotenv/config'`, que lê o .env da
-# pasta de trabalho. Sem --cwd, o PM2 roda o processo em outra pasta, o .env não é
-# lido (PORT/segredos vão pro default) e o serviço não sobe na 3002.
-su - obsrobo -c "pm2 delete obs-contaazul 2>/dev/null; pm2 start $DEST/src/server.js --name obs-contaazul --cwd $DEST --time --max-memory-restart 300M"
-su - obsrobo -c "pm2 save" || true
+# systemd em vez de PM2: o PM2 (fork + app ESM) não subia o listen — o processo
+# ficava 'online' mas não escutava a 3002. O systemd roda o node exatamente como
+# `cd $DEST && node src/server.js` (que sempre funcionou), com WorkingDirectory certo.
+NODE_BIN="$(su - obsrobo -c 'command -v node' 2>/dev/null)"
+su - obsrobo -c "pm2 delete obs-contaazul 2>/dev/null; pm2 save" || true   # tira do PM2 se sobrou
+cat > /etc/systemd/system/obs-contaazul.service <<UNIT
+[Unit]
+Description=OBS - Integracao Conta Azul
+After=network.target
+
+[Service]
+Type=simple
+User=obsrobo
+WorkingDirectory=$DEST
+ExecStart=$NODE_BIN $DEST/src/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now obs-contaazul
+systemctl restart obs-contaazul   # garante que pega o código novo neste deploy
 
 echo ""
 echo "==> Pronto. Teste local:  curl -s http://127.0.0.1:3002/health"
