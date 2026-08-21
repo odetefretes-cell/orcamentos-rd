@@ -156,7 +156,9 @@ obsRouter.post('/despesa/cancelar', async (req, res, next) => {
       return res.status(400).json({ ok: false, erro: 'Informe o "frete".' });
     }
     const aplicar = req.body?.aplicar === true || req.body?.aplicar === 'true';
-    const r = await cancelarContaAPagarPorFrete(frete, aplicar);
+    const diag = req.body?.diag === true || req.body?.diag === 'true';
+    const r = await cancelarContaAPagarPorFrete(frete, aplicar, diag);
+    if (diag) return res.json(r);
 
     if (aplicar) {
       const excluidos = (r.resultados || []).filter((x) => x.ok).length;

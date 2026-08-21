@@ -102,7 +102,7 @@ async function buscarContasAPagarAmplo() {
   return todos;
 }
 
-export async function cancelarContaAPagarPorFrete(frete, aplicar = false) {
+export async function cancelarContaAPagarPorFrete(frete, aplicar = false, diag = false) {
   const f = String(frete).trim();
   // busca AMPLA + filtra aqui (não confia no filtro do CA, que pode ignorar codigo_referencia)
   const itens = await buscarContasAPagarAmplo();
@@ -113,6 +113,23 @@ export async function cancelarContaAPagarPorFrete(frete, aplicar = false) {
   };
   const alvo = itens.filter(bate);
   const achados = alvo.map((x) => ({ id: x.id || x.uuid, descricao: x.descricao, total: x.total, status: x.status }));
+
+  if (diag) {
+    const g = async (p) => { try { return (await ca.get(p)).data; } catch (e) { return { erro: (e.status || '?') + ' ' + e.message, data: e.data }; } };
+    const out = [];
+    for (const x of alvo) {
+      const id = x.id || x.uuid;
+      out.push({
+        id,
+        item_bruto: x,
+        parcela_detalhe: await g(`/v1/financeiro/eventos-financeiros/parcelas/${id}`),
+        evento_detalhe: await g(`/v1/financeiro/eventos-financeiros/${id}`),
+        evento_parcelas: await g(`/v1/financeiro/eventos-financeiros/${id}/parcelas`),
+      });
+    }
+    return { diag: true, encontrados: achados.length, detalhes: out };
+  }
+
   if (!aplicar) return { aplicar: false, brutos: itens.length, encontrados: achados.length, achados };
 
   const resultados = [];
