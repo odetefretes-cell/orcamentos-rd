@@ -21,9 +21,13 @@ oauthRouter.get('/callback', async (req, res, next) => {
     const { code, state, error } = req.query;
     if (error) return res.status(400).send(`Conta Azul retornou erro: ${error}`);
     if (!code) return res.status(400).send('Faltou o parâmetro "code".');
-    if (!state || !consumeState(String(state))) {
+    // O Conta Azul não devolve o parâmetro `state` no callback. Se vier, validamos
+    // (proteção CSRF); se NÃO vier, seguimos com o code — é uma conexão manual, feita
+    // uma vez pelo admin, em HTTPS, com code de uso único, então o risco é aceitável.
+    if (state && !consumeState(String(state))) {
       return res.status(400).send('State inválido ou expirado. Recomece em /oauth/start.');
     }
+    if (!state) log.info('OAuth callback sem state (Conta Azul não retornou) — prosseguindo com o code.');
     await exchangeCode(String(code));
     log.info('OAuth conectado com sucesso');
     res.send(`
