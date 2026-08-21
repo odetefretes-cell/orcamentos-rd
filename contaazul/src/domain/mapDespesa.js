@@ -56,23 +56,36 @@ export function mapDespesa(input, refs) {
     `placas: ${pares.map((p) => p.placa).join(', ')}`,
   ].filter(Boolean).join(' | ');
 
+  const venc = input.vencimento || hoje;
+
   return {
     // fornecedor: campo real é id_pessoa (aceitamos refs.idFornecedor na assinatura)
     id_pessoa: refs.idFornecedor,
     descricao: descricaoDespesa(input, pares),
-    total,
+    // A API exige `valor` (o total do evento financeiro) no topo — NÃO `total`.
+    valor: total,
     data_competencia: input.dataCompetencia || hoje,
-    ...(refs.idCategoria ? { id_categoria: refs.idCategoria } : {}),
-    ...(refs.idCentroCusto ? { id_centro_custo: refs.idCentroCusto } : {}),
     // é isso que liga a despesa ao frete e permite reconciliar o 202 depois
     codigo_referencia: fretes.join(','),
-    // à vista, 1 parcela, vencimento = hoje (ou input.vencimento). Conta de
-    // pagamento = "Conta PJ Conta Azul IP" (CA de Bolso).
-    parcelas: [
+    // condicao_pagamento é OBRIGATÓRIA (à vista = 1x). Conta de pagamento =
+    // "Conta PJ Conta Azul IP" (CA de Bolso), vencimento = hoje (ou input.vencimento).
+    condicao_pagamento: {
+      opcao_condicao_pagamento: '1x',
+      parcelas: [
+        {
+          numero: 1,
+          valor: total,
+          data_vencimento: venc,
+          ...(refs.idContaFinanceira ? { id_conta_financeira: refs.idContaFinanceira } : {}),
+        },
+      ],
+    },
+    // rateio é OBRIGATÓRIO e é onde entra a categoria financeira (+ centro de custo).
+    rateio: [
       {
-        data_vencimento: input.vencimento || hoje,
         valor: total,
-        ...(refs.idContaFinanceira ? { id_conta_financeira: refs.idContaFinanceira } : {}),
+        ...(refs.idCategoria ? { id_categoria: refs.idCategoria } : {}),
+        ...(refs.idCentroCusto ? { id_centro_custo: refs.idCentroCusto } : {}),
       },
     ],
     observacoes: obs,
