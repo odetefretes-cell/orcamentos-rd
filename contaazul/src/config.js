@@ -27,8 +27,8 @@ export const config = {
     // URL pública deste backend + /oauth/callback. Tem que bater EXATAMENTE
     // com a cadastrada no app de produção do Conta Azul (sem barra no fim).
     redirectUri: required('CA_REDIRECT_URI'),
-    authUrl: process.env.CA_AUTH_URL || 'https://login.contaazul.com/#/oauth/authorize',
-    tokenUrl: process.env.CA_TOKEN_URL || 'https://api-v2.contaazul.com/oauth/token',
+    authUrl: process.env.CA_AUTH_URL || 'https://auth.contaazul.com/oauth2/authorize',
+    tokenUrl: process.env.CA_TOKEN_URL || 'https://auth.contaazul.com/oauth2/token',
     apiBase: process.env.CA_API_BASE || 'https://api-v2.contaazul.com',
     scope: process.env.CA_SCOPE || 'openid profile aws.cognito.signin.user.admin',
   },
