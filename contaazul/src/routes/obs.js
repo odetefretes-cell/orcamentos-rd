@@ -177,6 +177,14 @@ obsRouter.get('/diagnostico', async (req, res) => {
     if (!id) return { erro: 'nenhuma venda encontrada na lista' };
     return (await ca.get('/v1/venda/' + id)).data;
   });
+  // PESSOA real (pra ver o formato do campo "perfis" no cadastro atual)
+  await tenta('pessoa_amostra', async () => {
+    const lista = (await ca.get('/v1/pessoas', { tamanho_pagina: 3 })).data;
+    const arr = Array.isArray(lista) ? lista : (lista?.itens || lista?.content || []);
+    const id = arr[0] && (arr[0].id || arr[0].uuid);
+    const detalhe = id ? (await ca.get('/v1/pessoas/' + id)).data : null;
+    return { resumo: arr.slice(0, 1), detalhe };
+  });
   // CONTA A PAGAR real (a busca exige intervalo de vencimento)
   await tenta('conta_pagar_amostra', async () => {
     const de = req.query.de || '2026-06-01';
