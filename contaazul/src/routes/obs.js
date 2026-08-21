@@ -177,13 +177,16 @@ obsRouter.get('/diagnostico', async (req, res) => {
     if (!id) return { erro: 'nenhuma venda encontrada na lista' };
     return (await ca.get('/v1/venda/' + id)).data;
   });
-  // PESSOA real (pra ver o formato do campo "perfis" no cadastro atual)
+  // PESSOA real (pra ver o formato do campo "perfis" no cadastro atual).
+  // Busca uma pessoa ESPECÍFICA pelo id (cliente real conhecido) — a lista sem filtro
+  // vem vazia. Passe ?pessoaId=UUID pra usar outra.
   await tenta('pessoa_amostra', async () => {
-    const lista = (await ca.get('/v1/pessoas', { tamanho_pagina: 10 })).data;
-    const arr = Array.isArray(lista) ? lista : (lista?.itens || lista?.content || []);
-    const id = arr[0] && (arr[0].id || arr[0].uuid);
-    const detalhe = id ? (await ca.get('/v1/pessoas/' + id)).data : null;
-    return { resumo: arr.slice(0, 1), detalhe };
+    const pid = req.query.pessoaId || 'a0ff4bf6-0d18-4643-8aba-86913416a3da';
+    let lista_raw = null;
+    try { lista_raw = (await ca.get('/v1/pessoas', { tamanho_pagina: 10, termo_busca: 'a' })).data; } catch (e) { lista_raw = { erro: e.message }; }
+    let detalhe = null;
+    try { detalhe = (await ca.get('/v1/pessoas/' + pid)).data; } catch (e) { detalhe = { erro: e.message, data: e.data }; }
+    return { detalhe, lista_raw_chaves: lista_raw && !Array.isArray(lista_raw) ? Object.keys(lista_raw) : (Array.isArray(lista_raw) ? ('array len ' + lista_raw.length) : lista_raw) };
   });
   // CONTA A PAGAR real (a busca exige intervalo de vencimento)
   await tenta('conta_pagar_amostra', async () => {
