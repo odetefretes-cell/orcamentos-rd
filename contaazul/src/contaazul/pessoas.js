@@ -37,6 +37,8 @@ export async function garantirPessoa(p) {
   // Cria. Sem documento, cria só pelo nome (a OBS aceita prestador sem CPF).
   const body = {
     nome: p.nome,
+    // tipo_pessoa é obrigatório na API: 'Jurídica' p/ CNPJ (14 díg), senão 'Física'.
+    tipo_pessoa: (p.tipoPessoa) || (doc.length === 14 ? 'Jurídica' : 'Física'),
     ...(doc ? { documento: doc } : {}),
     ...(p.email ? { email: p.email } : {}),
     ...(p.telefone ? { telefone: soDigitos(p.telefone) } : {}),
