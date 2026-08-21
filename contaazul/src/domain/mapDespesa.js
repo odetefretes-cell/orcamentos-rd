@@ -48,7 +48,6 @@ export function mapDespesa(input, refs) {
   const pares = paresDespesa(input);
   if (pares.length === 0) throw new Error('Despesa sem itens (frete+placa) válidos');
   const hoje = hojeISO();
-  const fretes = [...new Set(pares.map((p) => p.frete))];
   const total = round2(input.valor);
 
   const obs = [
@@ -57,37 +56,48 @@ export function mapDespesa(input, refs) {
   ].filter(Boolean).join(' | ');
 
   const venc = input.vencimento || hoje;
+  const desc = descricaoDespesa(input, pares);
 
+  // Estrutura REAL da API (createpayablefinancialevent):
+  //   contato (não id_pessoa), observacao (singular), valor, data_competencia,
+  //   rateio[{ id_categoria, valor, rateio_centro_custo:[{ id_centro_custo, valor }] }],
+  //   condicao_pagamento.parcelas[{ descricao, data_vencimento, conta_financeira,
+  //     detalhe_valor:{ valor_bruto, valor_liquido, desconto, juros, multa, taxa } }]
   return {
-    // fornecedor: campo real é id_pessoa (aceitamos refs.idFornecedor na assinatura)
-    id_pessoa: refs.idFornecedor,
-    descricao: descricaoDespesa(input, pares),
-    // A API exige `valor` (o total do evento financeiro) no topo — NÃO `total`.
+    // fornecedor = "contato" no evento financeiro (id da pessoa criada/achada)
+    contato: refs.idFornecedor,
+    descricao: desc,
     valor: total,
     data_competencia: input.dataCompetencia || hoje,
-    // é isso que liga a despesa ao frete e permite reconciliar o 202 depois
-    codigo_referencia: fretes.join(','),
-    // condicao_pagamento é OBRIGATÓRIA (à vista = 1x). Conta de pagamento =
-    // "Conta PJ Conta Azul IP" (CA de Bolso), vencimento = hoje (ou input.vencimento).
-    condicao_pagamento: {
-      opcao_condicao_pagamento: '1x',
-      parcelas: [
-        {
-          numero: 1,
-          valor: total,
-          data_vencimento: venc,
-          ...(refs.idContaFinanceira ? { id_conta_financeira: refs.idContaFinanceira } : {}),
-        },
-      ],
-    },
-    // rateio é OBRIGATÓRIO e é onde entra a categoria financeira (+ centro de custo).
+    observacao: obs,
+    ...(refs.idContaFinanceira ? { conta_financeira: refs.idContaFinanceira } : {}),
+    // rateio (obrigatório): categoria financeira + centro de custo ANINHADO.
     rateio: [
       {
         valor: total,
         ...(refs.idCategoria ? { id_categoria: refs.idCategoria } : {}),
-        ...(refs.idCentroCusto ? { id_centro_custo: refs.idCentroCusto } : {}),
+        ...(refs.idCentroCusto
+          ? { rateio_centro_custo: [{ id_centro_custo: refs.idCentroCusto, valor: total }] }
+          : {}),
       },
     ],
-    observacoes: obs,
+    // à vista: 1 parcela. detalhe_valor = "composição de valor" (bruto=líquido, sem juros).
+    condicao_pagamento: {
+      parcelas: [
+        {
+          descricao: desc,
+          data_vencimento: venc,
+          ...(refs.idContaFinanceira ? { conta_financeira: refs.idContaFinanceira } : {}),
+          detalhe_valor: {
+            valor_bruto: total,
+            valor_liquido: total,
+            desconto: 0,
+            juros: 0,
+            multa: 0,
+            taxa: 0,
+          },
+        },
+      ],
+    },
   };
 }
