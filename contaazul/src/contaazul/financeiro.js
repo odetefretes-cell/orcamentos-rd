@@ -45,29 +45,38 @@ export async function listarParcelas(idEvento) {
   return Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
 }
 
-/** Exclui/cancela uma conta a pagar pelo id, varrendo caminhos+métodos possíveis. */
+/**
+ * Exclui uma conta a pagar. A exclusão no Conta Azul é POR PARCELA
+ * (DELETE /v1/financeiro/eventos-financeiros/parcelas/{parcela_id}).
+ * `id` é o id do EVENTO (vindo da busca) → pegamos as parcelas e excluímos cada uma.
+ */
 async function deletarPorId(id) {
-  const E = '/v1/financeiro/eventos-financeiros';
-  const tentativasList = [
-    ['DELETE', `${E}/contas-a-pagar/${id}`],
-    ['DELETE', `${E}/${id}`],
-    ['DELETE', `/v1/financeiro/contas-a-pagar/${id}`],
-    ['DELETE', `${E}/parcelas/${id}`],
-    ['DELETE', `${E}/contas-a-pagar/parcelas/${id}`],
-    ['POST',   `${E}/contas-a-pagar/${id}/cancelar`],
-    ['DELETE', `${E}/contas-a-pagar/${id}/cancelar`],
-    ['POST',   `${E}/${id}/cancelar`],
-  ];
+  const delParcela = async (pid) => {
+    const path = `/v1/financeiro/eventos-financeiros/parcelas/${pid}`;
+    // 502 às vezes é transitório: tenta até 3x
+    for (let i = 0; i < 3; i++) {
+      try { const r = await ca.del(path); return { status: r.status }; }
+      catch (e) { if (e.status !== 502 || i === 2) return { status: e.status || '?', erro: e.message }; await new Promise((r) => setTimeout(r, 1500)); }
+    }
+  };
+
   const tentativas = {};
-  for (const [metodo, p] of tentativasList) {
-    const chave = `${metodo} ${p}`;
-    try {
-      const r = metodo === 'DELETE' ? await ca.del(p) : await ca.post(p, {});
-      tentativas[chave] = r.status;
-      if (r.status >= 200 && r.status < 300) return { ok: true, via: chave, status: r.status, tentativas };
-    } catch (e) { tentativas[chave] = (e.status || '?') + ' ' + (e.message || ''); }
+  // 1) parcelas do evento
+  let parcelaIds = [];
+  try { const ps = await listarParcelas(id); parcelaIds = ps.map((p) => p.id || p.uuid || p.id_parcela).filter(Boolean); }
+  catch (e) { tentativas['listarParcelas'] = (e.status || '?') + ' ' + (e.message || ''); }
+
+  // 2) exclui cada parcela; se não achou parcela, tenta o próprio id como parcela
+  const ids = parcelaIds.length ? parcelaIds : [id];
+  let okCount = 0;
+  for (const pid of ids) {
+    const r = await delParcela(pid);
+    const chave = `DELETE parcelas/${pid}`;
+    tentativas[chave] = r.status + (r.erro ? ' ' + r.erro : '');
+    if (r.status >= 200 && r.status < 300) okCount++;
   }
-  return { ok: false, tentativas };
+  const ok = okCount > 0 && okCount === ids.length;
+  return { ok, parcelaIds, excluidasParcelas: okCount, tentativas };
 }
 
 /**
