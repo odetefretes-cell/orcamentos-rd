@@ -19,6 +19,10 @@ d.config({ path: '/etc/obs-db/.env', quiet: true });
 
 const CORTE = process.env.CORTE || '2026-05-31';         // inclui esta data
 const APLICAR = process.argv.includes('--aplicar');
+// Fretes operacionais (com prestadores) ficam na coleção `fretes` (o app lê o MEM
+// dela). Docs especiais `_tabela*` (tabela de preços) são ignorados.
+const COL = process.env.COL || 'fretes';
+const ehEspecial = (id) => String(id).startsWith('_');
 
 const pool = new pg.Pool({
   host: process.env.PGHOST || '127.0.0.1',
@@ -77,8 +81,9 @@ const num = (v) => {
 const emAberto = (p) => !(p.contaAzul && String(p.contaAzul).trim()) && num(p.valor) > 0;
 
 async function main() {
-  const { rows } = await pool.query('SELECT id, data FROM crm_leads');
-  console.log(`\ncrm_leads: ${rows.length} docs.  Corte: até ${CORTE}.  Campo(s) de data: [${CAMPOS_DATA.join(' > ')}].  Modo: ${APLICAR ? 'APLICAR' : 'DRY-RUN'}\n`);
+  const { rows: rowsRaw } = await pool.query(`SELECT id, data FROM ${COL}`);
+  const rows = rowsRaw.filter((r) => !ehEspecial(r.id));
+  console.log(`\n${COL}: ${rows.length} docs (fora os _especiais).  Corte: até ${CORTE}.  Campo(s) de data: [${CAMPOS_DATA.join(' > ')}].  Modo: ${APLICAR ? 'APLICAR' : 'DRY-RUN'}\n`);
 
   // ---- INSPEÇÃO (INSPECT=1): mostra a ESTRUTURA real dos prestadores e sai ----
   if (process.env.INSPECT) {
@@ -153,8 +158,8 @@ async function main() {
 
   // BACKUP antes de qualquer escrita
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const bkp = `/opt/obs-api/backup-crm_leads-${stamp}.json`;
-  const full = await pool.query('SELECT id, data FROM crm_leads');
+  const bkp = `/opt/obs-api/backup-${COL}-${stamp}.json`;
+  const full = await pool.query(`SELECT id, data FROM ${COL}`);
   writeFileSync(bkp, JSON.stringify(full.rows), 'utf8');
   console.log(`\nBackup salvo em ${bkp} (${full.rows.length} docs).`);
 
@@ -163,7 +168,7 @@ async function main() {
   const cli = await pool.connect();
   try {
     for (const g of paraGravar) {
-      await cli.query('UPDATE crm_leads SET data = $1::jsonb, updated_at = now() WHERE id = $2', [JSON.stringify(g.data), g.id]);
+      await cli.query(`UPDATE ${COL} SET data = $1::jsonb, updated_at = now() WHERE id = $2`, [JSON.stringify(g.data), g.id]);
       ok++;
     }
   } finally { cli.release(); }
