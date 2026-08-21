@@ -45,16 +45,27 @@ export async function listarParcelas(idEvento) {
   return Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
 }
 
-/** Exclui uma conta a pagar pelo id, tentando os caminhos possíveis de DELETE. */
+/** Exclui/cancela uma conta a pagar pelo id, varrendo caminhos+métodos possíveis. */
 async function deletarPorId(id) {
-  const caminhos = [
-    '/v1/financeiro/eventos-financeiros/contas-a-pagar/' + id,
-    '/v1/financeiro/eventos-financeiros/' + id,
+  const E = '/v1/financeiro/eventos-financeiros';
+  const tentativasList = [
+    ['DELETE', `${E}/contas-a-pagar/${id}`],
+    ['DELETE', `${E}/${id}`],
+    ['DELETE', `/v1/financeiro/contas-a-pagar/${id}`],
+    ['DELETE', `${E}/parcelas/${id}`],
+    ['DELETE', `${E}/contas-a-pagar/parcelas/${id}`],
+    ['POST',   `${E}/contas-a-pagar/${id}/cancelar`],
+    ['DELETE', `${E}/contas-a-pagar/${id}/cancelar`],
+    ['POST',   `${E}/${id}/cancelar`],
   ];
   const tentativas = {};
-  for (const p of caminhos) {
-    try { const r = await ca.del(p); tentativas[p] = r.status; return { ok: true, via: p, status: r.status, tentativas }; }
-    catch (e) { tentativas[p] = (e.status || '?') + ' ' + (e.message || ''); }
+  for (const [metodo, p] of tentativasList) {
+    const chave = `${metodo} ${p}`;
+    try {
+      const r = metodo === 'DELETE' ? await ca.del(p) : await ca.post(p, {});
+      tentativas[chave] = r.status;
+      if (r.status >= 200 && r.status < 300) return { ok: true, via: chave, status: r.status, tentativas };
+    } catch (e) { tentativas[chave] = (e.status || '?') + ' ' + (e.message || ''); }
   }
   return { ok: false, tentativas };
 }
