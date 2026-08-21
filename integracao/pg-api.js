@@ -17,14 +17,31 @@
 const BASE  = (process.env.OBS_API_URL || 'https://api.obstransportes.com.br').replace(/\/$/, '');
 const TOKEN = process.env.OBS_API_TOKEN || '';
 
-async function req(metodo, caminho, corpo) {
+async function req(metodo, caminho, corpo, _tent = 0) {
   const headers = { 'Authorization': 'Bearer ' + TOKEN };
   if (corpo !== undefined) headers['Content-Type'] = 'application/json';
-  const r = await fetch(BASE + caminho, {
-    method: metodo, headers,
-    body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
-  });
+  // Retry: TODA a automação lê/grava por HTTP na API (obs-api). Se o obs-api
+  // reinicia (deploy, mudança de token) ou há um blip de rede, o fetch dá
+  // "fetch failed" ou 502/503/504 — e antes o cálculo/gravação desistia no 1º
+  // erro (foi o que deixou o lead do Alexandre sem média). Tentamos algumas
+  // vezes com espera curta; as gravações são idempotentes (upsert por id / merge).
+  const MAX = 4;
+  let r;
+  try {
+    r = await fetch(BASE + caminho, {
+      method: metodo, headers,
+      body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    // erro de rede (ex.: obs-api reiniciando → "fetch failed")
+    if (_tent < MAX) { await new Promise(res => setTimeout(res, 500 * (_tent + 1))); return req(metodo, caminho, corpo, _tent + 1); }
+    throw e;
+  }
   if (metodo === 'GET' && r.status === 404) return { __404: true };
+  // 502/503/504 = API momentaneamente indisponível (reinício) → tenta de novo
+  if ((r.status === 502 || r.status === 503 || r.status === 504) && _tent < MAX) {
+    await new Promise(res => setTimeout(res, 500 * (_tent + 1))); return req(metodo, caminho, corpo, _tent + 1);
+  }
   if (!r.ok) { let m; try { m = (await r.json()).erro; } catch (_) {} throw new Error('API ' + r.status + (m ? (' ' + m) : '')); }
   const t = await r.text();
   return t ? JSON.parse(t) : {};
