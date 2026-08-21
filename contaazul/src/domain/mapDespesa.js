@@ -69,6 +69,8 @@ export function mapDespesa(input, refs) {
     descricao: desc,
     valor: total,
     data_competencia: input.dataCompetencia || hoje,
+    // liga a despesa ao(s) frete(s) → permite reconciliar/achar depois (campo real na tela do CA)
+    codigo_referencia: [...new Set(pares.map((p) => p.frete))].join(','),
     observacao: obs,
     ...(refs.idContaFinanceira ? { conta_financeira: refs.idContaFinanceira } : {}),
     // rateio (obrigatório): categoria financeira + centro de custo ANINHADO.
