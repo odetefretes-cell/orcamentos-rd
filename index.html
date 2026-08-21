@@ -1063,6 +1063,7 @@
                  style="flex:1;min-width:220px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         </div>
         <div id="finPrestResumo" class="rel-resumo" style="margin-bottom:10px"></div>
+        <div id="finPrestSelBar" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:9px 12px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.4);border-radius:9px;font-size:13px"></div>
         <div style="overflow-x:auto"><table class="fin" id="finPrest"></table></div>
       </div>
     </div>
@@ -2993,6 +2994,69 @@ function setPrestFin(id,idx,campo,val){
   gravarDB(db); renderFinanceiro();
 }
 
+// ===== Conta Azul: seleção de várias placas p/ 1 lançamento =====
+let selPrest = new Set();   // chaves "freteId:idx" marcadas
+function placaDe(f,p){ return (p.placa && String(p.placa).trim()) || (f.veiculos&&f.veiculos[0]&&f.veiculos[0].placa) || f.placa || ''; }
+function modalDeFrete(f){ return /guincho/i.test(String(f.equipamentos||'')) ? 'guincho' : 'cegonha'; }
+function togglePrestSel(key,on){ if(on) selPrest.add(key); else selPrest.delete(key); renderPrestSelBar(); }
+function limparSelPrest(){ selPrest.clear(); renderFinanceiro(); }
+function renderPrestSelBar(){
+  const bar=$('#finPrestSelBar'); if(!bar) return;
+  const keys=[...selPrest];
+  if(!keys.length){ bar.style.display='none'; bar.innerHTML=''; return; }
+  const db=lerDB(); let tot=0,n=0; const nomes=new Set();
+  keys.forEach(k=>{ const [id,i]=k.split(':'); const f=db[id]; if(!f) return; const p=prestDe(f)[+i]; if(!p) return; tot+=numMoeda(p.valor); nomes.add(up((p.emp||'').trim())); n++; });
+  const aviso = nomes.size>1 ? ' · <span style="color:#ef4444;font-weight:700">⚠ prestadores diferentes — separe</span>' : (nomes.size===1?' · <b>'+esc([...nomes][0])+'</b>':'');
+  bar.style.display='flex';
+  bar.innerHTML=`<span>📦 <b>${n}</b> placa(s) · total <b>${moeda(tot)}</b>${aviso}</span>`+
+    `<button class="btn-ok" onclick="caLancarJuntos()" style="margin-left:auto;padding:5px 12px">☁ lançar juntos (1 lançamento)</button>`+
+    `<button class="btn-ghost" onclick="limparSelPrest()" style="padding:5px 10px">limpar</button>`;
+}
+async function caLancarJuntos(){
+  const keys=[...selPrest]; if(!keys.length){ flash('Marque ao menos uma placa','erro'); return; }
+  const db=lerDB(); const linhas=[];
+  for(const k of keys){ const [id,i]=k.split(':'); const f=db[id]; if(!f) continue; const idx=+i; const p=prestDe(f)[idx]; if(!p) continue;
+    linhas.push({id,idx,f,p, nome:up((p.emp||'').trim()), placa:up(placaDe(f,p)), frete:String(f.numero||''), valor:numMoeda(p.valor), modal:modalDeFrete(f)}); }
+  if(!linhas.length){ flash('Nada válido selecionado','erro'); return; }
+  const nomes=[...new Set(linhas.map(l=>l.nome))];
+  if(nomes.length>1){ flash('Selecione placas do MESMO prestador (marcados: '+nomes.join(', ')+')','erro'); return; }
+  if(linhas.some(l=>!l.frete)){ flash('Tem linha sem número de frete','erro'); return; }
+  if(linhas.some(l=>!l.placa)){ flash('Tem linha sem placa (nem prestador nem veículo)','erro'); return; }
+  const total=linhas.reduce((t,l)=>t+l.valor,0);
+  if(total<=0){ flash('Valor total inválido','erro'); return; }
+  const despesa={ prestador:{nome:linhas[0].p.emp}, valor:total, modal:linhas[0].modal, itens:linhas.map(l=>({frete:l.frete, placa:l.placa})) };
+  const resumo=linhas.map(l=>'• #'+l.frete+'  '+l.placa+'  — '+moeda(l.valor)).join('\n');
+  const ok=await uiConfirm('Lançar '+linhas.length+' placas do prestador '+linhas[0].nome+' num ÚNICO lançamento?\n\n'+resumo+'\n\nTOTAL: '+moeda(total)+'\nModal: '+linhas[0].modal,
+    {titulo:'Conta Azul — Lançar juntos', ok:'Lançar', perigo:false});
+  if(!ok) return;
+  const t=flash('Lançando '+linhas.length+' placas juntas…','load');
+  let r=await caReq('/api/ca/despesa', despesa);
+  t.fechar&&t.fechar();
+  if(r.status===409){
+    const forcar=await uiConfirm('Alguma placa/frete já foi lançada antes. Lançar mesmo assim (pode duplicar)?',{titulo:'Já existe',ok:'Lançar assim mesmo',perigo:true});
+    if(!forcar) return;
+    const t2=flash('Lançando (duplicado)…','load'); r=await caReq('/api/ca/despesa',{...despesa,forcar:true}); t2.fechar&&t2.fechar();
+  }
+  if(r.ok){
+    linhas.forEach(l=>setPrestFin(l.id,l.idx,'contaAzul',hojeISO()));
+    selPrest.clear(); renderFinanceiro();
+    flash('Lançado! '+linhas.length+' placas num lançamento só ✔','ok');
+  }else{
+    flash('Erro ao lançar: '+((r.data&&r.data.erro)||('HTTP '+r.status)),'erro');
+  }
+}
+// ===== Conta Azul: cancelar/reverter um lançamento =====
+async function caCancelarDespesa(id, idx){
+  const db=lerDB(); const f=db[id]; if(!f){ flash('Frete não encontrado','erro'); return; }
+  const p=prestDe(f)[idx]; if(!p){ flash('Prestador não encontrado','erro'); return; }
+  const ok=await uiConfirm(
+    'Cancelar este lançamento?\n\nPrestador: '+(p.emp||'—')+'\nFrete #'+(f.numero||'')+'\nValor: '+moeda(numMoeda(p.valor))+'\n\n• Vou DESMARCAR aqui (volta pra "em aberto").\n• A exclusão no Conta Azul é MANUAL (a API deles não deixa excluir).',
+    {titulo:'Cancelar lançamento', ok:'Desmarcar', perigo:true});
+  if(!ok) return;
+  try{ await caReq('/api/ca/despesa/esquecer',{frete:String(f.numero||'')}); }catch(_){}   // libera relançar
+  setPrestFin(id,idx,'contaAzul','');   // volta pra em aberto
+  flash('Desmarcado ✔ — agora exclua no Conta Azul: frete #'+(f.numero||'')+' · '+(p.emp||'')+' · '+moeda(numMoeda(p.valor)),'ok');
+}
 // ===== Conta Azul: registrar a VENDA (receita do frete) =====
 async function caLancarVenda(id){
   try{
@@ -3034,14 +3098,16 @@ async function caLancarDespesa(id, idx){
     const db=lerDB(); const f=db[id]; if(!f){ flash('Frete não encontrado','erro'); return; }
     const p = prestDe(f)[idx]; if(!p){ flash('Prestador não encontrado','erro'); return; }
     if(!p.emp){ flash('Prestador sem nome','erro'); return; }
-    if(!p.placa){ flash('Prestador sem placa','erro'); return; }
+    const placa = up(placaDe(f,p));
+    if(!placa){ flash('Sem placa (nem no prestador nem no veículo do frete)','erro'); return; }
     if(!f.numero){ flash('Frete sem número','erro'); return; }
     const valor = numMoeda(p.valor);
     if(valor<=0){ flash('Prestador sem valor','erro'); return; }
     const despesa = {
       prestador: { nome: p.emp },
       valor,
-      itens: [ { frete: String(f.numero), placa: (p.placa||'') } ]
+      modal: modalDeFrete(f),
+      itens: [ { frete: String(f.numero), placa } ]
     };
     const ok = await uiConfirm(
       'Lançar DESPESA no Conta Azul?\n\nPrestador: '+p.emp+'\nPlaca: '+p.placa+'\nFrete #'+f.numero+'\nValor: '+moeda(valor),
@@ -3277,17 +3343,27 @@ function renderFinanceiro(){
     const linhasP=vis.map(({f,p,idx})=>{
       const ok = !!(p.contaAzul && String(p.contaAzul).trim());
       const veic = esc(veicResumo(f)) || (p.placa?esc(up(p.placa)):'—');
+      const key = f._id+':'+idx;
+      // 1ª coluna: em aberto = caixinha de seleção (p/ lançar juntos); pago = vazio
+      const selCell = ok ? '' :
+        `<input type="checkbox" ${selPrest.has(key)?'checked':''} onchange="togglePrestSel('${key}',this.checked)" title="Marcar para lançar junto com outras placas do MESMO prestador" style="width:17px;height:17px;cursor:pointer">`;
+      // ação: em aberto = ☁ lançar ; pago = ↩ cancelar
+      const acaoCell = ok
+        ? `<span class="tagv quit">✅ conferido/pago</span><button class="btn-ghost" style="padding:3px 9px;font-size:12px;margin-left:6px" onclick="caCancelarDespesa('${f._id}',${idx})" title="Desmarcar aqui (volta pra em aberto) e excluir no Conta Azul">↩ cancelar</button>`
+        : `<span class="tagv dia">⏳ em aberto</span><button class="btn-ok" style="padding:3px 9px;font-size:12px;margin-left:6px" onclick="caLancarDespesa('${f._id}',${idx})" title="Lançar a despesa do prestador no Conta Azul">☁ lançar</button>`;
       return `<tr class="${ok?'conf':''}">
+      <td style="text-align:center">${selCell}</td>
       <td><b>${esc(f.numero||'')}</b><br><button class="btn-ghost" style="font-size:11px;padding:2px 7px;margin-top:3px;white-space:nowrap" onclick="abrirFicha('${f._id}')" title="Abrir a ficha de cadastro deste frete para conferir/alterar">📋 Ficha</button></td>
       <td><input value="${escA(up(p.emp||''))}" onchange="editarPrestNome('${f._id}',${idx},this)" placeholder="Empresa / motorista" title="Prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:160px;font-weight:600"></td>
       <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div>
         <input value="${escA(up(p.placa||''))}" onchange="editarPrestPlaca('${f._id}',${idx},this)" placeholder="Placa" title="Placa cobrada por este prestador — editável" style="font-size:11px;width:110px;margin-top:3px;text-transform:uppercase"></td>
       <td><input value="${escA(p.valor||'')}" onchange="confirmarValorPrest('${f._id}',${idx},this)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
       <td><input type="date" value="${escA(p.contaAzul)}" onchange="setPrestFin('${f._id}',${idx},'contaAzul',this.value)" title="Data de inclusão no ContaAzul — preencher = conferido e pago" style="font-size:12.5px"></td>
-      <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}<button class="btn-ok" style="padding:3px 9px;font-size:12px;margin-left:6px" onclick="caLancarDespesa('${f._id}',${idx})" title="Lançar a despesa do prestador no Conta Azul">☁ lançar</button></td></tr>`;
+      <td>${acaoCell}</td></tr>`;
     }).join('');
-    $('#finPrest').innerHTML=`<thead><tr><th>Nº frete</th><th>Empresa / Motorista</th><th>Veículo transportado</th><th>Valor</th><th>📘 Data ContaAzul</th><th>Situação</th></tr></thead><tbody>${linhasP||'<tr><td colspan="6" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
+    $('#finPrest').innerHTML=`<thead><tr><th style="width:28px" title="Selecionar p/ lançar juntos">✓</th><th>Nº frete</th><th>Empresa / Motorista</th><th>Veículo transportado</th><th>Valor</th><th>📘 Data ContaAzul</th><th>Situação</th></tr></thead><tbody>${linhasP||'<tr><td colspan="7" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
   }
+  renderPrestSelBar();
   const totP=vis.reduce((t,x)=>t+num(x.p.valor),0), totPagar=itens.filter(x=>!pago(x)).reduce((t,x)=>t+num(x.p.valor),0), totPago=itens.filter(pago).reduce((t,x)=>t+num(x.p.valor),0);
   $('#finPrestResumo').innerHTML=
     `<div class="box">Exibindo<b style="color:#e0e0ee">${moeda(totP)}</b></div>`+
