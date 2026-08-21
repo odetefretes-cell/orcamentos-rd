@@ -8,11 +8,11 @@ import { config } from '../config.js';
 import { requireObsSecret } from '../middleware/sharedSecret.js';
 import { garantirPessoa } from '../contaazul/pessoas.js';
 import { criarVenda } from '../contaazul/vendas.js';
-import { criarContaAPagar } from '../contaazul/financeiro.js';
 import { ca } from '../contaazul/client.js';
 import { mapVenda } from '../domain/mapVenda.js';
 import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
-import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete } from '../store/ledger.js';
+import { criarContaAPagar, cancelarContaAPagarPorFrete } from '../contaazul/financeiro.js';
+import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete, removerDespesaPorFrete } from '../store/ledger.js';
 import { log } from '../logger.js';
 
 export const obsRouter = Router();
@@ -144,6 +144,27 @@ obsRouter.post('/despesa', async (req, res, next) => {
       status: 'pendente_reconciliacao',
       mensagem: 'Despesa criada no Conta Azul. O número é confirmado pela reconciliação em alguns minutos. Pague pelo CA de Bolso.',
     });
+  } catch (e) { next(mapZod(e)); }
+});
+
+// ---------- CANCELAR DESPESA (excluir a conta a pagar no Conta Azul) ----------
+//  body { frete, aplicar? }  — aplicar:false só mostra o que achou; true exclui.
+obsRouter.post('/despesa/cancelar', async (req, res, next) => {
+  try {
+    const frete = req.body?.frete;
+    if (frete === undefined || frete === null || String(frete).trim() === '') {
+      return res.status(400).json({ ok: false, erro: 'Informe o "frete".' });
+    }
+    const aplicar = req.body?.aplicar === true || req.body?.aplicar === 'true';
+    const r = await cancelarContaAPagarPorFrete(frete, aplicar);
+
+    if (aplicar) {
+      const excluidos = (r.resultados || []).filter((x) => x.ok).length;
+      if (excluidos > 0) removerDespesaPorFrete(frete);   // libera novo lançamento
+      log.info('Despesa cancelada', { frete, encontrados: r.encontrados, excluidos });
+      return res.json({ ok: excluidos > 0, ...r, excluidos });
+    }
+    return res.json({ ok: true, ...r });
   } catch (e) { next(mapZod(e)); }
 });
 

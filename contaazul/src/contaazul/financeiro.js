@@ -44,3 +44,45 @@ export async function listarParcelas(idEvento) {
   const { data } = await ca.get(`/v1/financeiro/eventos-financeiros/${idEvento}/parcelas`);
   return Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
 }
+
+/** Exclui uma conta a pagar pelo id, tentando os caminhos possíveis de DELETE. */
+async function deletarPorId(id) {
+  const caminhos = [
+    '/v1/financeiro/eventos-financeiros/contas-a-pagar/' + id,
+    '/v1/financeiro/eventos-financeiros/' + id,
+  ];
+  const tentativas = {};
+  for (const p of caminhos) {
+    try { const r = await ca.del(p); tentativas[p] = r.status; return { ok: true, via: p, status: r.status, tentativas }; }
+    catch (e) { tentativas[p] = (e.status || '?') + ' ' + (e.message || ''); }
+  }
+  return { ok: false, tentativas };
+}
+
+/**
+ * Cancela (exclui) a(s) conta(s) a pagar de um frete (codigo_referencia = nº do frete).
+ * @param {string|number} frete
+ * @param {boolean} aplicar  false = só acha e mostra (não exclui); true = exclui.
+ */
+export async function cancelarContaAPagarPorFrete(frete, aplicar = false) {
+  const f = String(frete).trim();
+  const itens = await buscarContasAPagarPorReferencia(f);
+  // filtra client-side: bate o codigo_referencia OU a descrição contém #frete
+  const bate = (x) => {
+    const cr = String(x.codigo_referencia || x.codigoReferencia || '');
+    const dsc = String(x.descricao || '');
+    return cr.split(',').map((s) => s.trim()).includes(f) || dsc.includes('#' + f) || new RegExp('(^|\\D)' + f + '(\\D|$)').test(dsc);
+  };
+  const alvo = itens.filter(bate);
+  const achados = alvo.map((x) => ({ id: x.id || x.uuid, descricao: x.descricao, total: x.total, status: x.status }));
+  if (!aplicar) return { aplicar: false, encontrados: achados.length, achados };
+
+  const resultados = [];
+  for (const x of alvo) {
+    const id = x.id || x.uuid;
+    if (!id) continue;
+    const r = await deletarPorId(id);
+    resultados.push({ id, descricao: x.descricao, ...r });
+  }
+  return { aplicar: true, encontrados: achados.length, achados, resultados };
+}

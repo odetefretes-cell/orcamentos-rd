@@ -87,4 +87,5 @@ export const ca = {
   post: (path, body) => caFetch('POST', path, { body }),
   put: (path, body) => caFetch('PUT', path, { body }),
   patch: (path, body) => caFetch('PATCH', path, { body }),
+  del: (path) => caFetch('DELETE', path),
 };

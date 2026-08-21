@@ -106,3 +106,29 @@ export function porFrete(frete) {
               FROM launches WHERE frete = ? OR frete LIKE ? ORDER BY created_at DESC`)
     .all(String(frete), `%${frete}%`);
 }
+
+/**
+ * Remove do ledger as DESPESAS que envolvem um frete (launches + despesa_pairs),
+ * pra liberar um novo lançamento depois de cancelar no Conta Azul.
+ * @returns {number} quantas linhas de launches removeu
+ */
+export function removerDespesaPorFrete(frete) {
+  const db = getDb();
+  const f = String(frete);
+  const tx = db.transaction(() => {
+    // launches de despesa que contêm esse frete (frete pode ser "1533" ou "1533,1489")
+    const alvos = db.prepare(
+      `SELECT id FROM launches WHERE tipo='despesa' AND (frete = ? OR frete LIKE ? OR frete LIKE ? OR frete LIKE ?)`
+    ).all(f, `${f},%`, `%,${f}`, `%,${f},%`);
+    const ids = alvos.map((a) => a.id);
+    // também pega pelos pares (caso o frete não esteja na coluna consolidada)
+    const porPar = db.prepare('SELECT DISTINCT launch_id AS id FROM despesa_pairs WHERE frete = ?').all(f);
+    for (const p of porPar) if (!ids.includes(p.id)) ids.push(p.id);
+    for (const id of ids) {
+      db.prepare('DELETE FROM despesa_pairs WHERE launch_id = ?').run(id);
+      db.prepare('DELETE FROM launches WHERE id = ?').run(id);
+    }
+    return ids.length;
+  });
+  return tx();
+}
