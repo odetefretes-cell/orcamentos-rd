@@ -20,9 +20,18 @@ import { hojeISO, round2 } from './dates.js';
 
 export function paresDespesa(input) {
   const itens = Array.isArray(input.itens) ? input.itens : [];
-  return itens
-    .map((i) => ({ frete: String(i.frete).trim(), placa: normalizaPlaca(i.placa) }))
-    .filter((p) => p.frete && p.placa);
+  const seen = new Set();
+  const out = [];
+  for (const i of itens) {
+    const frete = String(i.frete).trim();
+    const placa = normalizaPlaca(i.placa);
+    if (!frete || !placa) continue;
+    const k = frete + '|' + placa;
+    if (seen.has(k)) continue;   // dedup: mesmo frete+placa (ex.: valor dividido) vira 1 par
+    seen.add(k);
+    out.push({ frete, placa });
+  }
+  return out;
 }
 
 export function normalizaPlaca(placa) {
