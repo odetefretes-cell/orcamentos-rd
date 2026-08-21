@@ -1,6 +1,11 @@
 // Configuração central. Tudo vem de variáveis de ambiente (.env).
 // Nenhum segredo fica no código — ver .env.example.
-import 'dotenv/config';
+// override:true → o .env SEMPRE vence variáveis já presentes no ambiente. Sem isso,
+// se o PM2 mantém um valor antigo em cache (ex.: CA_AUTH_URL trocado), o dotenv não
+// sobrescrevia e o backend seguia usando a URL velha. Com override, editar o .env +
+// reiniciar sempre pega o valor novo.
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 
 function required(name, fallback = undefined) {
   const v = process.env[name] ?? fallback;
