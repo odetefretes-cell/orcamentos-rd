@@ -199,10 +199,9 @@ obsRouter.get('/diagnostico', async (req, res) => {
     const item0 = arr[0] || null;
     const id = req.query.contaPagarId || (item0 && (item0.id || item0.uuid || item0.id_evento || item0.evento_id));
     const caminhos = [
+      '/v1/financeiro/eventos-financeiros/' + id + '/parcelas',
       '/v1/financeiro/eventos-financeiros/contas-a-pagar/' + id,
       '/v1/financeiro/eventos-financeiros/' + id,
-      '/v1/financeiro/eventos-financeiros/contas-a-pagar/detalhe/' + id,
-      '/v1/financeiro/contas-a-pagar/' + id,
     ];
     const tentativas = {};
     let detalhe = null;
