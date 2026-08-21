@@ -41,13 +41,13 @@ export async function caFetch(method, path, opts = {}) {
   while (true) {
     attempt++;
     const token = await ensureAccessToken();
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+    // só manda Content-Type quando REALMENTE tem corpo — DELETE sem corpo com
+    // Content-Type: application/json faz o gateway do Conta Azul devolver 502.
+    if (body) headers['Content-Type'] = 'application/json';
     const res = await fetch(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
 
