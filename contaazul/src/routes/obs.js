@@ -11,6 +11,7 @@ import { idServico } from '../contaazul/servicos.js';
 import { idCategoria, idCentroCusto } from '../contaazul/categorias.js';
 import { criarVenda } from '../contaazul/vendas.js';
 import { criarContaAPagar } from '../contaazul/financeiro.js';
+import { ca } from '../contaazul/client.js';
 import { mapVenda } from '../domain/mapVenda.js';
 import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
 import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete } from '../store/ledger.js';
@@ -150,6 +151,26 @@ obsRouter.get('/status', (req, res) => {
   const { frete } = req.query;
   if (!frete) return res.status(400).json({ erro: 'Informe ?frete=' });
   res.json({ frete, lancamentos: porFrete(String(frete)) });
+});
+
+// ---------- DIAGNÓSTICO (SÓ LEITURA — não cria nada) ----------
+// Lê os UUIDs reais (vendedor, conta financeira, categorias, centros, serviços) e,
+// se passar ?venda=NNN e/ou ?contaPagar=NNN, busca um lançamento REAL já existente
+// (criado pelas rotinas Cowork) pra revelar os NOMES DE CAMPO exatos da API atual.
+// Serve pra alinhar mapVenda/mapDespesa com o fluxo real, sem sandbox e sem escrever.
+obsRouter.get('/diagnostico', async (req, res) => {
+  const out = {};
+  const nomeId = (d) => (Array.isArray(d) ? d : (d?.itens || d?.content || d?.data || []))
+    .map((x) => ({ nome: x.nome || x.name || x.descricao || x.razao_social, id: x.id || x.uuid }));
+  const tenta = async (nome, fn) => { try { out[nome] = await fn(); } catch (e) { out[nome] = { erro: e.message, status: e.status, data: e.data }; } };
+  await tenta('vendedores',       async () => nomeId((await ca.get('/v1/venda/vendedores')).data));
+  await tenta('conta_financeira', async () => nomeId((await ca.get('/v1/conta-financeira')).data));
+  await tenta('categorias',       async () => nomeId((await ca.get('/v1/categorias')).data));
+  await tenta('centros_custo',    async () => nomeId((await ca.get('/v1/centro-de-custo')).data));
+  await tenta('servicos',         async () => nomeId((await ca.get('/v1/servicos')).data));
+  if (req.query.venda)      await tenta('venda_amostra',       async () => (await ca.get('/v1/venda/busca', { numero: req.query.venda })).data);
+  if (req.query.contaPagar) await tenta('conta_pagar_amostra', async () => (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar', { codigo_referencia: req.query.contaPagar })).data);
+  res.json(out);
 });
 
 function mapZod(e) {
