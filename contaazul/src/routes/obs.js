@@ -168,8 +168,22 @@ obsRouter.get('/diagnostico', async (req, res) => {
   await tenta('categorias',       async () => nomeId((await ca.get('/v1/categorias')).data));
   await tenta('centros_custo',    async () => nomeId((await ca.get('/v1/centro-de-custo')).data));
   await tenta('servicos',         async () => nomeId((await ca.get('/v1/servicos')).data));
-  if (req.query.venda)      await tenta('venda_amostra',       async () => (await ca.get('/v1/venda/busca', { numero: req.query.venda })).data);
-  if (req.query.contaPagar) await tenta('conta_pagar_amostra', async () => (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar', { codigo_referencia: req.query.contaPagar })).data);
+  // VENDA completa (estrutura real de criação): pega o id da 1ª venda da lista e busca o detalhe
+  await tenta('venda_detalhe', async () => {
+    const lista = (await ca.get('/v1/venda/busca', {})).data;
+    const arr = Array.isArray(lista) ? lista : (lista?.itens || lista?.content || []);
+    const id = req.query.vendaId || (arr[0] && (arr[0].id || arr[0].uuid));
+    if (!id) return { erro: 'nenhuma venda encontrada na lista' };
+    return (await ca.get('/v1/venda/' + id)).data;
+  });
+  // CONTA A PAGAR real (a busca exige intervalo de vencimento)
+  await tenta('conta_pagar_amostra', async () => {
+    const de = req.query.de || '2026-06-01';
+    const ate = req.query.ate || '2026-12-31';
+    const d = (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar', { data_vencimento_de: de, data_vencimento_ate: ate })).data;
+    const arr = Array.isArray(d) ? d : (d?.itens || d?.content || []);
+    return arr.slice(0, 2); // 2 amostras bastam pra ver a estrutura
+  });
   res.json(out);
 });
 
