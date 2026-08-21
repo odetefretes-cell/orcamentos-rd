@@ -188,13 +188,16 @@ obsRouter.get('/diagnostico', async (req, res) => {
     try { detalhe = (await ca.get('/v1/pessoas/' + pid)).data; } catch (e) { detalhe = { erro: e.message, data: e.data }; }
     return { detalhe, lista_raw_chaves: lista_raw && !Array.isArray(lista_raw) ? Object.keys(lista_raw) : (Array.isArray(lista_raw) ? ('array len ' + lista_raw.length) : lista_raw) };
   });
-  // CONTA A PAGAR real (a busca exige intervalo de vencimento)
+  // CONTA A PAGAR real (a busca exige intervalo de vencimento) + DETALHE (rateio/condicao)
   await tenta('conta_pagar_amostra', async () => {
     const de = req.query.de || '2026-06-01';
     const ate = req.query.ate || '2026-12-31';
     const d = (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar', { data_vencimento_de: de, data_vencimento_ate: ate })).data;
-    const arr = Array.isArray(d) ? d : (d?.itens || d?.content || []);
-    return arr.slice(0, 2); // 2 amostras bastam pra ver a estrutura
+    const arr = Array.isArray(d) ? d : (d?.items || d?.itens || d?.content || []);
+    const id = req.query.contaPagarId || (arr[0] && (arr[0].id || arr[0].uuid));
+    let detalhe = null;
+    if (id) { try { detalhe = (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/' + id)).data; } catch (e) { detalhe = { erro: e.message, data: e.data }; } }
+    return { resumo: arr.slice(0, 1), detalhe };
   });
   res.json(out);
 });
