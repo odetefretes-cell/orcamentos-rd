@@ -221,6 +221,31 @@ app.post('/api/login', rota(async (req, res) => {
   res.json({ ok: true, token, email: u.email, papel: u.papel, nome: u.nome });
 }));
 
+// ---- Repasse seguro para a integração Conta Azul (backend em 127.0.0.1:3002) ----
+// O app (logado) chama /api/ca/*; aqui, do lado do servidor, injetamos o X-OBS-Secret
+// e repassamos ao serviço obs-contaazul. Assim o segredo NUNCA aparece no navegador
+// nem no repositório público. Exige login (o app.use('/api', autenticar) acima).
+const CONTAAZUL_URL = (process.env.CONTAAZUL_URL || 'http://127.0.0.1:3002').replace(/\/$/, '');
+const OBS_SHARED_SECRET = String(process.env.OBS_SHARED_SECRET || '');
+async function repassarCA(metodo, caminho, corpo, res) {
+  if (!OBS_SHARED_SECRET) return res.status(503).json({ ok: false, erro: 'Conta Azul não configurado (falta OBS_SHARED_SECRET no obs-api)' });
+  let r;
+  try {
+    r = await fetch(CONTAAZUL_URL + caminho, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json', 'X-OBS-Secret': OBS_SHARED_SECRET },
+      body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return res.status(502).json({ ok: false, erro: 'não consegui falar com a integração Conta Azul: ' + (e && e.message || e) });
+  }
+  const txt = await r.text();
+  res.status(r.status).set('Content-Type', 'application/json').send(txt || '{}');
+}
+app.post('/api/ca/venda',   rota(async (req, res) => repassarCA('POST', '/obs/venda',   req.body || {}, res)));
+app.post('/api/ca/despesa', rota(async (req, res) => repassarCA('POST', '/obs/despesa', req.body || {}, res)));
+app.get('/api/ca/status',   rota(async (req, res) => repassarCA('GET',  '/obs/status?frete=' + encodeURIComponent(req.query.frete || ''), undefined, res)));
+
 // listar uma coleção.
 //   SEM ?since  → devolve TODOS os docs (array) — compatível com a automação (listar).
 //   COM ?since=<ms> → DELTA: devolve só { now, changed:[...], deleted:[...] } com o que
