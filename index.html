@@ -3024,7 +3024,11 @@ async function caLancarJuntos(){
   if(linhas.some(l=>!l.placa)){ flash('Tem linha sem placa (nem prestador nem veículo)','erro'); return; }
   const total=linhas.reduce((t,l)=>t+l.valor,0);
   if(total<=0){ flash('Valor total inválido','erro'); return; }
-  const despesa={ prestador:{nome:linhas[0].p.emp}, valor:total, modal:linhas[0].modal, itens:linhas.map(l=>({frete:l.frete, placa:l.placa})) };
+  // dedup: linhas do MESMO frete+placa (ex.: valor dividido 300+600) viram 1 item só;
+  // o total já soma tudo. Sem isso a trava de placa única barra.
+  const vistos=new Set(); const itensDesp=[];
+  linhas.forEach(l=>{ const k=l.frete+'|'+l.placa; if(!vistos.has(k)){ vistos.add(k); itensDesp.push({frete:l.frete, placa:l.placa}); } });
+  const despesa={ prestador:{nome:linhas[0].p.emp}, valor:total, modal:linhas[0].modal, itens:itensDesp };
   const resumo=linhas.map(l=>'• #'+l.frete+'  '+l.placa+'  — '+moeda(l.valor)).join('\n');
   const ok=await uiConfirm('Lançar '+linhas.length+' placas do prestador '+linhas[0].nome+' num ÚNICO lançamento?\n\n'+resumo+'\n\nTOTAL: '+moeda(total)+'\nModal: '+linhas[0].modal,
     {titulo:'Conta Azul — Lançar juntos', ok:'Lançar', perigo:false});
