@@ -179,7 +179,7 @@ obsRouter.get('/diagnostico', async (req, res) => {
   });
   // PESSOA real (pra ver o formato do campo "perfis" no cadastro atual)
   await tenta('pessoa_amostra', async () => {
-    const lista = (await ca.get('/v1/pessoas', { tamanho_pagina: 3 })).data;
+    const lista = (await ca.get('/v1/pessoas', { tamanho_pagina: 10 })).data;
     const arr = Array.isArray(lista) ? lista : (lista?.itens || lista?.content || []);
     const id = arr[0] && (arr[0].id || arr[0].uuid);
     const detalhe = id ? (await ca.get('/v1/pessoas/' + id)).data : null;

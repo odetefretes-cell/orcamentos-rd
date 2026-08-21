@@ -13,7 +13,7 @@ const soDigitos = (s) => String(s || '').replace(/\D/g, '');
 export async function buscarPessoaPorDocumento(documento) {
   const doc = soDigitos(documento);
   if (!doc) return null;
-  const { data } = await ca.get('/v1/pessoas', { documento: doc, tamanho_pagina: 1 });
+  const { data } = await ca.get('/v1/pessoas', { documento: doc, tamanho_pagina: 10 });
   const lista = Array.isArray(data) ? data : (data?.itens || data?.content || []);
   return lista[0] || null;
 }
