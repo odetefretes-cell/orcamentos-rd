@@ -170,6 +170,19 @@ obsRouter.post('/despesa/cancelar', async (req, res, next) => {
   } catch (e) { next(mapZod(e)); }
 });
 
+// ---------- ESQUECER DESPESA (só limpa o registro LOCAL — não mexe no Conta Azul) ----------
+//  Usado no "cancelar" do app: a exclusão no CA é manual (a API do CA não deixa excluir);
+//  aqui a gente só apaga o registro local pra o frete poder ser relançado sem trava.
+obsRouter.post('/despesa/esquecer', (req, res) => {
+  const frete = req.body?.frete;
+  if (frete === undefined || frete === null || String(frete).trim() === '') {
+    return res.status(400).json({ ok: false, erro: 'Informe o "frete".' });
+  }
+  const removidos = removerDespesaPorFrete(frete);
+  log.info('Despesa esquecida (registro local)', { frete, removidos });
+  res.json({ ok: true, removidos });
+});
+
 // ---------- STATUS ----------
 obsRouter.get('/status', (req, res) => {
   const { frete } = req.query;

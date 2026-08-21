@@ -244,6 +244,8 @@ async function repassarCA(metodo, caminho, corpo, res) {
 }
 app.post('/api/ca/venda',   rota(async (req, res) => repassarCA('POST', '/obs/venda',   req.body || {}, res)));
 app.post('/api/ca/despesa', rota(async (req, res) => repassarCA('POST', '/obs/despesa', req.body || {}, res)));
+app.post('/api/ca/despesa/cancelar', rota(async (req, res) => repassarCA('POST', '/obs/despesa/cancelar', req.body || {}, res)));
+app.post('/api/ca/despesa/esquecer', rota(async (req, res) => repassarCA('POST', '/obs/despesa/esquecer', req.body || {}, res)));
 app.get('/api/ca/status',   rota(async (req, res) => repassarCA('GET',  '/obs/status?frete=' + encodeURIComponent(req.query.frete || ''), undefined, res)));
 
 // listar uma coleção.
