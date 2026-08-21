@@ -29,11 +29,13 @@ const pool = new pg.Pool({
   max: 5,
 });
 
-// -------- data do frete: tenta vários nomes de campo, normaliza p/ YYYY-MM-DD --------
-const CAMPOS_DATA = [
-  'dataEmissao', 'emissao', 'dataFrete', 'dataAutorizacao', 'dataCadastro',
-  'data', 'criadoEm', 'dataCriacao', 'dataColeta', 'dataCarregamento',
-];
+// -------- data do frete: nomes reais (prioridade). CAMPO_DATA troca qual manda. --------
+// Padrão: dataFechamento (quando o negócio fechou = virou frete) → cai p/ dataEntrada.
+const CAMPO_DATA = process.env.CAMPO_DATA || '';   // se setado, usa SÓ esse campo
+const CAMPOS_DATA = CAMPO_DATA
+  ? [CAMPO_DATA]
+  : ['dataFechamento', 'dataEntrada', 'dataEnvio', 'dataUltimoContato'];
+const TODAS_DATAS = ['dataFechamento', 'dataEntrada', 'dataEnvio', 'dataUltimoContato'];
 function normISO(v) {
   if (!v) return null;
   const s = String(v).trim();
@@ -76,47 +78,51 @@ const emAberto = (p) => !(p.contaAzul && String(p.contaAzul).trim()) && num(p.va
 
 async function main() {
   const { rows } = await pool.query('SELECT id, data FROM crm_leads');
-  console.log(`\ncrm_leads: ${rows.length} documentos.  Corte: até ${CORTE} (inclusive).  Modo: ${APLICAR ? 'APLICAR' : 'DRY-RUN (não escreve)'}\n`);
+  console.log(`\ncrm_leads: ${rows.length} docs.  Corte: até ${CORTE}.  Campo(s) de data: [${CAMPOS_DATA.join(' > ')}].  Modo: ${APLICAR ? 'APLICAR' : 'DRY-RUN'}\n`);
 
-  const freqCampoData = {};
-  const chavesVistas = {};
-  let semData = 0, dentroCorte = 0, foraCorte = 0;
-  let leadsAfetados = 0, prestBaixados = 0, prestLegado = 0;
-  const exemplos = [];
-  const paraGravar = [];
-
+  // 1) universo: leads COM prestador em aberto (independe de data)
+  const comAberto = [];
+  let totAbertos = 0;
   for (const row of rows) {
     const f = row.data || {};
-    const { iso, campo } = dataFrete(f);
-    if (campo) freqCampoData[campo] = (freqCampoData[campo] || 0) + 1;
-    for (const k of chavesDataLike(f)) chavesVistas[k] = (chavesVistas[k] || 0) + 1;
-
-    if (!iso) { semData++; continue; }
-    if (iso > CORTE) { foraCorte++; continue; }
-    dentroCorte++;
-
     const { arr, legado } = prestDe(f);
     const abertos = arr.filter(emAberto);
     if (abertos.length === 0) continue;
+    totAbertos += abertos.length;
+    comAberto.push({ id: row.id, f, arr, legado, abertos });
+  }
+  console.log(`Leads com prestador EM ABERTO: ${comAberto.length}  |  total de prestadores em aberto: ${totAbertos}\n`);
 
-    // marca baixa: contaAzul = data do frete (backfill honesto); conf/incl/pago=true
-    for (const p of abertos) { p.contaAzul = iso; p.conf = true; p.incl = true; p.pago = true; }
-    const novo = { ...f, prestadores: arr, _salvoEm: new Date().toISOString() };
-
-    leadsAfetados++;
-    prestBaixados += abertos.length;
-    if (legado) prestLegado += abertos.length;
-    paraGravar.push({ id: row.id, data: novo });
-    if (exemplos.length < 8) exemplos.push({ id: row.id, data: iso, campo, n: abertos.length, legado, prest: abertos.map((p) => `${p.emp}=${p.valor}`).join(' | ') });
+  // 2) cobertura de cada campo de data nesse universo
+  console.log('Cobertura das datas (nos leads com prestador em aberto):');
+  for (const c of TODAS_DATAS) {
+    const comCampo = comAberto.filter((x) => normISO(x.f[c]));
+    const isos = comCampo.map((x) => normISO(x.f[c])).sort();
+    console.log(`  ${c}: ${comCampo.length}/${comAberto.length}  ${isos.length ? `(${isos[0]} … ${isos[isos.length - 1]})` : ''}`);
   }
 
-  console.log('— Campo de data usado (frequência):', JSON.stringify(freqCampoData));
-  console.log('— Chaves "de data" encontradas nos docs:', JSON.stringify(chavesVistas));
-  console.log(`— Sem data detectável: ${semData}  |  fora do corte (depois de ${CORTE}): ${foraCorte}  |  dentro do corte: ${dentroCorte}`);
+  // 3) aplicando a prioridade CAMPOS_DATA + o corte
+  let semData = 0, foraCorte = 0;
+  let leadsAfetados = 0, prestBaixados = 0, prestLegado = 0;
+  const exemplos = [];
+  const paraGravar = [];
+  for (const x of comAberto) {
+    const { iso, campo } = dataFrete(x.f);
+    if (!iso) { semData++; continue; }
+    if (iso > CORTE) { foraCorte++; continue; }
+    for (const p of x.abertos) { p.contaAzul = iso; p.conf = true; p.incl = true; p.pago = true; }
+    const novo = { ...x.f, prestadores: x.arr, _salvoEm: new Date().toISOString() };
+    leadsAfetados++; prestBaixados += x.abertos.length; if (x.legado) prestLegado += x.abertos.length;
+    paraGravar.push({ id: x.id, data: novo });
+    if (exemplos.length < 12) exemplos.push({ id: x.id, iso, campo, n: x.abertos.length, legado: x.legado, datas: TODAS_DATAS.map((c) => `${c.replace('data', '')}=${normISO(x.f[c]) || '—'}`).join(' '), prest: x.abertos.map((p) => `${p.emp}=${p.valor}`).join(' | ').slice(0, 90) });
+  }
+
+  console.log(`\nCom a prioridade [${CAMPOS_DATA.join(' > ')}] e corte ${CORTE}:`);
+  console.log(`  sem NENHUMA data: ${semData}  |  fora do corte (depois): ${foraCorte}`);
   console.log(`\n>>> Fretes que receberiam baixa: ${leadsAfetados}`);
-  console.log(`>>> Prestadores que receberiam baixa: ${prestBaixados}  (dos quais ${prestLegado} vindos do formato legado)\n`);
-  console.log('Exemplos:');
-  for (const e of exemplos) console.log(`  frete ${e.id}  data=${e.data}(${e.campo})  legado=${e.legado}  baixa em ${e.n}: ${e.prest}`);
+  console.log(`>>> Prestadores que receberiam baixa: ${prestBaixados}  (${prestLegado} do formato legado)\n`);
+  console.log('Exemplos (com todas as datas do frete):');
+  for (const e of exemplos) console.log(`  ${e.id}  usada=${e.iso}(${e.campo})  [${e.datas}]  baixa ${e.n}: ${e.prest}`);
 
   if (!APLICAR) {
     console.log('\n(DRY-RUN — nada foi escrito. Rode com --aplicar para gravar.)\n');
