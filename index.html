@@ -3028,7 +3028,8 @@ async function caLancarJuntos(){
   // o total já soma tudo. Sem isso a trava de placa única barra.
   const vistos=new Set(); const itensDesp=[];
   linhas.forEach(l=>{ const k=l.frete+'|'+l.placa; if(!vistos.has(k)){ vistos.add(k); itensDesp.push({frete:l.frete, placa:l.placa}); } });
-  const despesa={ prestador:{nome:linhas[0].p.emp}, valor:total, modal:linhas[0].modal, itens:itensDesp };
+  const pixP=(linhas.find(l=>l.p.pix&&String(l.p.pix).trim())||{}).p;
+  const despesa={ prestador:{nome:linhas[0].p.emp}, valor:total, modal:linhas[0].modal, ...(pixP?{pixKey:String(pixP.pix).trim()}:{}), itens:itensDesp };
   const resumo=linhas.map(l=>'• #'+l.frete+'  '+l.placa+'  — '+moeda(l.valor)).join('\n');
   const ok=await uiConfirm('Lançar '+linhas.length+' placas do prestador '+linhas[0].nome+' num ÚNICO lançamento?\n\n'+resumo+'\n\nTOTAL: '+moeda(total)+'\nModal: '+linhas[0].modal,
     {titulo:'Conta Azul — Lançar juntos', ok:'Lançar', perigo:false});
@@ -3111,6 +3112,7 @@ async function caLancarDespesa(id, idx){
       prestador: { nome: p.emp },
       valor,
       modal: modalDeFrete(f),
+      ...(p.pix && String(p.pix).trim() ? { pixKey: String(p.pix).trim() } : {}),
       itens: [ { frete: String(f.numero), placa } ]
     };
     const ok = await uiConfirm(
@@ -3358,7 +3360,8 @@ function renderFinanceiro(){
       return `<tr class="${ok?'conf':''}">
       <td style="text-align:center">${selCell}</td>
       <td><b>${esc(f.numero||'')}</b><br><button class="btn-ghost" style="font-size:11px;padding:2px 7px;margin-top:3px;white-space:nowrap" onclick="abrirFicha('${f._id}')" title="Abrir a ficha de cadastro deste frete para conferir/alterar">📋 Ficha</button></td>
-      <td><input value="${escA(up(p.emp||''))}" onchange="editarPrestNome('${f._id}',${idx},this)" placeholder="Empresa / motorista" title="Prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:160px;font-weight:600"></td>
+      <td><input value="${escA(up(p.emp||''))}" onchange="editarPrestNome('${f._id}',${idx},this)" placeholder="Empresa / motorista" title="Prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:160px;font-weight:600">
+        <input value="${escA(p.pix||'')}" onchange="setPrestFin('${f._id}',${idx},'pix',this.value)" placeholder="🔑 chave PIX" title="Chave PIX do prestador — vai junto no lançamento para o pagamento automático no Conta Azul" style="font-size:11px;width:160px;margin-top:3px"></td>
       <td>${veic}<div style="font-size:11px;color:#8592a1">${esc(up(f.origem))} → ${esc(up(f.destino))}</div>
         <input value="${escA(up(p.placa||''))}" onchange="editarPrestPlaca('${f._id}',${idx},this)" placeholder="Placa" title="Placa cobrada por este prestador — editável" style="font-size:11px;width:110px;margin-top:3px;text-transform:uppercase"></td>
       <td><input value="${escA(p.valor||'')}" onchange="confirmarValorPrest('${f._id}',${idx},this)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
