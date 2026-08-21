@@ -85,7 +85,7 @@ function conferirSenha(senha, armazenado) {
 }
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const b64urlJSON = (obj) => b64url(JSON.stringify(obj));
-function assinarJWT(payload, horas = 12) {
+function assinarJWT(payload, horas = 168) {   // 7 dias (antes 12h — a equipe re-logava toda manhã)
   const now = Math.floor(Date.now() / 1000);
   const p1 = b64urlJSON({ alg: 'HS256', typ: 'JWT' });
   const p2 = b64urlJSON({ ...payload, iat: now, exp: now + horas * 3600 });
