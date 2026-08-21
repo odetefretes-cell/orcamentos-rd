@@ -80,6 +80,27 @@ async function main() {
   const { rows } = await pool.query('SELECT id, data FROM crm_leads');
   console.log(`\ncrm_leads: ${rows.length} docs.  Corte: até ${CORTE}.  Campo(s) de data: [${CAMPOS_DATA.join(' > ')}].  Modo: ${APLICAR ? 'APLICAR' : 'DRY-RUN'}\n`);
 
+  // ---- INSPEÇÃO (INSPECT=1): mostra a ESTRUTURA real dos prestadores e sai ----
+  if (process.env.INSPECT) {
+    let comArray = 0, comLegado = 0, mostradosA = 0, mostradosL = 0;
+    for (const row of rows) {
+      const f = row.data || {};
+      if (Array.isArray(f.prestadores) && f.prestadores.length) {
+        comArray++;
+        if (mostradosA < 4) { mostradosA++; console.log(`\n[array] ${row.id}  prestadores =`); console.log(JSON.stringify(f.prestadores, null, 1)); }
+      } else if (f.prestEmpresa1 || f.prestValor1) {
+        comLegado++;
+        if (mostradosL < 3) { mostradosL++; const o = {}; for (const k of Object.keys(f)) if (/^prest/i.test(k)) o[k] = f[k]; console.log(`\n[legado] ${row.id}  campos prest* =`, JSON.stringify(o)); }
+      }
+    }
+    console.log(`\nResumo: leads com prestadores[] = ${comArray}  |  leads com prestEmpresa1/legado = ${comLegado}`);
+    // chaves de topo de um lead qualquer com prestador, pra referência
+    const amostra = rows.find((r) => Array.isArray(r.data?.prestadores) && r.data.prestadores.length) || rows[0];
+    console.log('\nChaves de topo de um lead com prestador:', Object.keys(amostra.data || {}).join(', '));
+    await pool.end();
+    return;
+  }
+
   // 1) universo: leads COM prestador em aberto (independe de data)
   const comAberto = [];
   let totAbertos = 0;
