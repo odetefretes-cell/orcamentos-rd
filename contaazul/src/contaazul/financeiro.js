@@ -46,37 +46,38 @@ export async function listarParcelas(idEvento) {
 }
 
 /**
- * Exclui uma conta a pagar. A exclusão no Conta Azul é POR PARCELA
- * (DELETE /v1/financeiro/eventos-financeiros/parcelas/{parcela_id}).
- * `id` é o id do EVENTO (vindo da busca) → pegamos as parcelas e excluímos cada uma.
+ * Exclui uma conta a pagar. A busca devolve o id da PARCELA; a exclusão certa é
+ * do EVENTO pai (DELETE /v1/financeiro/eventos-financeiros/{evento_id}). Pegamos
+ * o evento.id lendo a parcela e excluímos o evento.
+ * @param {string} parcelaId  id vindo da busca (é o id da parcela)
  */
-async function deletarPorId(id) {
-  const delParcela = async (pid) => {
-    const path = `/v1/financeiro/eventos-financeiros/parcelas/${pid}`;
-    // 502 às vezes é transitório: tenta até 3x
-    for (let i = 0; i < 3; i++) {
-      try { const r = await ca.del(path); return { status: r.status }; }
-      catch (e) { if (e.status !== 502 || i === 2) return { status: e.status || '?', erro: e.message }; await new Promise((r) => setTimeout(r, 1500)); }
-    }
+async function deletarPorId(parcelaId) {
+  const tentativas = {};
+  const tenta = async (metodo, path) => {
+    const chave = `${metodo} ${path}`;
+    try {
+      const r = metodo === 'DELETE' ? await ca.del(path) : await ca.post(path, {});
+      tentativas[chave] = r.status;
+      return r.status >= 200 && r.status < 300;
+    } catch (e) { tentativas[chave] = (e.status || '?') + ' ' + (e.message || ''); return false; }
   };
 
-  const tentativas = {};
-  // 1) parcelas do evento
-  let parcelaIds = [];
-  try { const ps = await listarParcelas(id); parcelaIds = ps.map((p) => p.id || p.uuid || p.id_parcela).filter(Boolean); }
-  catch (e) { tentativas['listarParcelas'] = (e.status || '?') + ' ' + (e.message || ''); }
+  // id do EVENTO a partir da parcela
+  let eventoId = null;
+  try {
+    const p = (await ca.get(`/v1/financeiro/eventos-financeiros/parcelas/${parcelaId}`)).data;
+    eventoId = p?.evento?.id || (typeof p?.evento === 'string' ? p.evento : null);
+  } catch (e) { tentativas['getParcela'] = (e.status || '?') + ' ' + (e.message || ''); }
 
-  // 2) exclui cada parcela; se não achou parcela, tenta o próprio id como parcela
-  const ids = parcelaIds.length ? parcelaIds : [id];
-  let okCount = 0;
-  for (const pid of ids) {
-    const r = await delParcela(pid);
-    const chave = `DELETE parcelas/${pid}`;
-    tentativas[chave] = r.status + (r.erro ? ' ' + r.erro : '');
-    if (r.status >= 200 && r.status < 300) okCount++;
+  // 1) excluir o EVENTO (caminho correto)
+  if (eventoId) {
+    if (await tenta('DELETE', `/v1/financeiro/eventos-financeiros/${eventoId}`)) return { ok: true, via: 'evento', eventoId, tentativas };
+    if (await tenta('DELETE', `/v1/financeiro/eventos-financeiros/contas-a-pagar/${eventoId}`)) return { ok: true, via: 'evento-cp', eventoId, tentativas };
   }
-  const ok = okCount > 0 && okCount === ids.length;
-  return { ok, parcelaIds, excluidasParcelas: okCount, tentativas };
+  // 2) fallback: excluir a parcela direto
+  if (await tenta('DELETE', `/v1/financeiro/eventos-financeiros/parcelas/${parcelaId}`)) return { ok: true, via: 'parcela', parcelaId, tentativas };
+
+  return { ok: false, eventoId, parcelaId, tentativas };
 }
 
 /**
