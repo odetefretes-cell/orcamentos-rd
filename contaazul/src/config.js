@@ -32,8 +32,12 @@ export const config = {
     // URL pública deste backend + /oauth/callback. Tem que bater EXATAMENTE
     // com a cadastrada no app de produção do Conta Azul (sem barra no fim).
     redirectUri: required('CA_REDIRECT_URI'),
-    authUrl: process.env.CA_AUTH_URL || 'https://auth.contaazul.com/oauth2/authorize',
-    tokenUrl: process.env.CA_TOKEN_URL || 'https://auth.contaazul.com/oauth2/token',
+    // Endpoints OAuth do Conta Azul (API atual, Cognito). São PÚBLICOS e FIXOS —
+    // fixados no código de propósito: um valor antigo em cache de ambiente do PM2
+    // (CA_AUTH_URL=login.contaazul.com) vinha sobrescrevendo o .env e o dotenv não
+    // soltava. Fixando aqui, nenhum cache/env atrapalha. (Não são segredos.)
+    authUrl: 'https://auth.contaazul.com/oauth2/authorize',
+    tokenUrl: 'https://auth.contaazul.com/oauth2/token',
     apiBase: process.env.CA_API_BASE || 'https://api-v2.contaazul.com',
     scope: process.env.CA_SCOPE || 'openid profile aws.cognito.signin.user.admin',
   },
