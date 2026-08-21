@@ -48,7 +48,10 @@ fi
 
 echo "==> Subindo/atualizando obs-contaazul no PM2 (como obsrobo) ..."
 chown -R obsrobo:obsrobo "$DEST"
-su - obsrobo -c "cd $DEST && pm2 delete obs-contaazul 2>/dev/null; pm2 start src/server.js --name obs-contaazul --time --max-memory-restart 300M"
+# --cwd $DEST é ESSENCIAL: o app usa `import 'dotenv/config'`, que lê o .env da
+# pasta de trabalho. Sem --cwd, o PM2 roda o processo em outra pasta, o .env não é
+# lido (PORT/segredos vão pro default) e o serviço não sobe na 3002.
+su - obsrobo -c "pm2 delete obs-contaazul 2>/dev/null; pm2 start $DEST/src/server.js --name obs-contaazul --cwd $DEST --time --max-memory-restart 300M"
 su - obsrobo -c "pm2 save" || true
 
 echo ""
