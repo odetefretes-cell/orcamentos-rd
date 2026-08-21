@@ -7,8 +7,6 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { requireObsSecret } from '../middleware/sharedSecret.js';
 import { garantirPessoa } from '../contaazul/pessoas.js';
-import { idServico } from '../contaazul/servicos.js';
-import { idCategoria, idCentroCusto } from '../contaazul/categorias.js';
 import { criarVenda } from '../contaazul/vendas.js';
 import { criarContaAPagar } from '../contaazul/financeiro.js';
 import { ca } from '../contaazul/client.js';
@@ -57,8 +55,12 @@ const despesaSchema = z.object({
   })).min(1),
 });
 
-const centroPara = (modal) =>
-  modal === 'guincho' ? config.catalogo.centroCustoGuincho : config.catalogo.centroCustoPadrao;
+// UUIDs REAIS por modal (config.contaAzul), sem resolver por nome.
+const ehGuincho = (modal) => String(modal || '').toLowerCase() === 'guincho';
+const idServicoPara = (modal) =>
+  ehGuincho(modal) ? config.contaAzul.idServicoGuincho : config.contaAzul.idServicoCegonha;
+const idCentroPara = (modal) =>
+  ehGuincho(modal) ? config.contaAzul.idCentroGuincho : config.contaAzul.idCentroFretes;
 
 // ---------- VENDA ----------
 obsRouter.post('/venda', async (req, res, next) => {
@@ -74,17 +76,15 @@ obsRouter.post('/venda', async (req, res, next) => {
       });
     }
 
-    const [idCliente, idCat, idCC] = await Promise.all([
-      garantirPessoa({ ...input.cliente, perfis: ['CLIENTE'] }),
-      idCategoria(config.catalogo.categoriaReceita),
-      idCentroCusto(centroPara(input.modal)),
-    ]);
+    const idCliente = await garantirPessoa({ ...input.cliente, perfis: ['CLIENTE'] });
 
     const payload = mapVenda(input, {
       idCliente,
-      idServico: idServico(input.modal),
-      idCategoria: idCat,
-      idCentroCusto: idCC,
+      idServico: idServicoPara(input.modal),
+      idCategoria: config.contaAzul.idCategoriaReceita,
+      idCentroCusto: idCentroPara(input.modal),
+      idVendedor: config.contaAzul.idVendedor,
+      idNatureza: config.contaAzul.idNaturezaVenda,
     });
 
     const venda = await criarVenda(payload);
@@ -117,13 +117,14 @@ obsRouter.post('/despesa', async (req, res, next) => {
       }
     }
 
-    const [idFornecedor, idCat, idCC] = await Promise.all([
-      garantirPessoa({ ...input.prestador, perfis: ['FORNECEDOR'] }),
-      idCategoria(config.catalogo.categoriaDespesa),
-      idCentroCusto(centroPara(input.modal)),
-    ]);
+    const idFornecedor = await garantirPessoa({ ...input.prestador, perfis: ['FORNECEDOR'] });
 
-    const payload = mapDespesa(input, { idFornecedor, idCategoria: idCat, idCentroCusto: idCC });
+    const payload = mapDespesa(input, {
+      idFornecedor,
+      idCategoria: config.contaAzul.idCategoriaDespesa,
+      idCentroCusto: idCentroPara(input.modal),
+      idContaFinanceira: config.contaAzul.idContaFinanceira,
+    });
 
     // 202: assíncrono, sem id. Reconciliação preenche o ca_id depois.
     const { status } = await criarContaAPagar(payload);

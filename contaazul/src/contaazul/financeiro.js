@@ -20,12 +20,21 @@ export async function criarContaAPagar(payload) {
 /**
  * Busca contas a pagar pelo código de referência (nº do frete) para reconciliar
  * o id depois do 202.
- * ⚠️ VERIFICAR o nome do parâmetro de filtro no OpenAPI (codigo_referencia?).
+ * O endpoint EXIGE data_vencimento_de e data_vencimento_ate (dá 400 sem eles),
+ * então usamos um intervalo amplo (±120 dias de hoje) além do codigo_referencia.
  */
 export async function buscarContasAPagarPorReferencia(codigoReferencia) {
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const hoje = new Date();
+  const de = new Date(hoje);  de.setDate(de.getDate() - 120);
+  const ate = new Date(hoje); ate.setDate(ate.getDate() + 120);
   const { data } = await ca.get(
     '/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar',
-    { codigo_referencia: codigoReferencia }
+    {
+      codigo_referencia: codigoReferencia,
+      data_vencimento_de: iso(de),
+      data_vencimento_ate: iso(ate),
+    }
   );
   return Array.isArray(data) ? data : (data?.itens || data?.content || []);
 }

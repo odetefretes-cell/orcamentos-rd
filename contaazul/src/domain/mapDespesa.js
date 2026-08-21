@@ -38,17 +38,18 @@ export function descricaoDespesa(input, pares) {
 
 /**
  * Monta o corpo do POST /v1/financeiro/eventos-financeiros/contas-a-pagar.
- * ⚠️ Vários nomes de campo aqui precisam de conferência contra o OpenAPI
- * (id_fornecedor, codigo_referencia, data_competencia). Estão centralizados
- * neste arquivo de propósito — ajuste num lugar só.
+ * Corpo alinhado ao processo manual real: id_pessoa (fornecedor), total,
+ * parcelas[{ data_vencimento, valor, id_conta_financeira }] à vista (1 parcela),
+ * mais id_categoria, id_centro_custo, codigo_referencia, data_competencia.
  * @param {object} input
- * @param {object} refs { idFornecedor, idCategoria, idCentroCusto }
+ * @param {object} refs { idFornecedor, idCategoria, idCentroCusto, idContaFinanceira }
  */
 export function mapDespesa(input, refs) {
   const pares = paresDespesa(input);
   if (pares.length === 0) throw new Error('Despesa sem itens (frete+placa) válidos');
   const hoje = hojeISO();
   const fretes = [...new Set(pares.map((p) => p.frete))];
+  const total = round2(input.valor);
 
   const obs = [
     input.pixKey ? `PIX: ${input.pixKey}` : null,
@@ -56,15 +57,24 @@ export function mapDespesa(input, refs) {
   ].filter(Boolean).join(' | ');
 
   return {
-    id_fornecedor: refs.idFornecedor,
+    // fornecedor: campo real é id_pessoa (aceitamos refs.idFornecedor na assinatura)
+    id_pessoa: refs.idFornecedor,
     descricao: descricaoDespesa(input, pares),
-    valor: round2(input.valor),
-    data_vencimento: input.vencimento || hoje,
+    total,
     data_competencia: input.dataCompetencia || hoje,
     ...(refs.idCategoria ? { id_categoria: refs.idCategoria } : {}),
     ...(refs.idCentroCusto ? { id_centro_custo: refs.idCentroCusto } : {}),
     // é isso que liga a despesa ao frete e permite reconciliar o 202 depois
     codigo_referencia: fretes.join(','),
+    // à vista, 1 parcela, vencimento = hoje (ou input.vencimento). Conta de
+    // pagamento = "Conta PJ Conta Azul IP" (CA de Bolso).
+    parcelas: [
+      {
+        data_vencimento: input.vencimento || hoje,
+        valor: total,
+        ...(refs.idContaFinanceira ? { id_conta_financeira: refs.idContaFinanceira } : {}),
+      },
+    ],
     observacoes: obs,
   };
 }

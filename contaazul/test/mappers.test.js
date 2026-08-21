@@ -60,8 +60,11 @@ test('mapDespesa consolida vários fretes numa despesa', () => {
     prestador: { nome: 'Sonia' }, valor: 750, pixKey: '+5588996959745',
     itens: [{ frete: 1333, placa: 'EHY8E86' }, { frete: 1489, placa: 'SNY5E24' }],
   };
-  const payload = mapDespesa(input, { idFornecedor: 'forn-1', idCategoria: 'cat-2', idCentroCusto: 'cc-1' });
-  assert.equal(payload.valor, 750);
+  const payload = mapDespesa(input, { idFornecedor: 'forn-1', idCategoria: 'cat-2', idCentroCusto: 'cc-1', idContaFinanceira: 'cf-1' });
+  assert.equal(payload.total, 750);
+  assert.equal(payload.id_pessoa, 'forn-1');
+  assert.equal(payload.parcelas[0].valor, 750);
+  assert.equal(payload.parcelas[0].id_conta_financeira, 'cf-1');
   assert.equal(payload.codigo_referencia, '1333,1489');
   assert.match(payload.observacoes, /PIX: \+5588996959745/);
   assert.match(payload.descricao, /Sonia/);

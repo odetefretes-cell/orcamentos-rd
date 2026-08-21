@@ -46,6 +46,20 @@ export const config = {
     tokenUrl: 'https://auth.contaazul.com/oauth2/token',
     apiBase: process.env.CA_API_BASE || 'https://api-v2.contaazul.com',
     scope: process.env.CA_SCOPE || 'openid profile aws.cognito.signin.user.admin',
+
+    // UUIDs REAIS lidos direto da conta do cliente (OBS Transportes). Env com
+    // FALLBACK para o valor real → funciona sem depender do .env. Se um dia trocar
+    // de conta, é só sobrescrever pelo .env. Substituem a resolução por NOME
+    // (categorias/centros/serviços) no fluxo de venda/despesa.
+    idVendedor: process.env.CA_ID_VENDEDOR || 'f626fed3-8c5d-4844-adfc-08d0de7acdca',
+    idContaFinanceira: process.env.CA_ID_CONTA_FINANCEIRA || '4d685c0a-3387-4e90-85e9-44cbd9d5d93b',
+    idServicoCegonha: process.env.CA_ID_SERVICO_CEGONHA || 'f40fd3a4-117c-4fa1-b658-3e20958dffbc',
+    idServicoGuincho: process.env.CA_ID_SERVICO_GUINCHO || 'ceb34c3f-0edb-4769-8810-9b46bbfd510a',
+    idCentroFretes: process.env.CA_ID_CENTRO_FRETES || 'dc2cc766-4243-11f1-955f-bf4ddfa3165b',
+    idCentroGuincho: process.env.CA_ID_CENTRO_GUINCHO || '57445f58-5eab-11f1-9db9-070822ce83d5',
+    idCategoriaReceita: process.env.CA_ID_CATEGORIA_RECEITA || '2b7ff6ea-dcd1-405b-9edc-44e012ffffd3',
+    idCategoriaDespesa: process.env.CA_ID_CATEGORIA_DESPESA || 'b7ae7519-6340-4776-9880-c128e128d463',
+    idNaturezaVenda: process.env.CA_ID_NATUREZA_VENDA || '529c30e4-423a-11f1-b45c-b7eaf5fe82d3',
   },
 
   // UUIDs dos serviços já cadastrados no Conta Azul (a API exige serviço, não

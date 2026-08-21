@@ -53,15 +53,29 @@ export function descricaoVenda(input) {
 /**
  * Monta o corpo do POST /v1/venda.
  * @param {object} input   payload do OBS (acima)
- * @param {object} refs    ids já resolvidos: { idCliente, idServico, idCategoria, idCentroCusto, opcaoCondicao? }
+ * @param {object} refs    ids já resolvidos:
+ *   { idCliente, idServico, idCategoria, idCentroCusto, idVendedor?, idNatureza?, opcaoCondicao? }
  */
 export function mapVenda(input, refs) {
   const hoje = input.data || hojeISO();
-  const parcelas = computeParcelas(input.formaPagamento, input.valor, {
+  const brutas = computeParcelas(input.formaPagamento, input.valor, {
     hoje,
     previsaoChegada: input.previsaoChegada,
     vencimento: input.vencimento,
   });
+
+  // Estrutura REAL da parcela lida via GET /v1/venda/{id}:
+  // { numero, valor, data_vencimento, descricao }
+  const parcelas = brutas.map((p, i) => ({
+    numero: i + 1,
+    valor: p.valor,
+    data_vencimento: p.data_vencimento,
+    descricao: `Venda ${input.frete}`,
+  }));
+
+  // PIX usa tipo_pagamento PIX_PAGAMENTO_INSTANTANEO; cartão/faturamento PJ omitem
+  // (valor exato do env não confirmado na conta — ver suposições no relatório).
+  const isPix = input.formaPagamento === 'PIX_50_50' || input.formaPagamento === 'PIX_100';
 
   return {
     id_cliente: refs.idCliente,
@@ -72,10 +86,13 @@ export function mapVenda(input, refs) {
       { id: refs.idServico, quantidade: 1, valor: round2(input.valor) },
     ],
     condicao_pagamento: {
-      // ⚠️ VERIFICAR o valor exato do enum no OpenAPI (A_VISTA / A_PRAZO / uuid).
-      opcao_condicao_pagamento: refs.opcaoCondicao || (parcelas.length > 1 ? 'A_PRAZO' : 'A_VISTA'),
+      // Enum REAL: "1x" / "2x" (nº de parcelas), NÃO A_VISTA/A_PRAZO.
+      opcao_condicao_pagamento: refs.opcaoCondicao || `${parcelas.length}x`,
+      ...(isPix ? { tipo_pagamento: 'PIX_PAGAMENTO_INSTANTANEO' } : {}),
       parcelas,
     },
+    ...(refs.idVendedor ? { id_vendedor: refs.idVendedor } : {}),
+    ...(refs.idNatureza ? { id_natureza_operacao: refs.idNatureza } : {}),
     ...(refs.idCategoria ? { id_categoria: refs.idCategoria } : {}),
     ...(refs.idCentroCusto ? { id_centro_custo: refs.idCentroCusto } : {}),
     observacoes: descricaoVenda(input),
