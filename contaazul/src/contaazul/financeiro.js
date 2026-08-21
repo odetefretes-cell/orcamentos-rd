@@ -75,7 +75,24 @@ export async function cancelarContaAPagarPorFrete(frete, aplicar = false) {
   };
   const alvo = itens.filter(bate);
   const achados = alvo.map((x) => ({ id: x.id || x.uuid, descricao: x.descricao, total: x.total, status: x.status }));
-  if (!aplicar) return { aplicar: false, encontrados: achados.length, achados };
+  if (!aplicar) {
+    // busca AMPLA (sem codigo_referencia) no mesmo intervalo, pra comparar
+    let amplo = [];
+    try {
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const hoje = new Date();
+      const de = new Date(hoje); de.setDate(de.getDate() - 120);
+      const ate = new Date(hoje); ate.setDate(ate.getDate() + 120);
+      const { data } = await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar', { data_vencimento_de: iso(de), data_vencimento_ate: iso(ate), tamanho_pagina: 100 });
+      amplo = Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
+    } catch (e) { amplo = [{ erro: e.message }]; }
+    const _debug = {
+      comFiltro: itens.length,
+      amplo_total: amplo.length,
+      amplo_amostra: amplo.slice(0, 15).map((x) => ({ cr: x.codigo_referencia ?? x.codigoReferencia ?? null, dsc: x.descricao, total: x.total })),
+    };
+    return { aplicar: false, encontrados: achados.length, achados, _debug };
+  }
 
   const resultados = [];
   for (const x of alvo) {
