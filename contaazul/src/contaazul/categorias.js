@@ -14,7 +14,7 @@ function normaliza(s) {
 async function carregarCategorias() {
   if (cacheCategorias) return cacheCategorias;
   const { data } = await ca.get('/v1/categorias');
-  const lista = Array.isArray(data) ? data : (data?.itens || data?.content || []);
+  const lista = Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
   cacheCategorias = lista;
   return lista;
 }
@@ -22,7 +22,7 @@ async function carregarCategorias() {
 async function carregarCentros() {
   if (cacheCentros) return cacheCentros;
   const { data } = await ca.get('/v1/centro-de-custo');
-  const lista = Array.isArray(data) ? data : (data?.itens || data?.content || []);
+  const lista = Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
   cacheCentros = lista;
   return lista;
 }

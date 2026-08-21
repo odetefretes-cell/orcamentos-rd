@@ -23,6 +23,6 @@ export async function criarVenda(payload) {
  */
 export async function buscarVendaPorNumero(numero) {
   const { data } = await ca.get('/v1/venda/busca', { numero });
-  const lista = Array.isArray(data) ? data : (data?.itens || data?.content || []);
+  const lista = Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
   return lista.find((v) => String(v.numero) === String(numero)) || null;
 }

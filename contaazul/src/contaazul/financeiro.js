@@ -36,11 +36,11 @@ export async function buscarContasAPagarPorReferencia(codigoReferencia) {
       data_vencimento_ate: iso(ate),
     }
   );
-  return Array.isArray(data) ? data : (data?.itens || data?.content || []);
+  return Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
 }
 
 /** Lista parcelas de um evento financeiro (para sincronizar baixas/status). */
 export async function listarParcelas(idEvento) {
   const { data } = await ca.get(`/v1/financeiro/eventos-financeiros/${idEvento}/parcelas`);
-  return Array.isArray(data) ? data : (data?.itens || data?.content || []);
+  return Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []);
 }

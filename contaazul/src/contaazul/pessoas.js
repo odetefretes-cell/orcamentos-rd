@@ -5,6 +5,12 @@ import { log, mask } from '../logger.js';
 
 const soDigitos = (s) => String(s || '').replace(/\D/g, '');
 
+// A API v2 quer `perfis` como lista de OBJETOS { tipo_perfil: 'Cliente'|'Fornecedor' }
+// (português, capitalizado) — confirmado lendo uma pessoa real. NÃO é ['FORNECEDOR'].
+const PERFIL_LABEL = { CLIENTE: 'Cliente', FORNECEDOR: 'Fornecedor' };
+// A API v2 devolve listas em `items` (inglês) — não `itens`.
+const listaDe = (data) => (Array.isArray(data) ? data : (data?.items || data?.itens || data?.content || []));
+
 /**
  * Acha uma pessoa pelo documento. Retorna o objeto ou null.
  * ⚠️ VERIFICAR o nome do parâmetro de busca contra o OpenAPI do endpoint
@@ -14,8 +20,7 @@ export async function buscarPessoaPorDocumento(documento) {
   const doc = soDigitos(documento);
   if (!doc) return null;
   const { data } = await ca.get('/v1/pessoas', { documento: doc, tamanho_pagina: 10 });
-  const lista = Array.isArray(data) ? data : (data?.itens || data?.content || []);
-  return lista[0] || null;
+  return listaDe(data)[0] || null;
 }
 
 /**
@@ -35,8 +40,8 @@ export async function garantirPessoa(p) {
     ...(doc ? { documento: doc } : {}),
     ...(p.email ? { email: p.email } : {}),
     ...(p.telefone ? { telefone: soDigitos(p.telefone) } : {}),
-    // 'perfis' ex.: ['CLIENTE'] ou ['FORNECEDOR'] — VERIFICAR enum no OpenAPI.
-    ...(p.perfis ? { perfis: p.perfis } : {}),
+    // perfis no formato REAL: [{ tipo_perfil: 'Cliente' }] / [{ tipo_perfil: 'Fornecedor' }]
+    ...(p.perfis ? { perfis: p.perfis.map((x) => ({ tipo_perfil: PERFIL_LABEL[String(x).toUpperCase()] || x })) } : {}),
   };
   const { data } = await ca.post('/v1/pessoas', body);
   const id = data?.id || data?.uuid;
