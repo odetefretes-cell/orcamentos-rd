@@ -36,13 +36,17 @@ const pool = new pg.Pool({
 // -------- data do frete: nomes reais (prioridade). CAMPO_DATA troca qual manda. --------
 // Padrão: dataFechamento (quando o negócio fechou = virou frete) → cai p/ dataEntrada.
 const CAMPO_DATA = process.env.CAMPO_DATA || '';   // se setado, usa SÓ esse campo
+// Datas reais do FRETE: dataFechamento (fechou o negócio) → pedidoEm (emitiu a
+// autorização) → criadoEm (criou o doc). São as que existem na coleção fretes.
 const CAMPOS_DATA = CAMPO_DATA
   ? [CAMPO_DATA]
-  : ['dataFechamento', 'dataEntrada', 'dataEnvio', 'dataUltimoContato'];
-const TODAS_DATAS = ['dataFechamento', 'dataEntrada', 'dataEnvio', 'dataUltimoContato'];
+  : ['dataFechamento', 'pedidoEm', 'criadoEm'];
+const TODAS_DATAS = ['dataFechamento', 'pedidoEm', 'criadoEm'];
 function normISO(v) {
-  if (!v) return null;
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return new Date(v > 1e12 ? v : v * 1000).toISOString().slice(0, 10); // epoch ms/s
   const s = String(v).trim();
+  if (/^\d{13}$/.test(s)) return new Date(Number(s)).toISOString().slice(0, 10);      // epoch ms em string
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);            // 2026-05-31...
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
   m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);              // 31/05/2026
