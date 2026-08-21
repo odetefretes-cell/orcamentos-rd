@@ -5,7 +5,13 @@
 // sobrescrevia e o backend seguia usando a URL velha. Com override, editar o .env +
 // reiniciar sempre pega o valor novo.
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+// Carrega o .env pela PASTA DO BACKEND (caminho absoluto), não pela cwd. O PM2 às
+// vezes inicia o processo de outra pasta → o dotenv não achava o .env → PORT caía no
+// default 3000 (conflito com o obs-api) e o app.listen falhava calado (log vazio, nada
+// na 3002). Com o caminho absoluto, sempre acha /opt/obs-contaazul/.env.
+dotenv.config({ override: true, path: join(dirname(fileURLToPath(import.meta.url)), '..', '.env') });
 
 function required(name, fallback = undefined) {
   const v = process.env[name] ?? fallback;
