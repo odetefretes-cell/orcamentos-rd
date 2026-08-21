@@ -188,16 +188,31 @@ obsRouter.get('/diagnostico', async (req, res) => {
     try { detalhe = (await ca.get('/v1/pessoas/' + pid)).data; } catch (e) { detalhe = { erro: e.message, data: e.data }; }
     return { detalhe, lista_raw_chaves: lista_raw && !Array.isArray(lista_raw) ? Object.keys(lista_raw) : (Array.isArray(lista_raw) ? ('array len ' + lista_raw.length) : lista_raw) };
   });
-  // CONTA A PAGAR real (a busca exige intervalo de vencimento) + DETALHE (rateio/condicao)
+  // CONTA A PAGAR real (a busca exige intervalo de vencimento) + DETALHE (rateio/condicao).
+  // Tenta VÁRIOS caminhos de GET do detalhe até um responder 200, pra revelar a
+  // estrutura exata de condicao_pagamento/parcelas/rateio (o site 404 em alguns).
   await tenta('conta_pagar_amostra', async () => {
-    const de = req.query.de || '2026-06-01';
+    const de = req.query.de || '2026-01-01';
     const ate = req.query.ate || '2026-12-31';
     const d = (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/buscar', { data_vencimento_de: de, data_vencimento_ate: ate })).data;
     const arr = Array.isArray(d) ? d : (d?.items || d?.itens || d?.content || []);
-    const id = req.query.contaPagarId || (arr[0] && (arr[0].id || arr[0].uuid));
+    const item0 = arr[0] || null;
+    const id = req.query.contaPagarId || (item0 && (item0.id || item0.uuid || item0.id_evento || item0.evento_id));
+    const caminhos = [
+      '/v1/financeiro/eventos-financeiros/contas-a-pagar/' + id,
+      '/v1/financeiro/eventos-financeiros/' + id,
+      '/v1/financeiro/eventos-financeiros/contas-a-pagar/detalhe/' + id,
+      '/v1/financeiro/contas-a-pagar/' + id,
+    ];
+    const tentativas = {};
     let detalhe = null;
-    if (id) { try { detalhe = (await ca.get('/v1/financeiro/eventos-financeiros/contas-a-pagar/' + id)).data; } catch (e) { detalhe = { erro: e.message, data: e.data }; } }
-    return { resumo: arr.slice(0, 1), detalhe };
+    if (id) {
+      for (const path of caminhos) {
+        try { const r = (await ca.get(path)).data; tentativas[path] = 'OK'; if (!detalhe) detalhe = r; }
+        catch (e) { tentativas[path] = (e.status || '?') + ' ' + (e.message || ''); }
+      }
+    }
+    return { resumo_item0: item0, resumo_chaves: item0 ? Object.keys(item0) : null, tentativas_detalhe: tentativas, detalhe };
   });
   res.json(out);
 });
