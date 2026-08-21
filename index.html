@@ -1172,6 +1172,16 @@ const form = $('#form');
 const up = v => (v||'').toString().toUpperCase();
 const esc = s => (s||'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const escA = s => (s||'').toString().replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+// ---- Conta Azul: repasse pela API do próprio app (logado), sem expor segredo no navegador ----
+async function caReq(path, body){
+  const base = window.OBS_API_BASE || 'https://api.obstransportes.com.br';
+  const tok = (typeof obsApiToken==='function') ? obsApiToken() : '';
+  const r = await fetch(base+path, { method: body?'POST':'GET',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+tok },
+    body: body?JSON.stringify(body):undefined });
+  let data={}; try{ data=await r.json(); }catch(_){}
+  return { status:r.status, ok:r.ok, data };
+}
 function moeda(v){
   if(v===''||v==null) return '';
   let s = String(v).trim().replace(/[R$\s]/g,'');
@@ -2983,6 +2993,79 @@ function setPrestFin(id,idx,campo,val){
   gravarDB(db); renderFinanceiro();
 }
 
+// ===== Conta Azul: registrar a VENDA (receita do frete) =====
+async function caLancarVenda(id){
+  try{
+    const db=lerDB(); const f=db[id]; if(!f){ flash('Frete não encontrado','erro'); return; }
+    const valor = numMoeda(f.valorFrete);
+    if(!f.numero){ flash('Preencha o número do frete antes','erro'); return; }
+    if(valor<=0){ flash('Valor do frete inválido (informe o valor antes)','erro'); return; }
+    const modal = /guincho/i.test(String(f.equipamentos||'')) ? 'guincho' : 'cegonha';
+    const fp = String(f.formaPgto||'');
+    const formaPagamento = fp==='Cartão' ? 'CARTAO' : (fp==='Boleto (Empresa)' ? 'FATURAMENTO_PJ' : 'PIX_50_50');
+    const venda = {
+      frete: Number(f.numero),
+      modal,
+      valor,
+      formaPagamento,
+      previsaoChegada: f.previsaoRecebimento || undefined,
+      cliente: { nome: f.clienteEmpresa, documento: f.cpfCnpj },
+      origem: f.origem,
+      destino: f.destino,
+      veiculo: veicResumo(f),
+      placa: (f.veiculos&&f.veiculos[0]&&f.veiculos[0].placa) || f.placa || ''
+    };
+    const ok = await uiConfirm(
+      'Registrar VENDA no Conta Azul?\n\nFrete #'+f.numero+'\nCliente: '+(f.clienteEmpresa||'—')+'\nValor: '+moeda(valor)+'\nForma: '+formaPagamento+'\nModal: '+modal,
+      {titulo:'Conta Azul — Venda', ok:'Registrar', perigo:false});
+    if(!ok) return;
+    const t = flash('Registrando venda no Conta Azul…','load');
+    const r = await caReq('/api/ca/venda', venda);
+    t.fechar&&t.fechar();
+    if(r.ok && r.data && r.data.duplicado){ flash('Esse frete já estava registrado no Conta Azul.','info'); }
+    else if(r.ok){ flash('Venda registrada no Conta Azul ✔'+(r.data&&r.data.ca&&r.data.ca.numero?(' (nº '+r.data.ca.numero+')'):''),'ok'); }
+    else{ flash('Erro ao registrar: '+((r.data&&r.data.erro)||('HTTP '+r.status)),'erro'); }
+  }catch(e){ flash('Erro: '+e.message,'erro'); }
+}
+
+// ===== Conta Azul: lançar a DESPESA do prestador =====
+async function caLancarDespesa(id, idx){
+  try{
+    const db=lerDB(); const f=db[id]; if(!f){ flash('Frete não encontrado','erro'); return; }
+    const p = prestDe(f)[idx]; if(!p){ flash('Prestador não encontrado','erro'); return; }
+    if(!p.emp){ flash('Prestador sem nome','erro'); return; }
+    if(!p.placa){ flash('Prestador sem placa','erro'); return; }
+    if(!f.numero){ flash('Frete sem número','erro'); return; }
+    const valor = numMoeda(p.valor);
+    if(valor<=0){ flash('Prestador sem valor','erro'); return; }
+    const despesa = {
+      prestador: { nome: p.emp },
+      valor,
+      itens: [ { frete: String(f.numero), placa: (p.placa||'') } ]
+    };
+    const ok = await uiConfirm(
+      'Lançar DESPESA no Conta Azul?\n\nPrestador: '+p.emp+'\nPlaca: '+p.placa+'\nFrete #'+f.numero+'\nValor: '+moeda(valor),
+      {titulo:'Conta Azul — Despesa', ok:'Lançar', perigo:false});
+    if(!ok) return;
+    const t = flash('Lançando despesa no Conta Azul…','load');
+    let r = await caReq('/api/ca/despesa', despesa);
+    t.fechar&&t.fechar();
+    if(r.status===409){
+      const forcar = await uiConfirm('Esse prestador/placa já foi lançado. Lançar mesmo assim (duplicado)?',{titulo:'Já existe',ok:'Lançar assim mesmo',perigo:true});
+      if(!forcar) return;
+      const t2 = flash('Lançando despesa (duplicado)…','load');
+      r = await caReq('/api/ca/despesa', {...despesa, forcar:true});
+      t2.fechar&&t2.fechar();
+    }
+    if(r.ok){
+      setPrestFin(id, idx, 'contaAzul', hojeISO());
+      flash('Despesa lançada no Conta Azul ✔ (marquei a Data ContaAzul)','ok');
+    }else{
+      flash('Erro ao lançar: '+((r.data&&r.data.erro)||('HTTP '+r.status)),'erro');
+    }
+  }catch(e){ flash('Erro: '+e.message,'erro'); }
+}
+
 // admin pode definir/corrigir o número do frete (ex.: frete antigo que ficou sem nº)
 async function setNumeroFrete(id, val){
   const db=lerDB(); if(!db[id]) return;
@@ -3107,7 +3190,7 @@ function renderFinanceiro(){
         <td>${moeda(f.valorFrete)}</td><td>${moeda(recebidoDe(f))}</td><td class="${s.k==='fat'?'':(ab>0.005?'saldo-neg':'saldo-pos')}"${s.k==='fat'?' style="color:#3b82f6;font-weight:700"':''}>${moeda(ab)}</td>
         <td><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setFin('${f._id}','previsaoRecebimento',this.value)"></td>
         <td><span class="tagv ${s.k}">${s.t}</span></td>
-        <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="abrirNoOperacional('${f._id}')" title="Abrir no operacional p/ atualizar e registrar pagamento">▶ abrir</button></td></tr>`;
+        <td><button class="btn-ok" style="padding:3px 9px;font-size:12px" onclick="abrirNoOperacional('${f._id}')" title="Abrir no operacional p/ atualizar e registrar pagamento">▶ abrir</button><button class="btn-ok" style="padding:3px 9px;font-size:12px;margin-left:4px" onclick="caLancarVenda('${f._id}')" title="Registrar a venda/receita no Conta Azul">☁ Conta Azul</button></td></tr>`;
     }).join('');
     const rot = finFiltro ? (NOMES[finFiltro]||finFiltro) : 'Busca';
     const cab=`<tr><th colspan="9" style="text-align:left;background:rgba(255,255,255,.06)">Fretes · <b>${esc(rot)}</b>${qf?` · "${esc(qf)}"`:''} ${finFiltro?`<button class="mc-x" onclick="setFinFiltro('${finFiltro}')" title="ocultar">✕ ocultar</button>`:''}</th></tr>`;
@@ -3201,7 +3284,7 @@ function renderFinanceiro(){
         <input value="${escA(up(p.placa||''))}" onchange="editarPrestPlaca('${f._id}',${idx},this)" placeholder="Placa" title="Placa cobrada por este prestador — editável" style="font-size:11px;width:110px;margin-top:3px;text-transform:uppercase"></td>
       <td><input value="${escA(p.valor||'')}" onchange="confirmarValorPrest('${f._id}',${idx},this)" inputmode="decimal" title="Valor do prestador — editável (corrija aqui se necessário)" style="font-size:12.5px;width:112px;text-align:right;font-weight:600"></td>
       <td><input type="date" value="${escA(p.contaAzul)}" onchange="setPrestFin('${f._id}',${idx},'contaAzul',this.value)" title="Data de inclusão no ContaAzul — preencher = conferido e pago" style="font-size:12.5px"></td>
-      <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}</td></tr>`;
+      <td>${ok?'<span class="tagv quit">✅ conferido/pago</span>':'<span class="tagv dia">⏳ em aberto</span>'}<button class="btn-ok" style="padding:3px 9px;font-size:12px;margin-left:6px" onclick="caLancarDespesa('${f._id}',${idx})" title="Lançar a despesa do prestador no Conta Azul">☁ lançar</button></td></tr>`;
     }).join('');
     $('#finPrest').innerHTML=`<thead><tr><th>Nº frete</th><th>Empresa / Motorista</th><th>Veículo transportado</th><th>Valor</th><th>📘 Data ContaAzul</th><th>Situação</th></tr></thead><tbody>${linhasP||'<tr><td colspan="6" class="hint" style="text-align:center">Nenhum prestador neste filtro.</td></tr>'}</tbody>`;
   }
