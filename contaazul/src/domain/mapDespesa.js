@@ -98,6 +98,8 @@ export function mapDespesa(input, refs) {
         {
           descricao: desc,
           data_vencimento: venc,
+          // nota da parcela = onde a chave PIX fica visível na hora do pagamento (CA Pay)
+          ...(input.pixKey ? { nota: `PIX: ${input.pixKey}` } : {}),
           ...(refs.idContaFinanceira ? { conta_financeira: refs.idContaFinanceira } : {}),
           detalhe_valor: {
             valor_bruto: total,
