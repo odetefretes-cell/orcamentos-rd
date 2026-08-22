@@ -291,7 +291,10 @@ exports.processarLeadCompleto = onDocumentUpdated(
         }
       }
 
-      const novoStatus = dados.decisao === 'humano' ? 'aguardando_humano' : 'automatico';
+      // REDE DE SEGURANÇA: qualquer decisão que não seja explicitamente 'automatico'
+      // vai pra humano (cria o lead no CRM pra equipe ligar). Antes, decisão vazia
+      // caía em 'automatico' e o lead podia travar sem média e sem lead.
+      const novoStatus = dados.decisao === 'automatico' ? 'automatico' : 'aguardando_humano';
 
       await ref.update({
         iaProcessado: true,
