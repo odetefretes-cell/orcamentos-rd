@@ -4,6 +4,7 @@ import { log } from './logger.js';
 import { getDb } from './store/db.js';
 import { createApp } from './app.js';
 import { iniciarReconciliador } from './jobs/reconcile.js';
+import { iniciarSincronizadorBaixas } from './jobs/sync-baixas.js';
 
 // Reexporta para quem importava createApp daqui.
 export { createApp } from './app.js';
@@ -15,5 +16,6 @@ if (executadoDireto) {
   app.listen(config.port, () => {
     log.info('Servidor no ar', { port: config.port, env: config.env });
     iniciarReconciliador();
+    iniciarSincronizadorBaixas();   // baixa automática CA → sistema (Pix/boleto pagos)
   });
 }

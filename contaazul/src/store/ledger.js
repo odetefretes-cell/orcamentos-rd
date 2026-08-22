@@ -100,6 +100,16 @@ export function marcarErro(launchId, erro) {
     .run('erro', String(erro).slice(0, 500), launchId);
 }
 
+// vendas com id no CA que ainda não foram totalmente baixadas no sistema
+export function vendasParaSincronizar() {
+  return getDb()
+    .prepare(`SELECT * FROM launches WHERE tipo='venda' AND ca_id IS NOT NULL AND (status IS NULL OR status NOT IN ('baixado_total'))`)
+    .all();
+}
+export function marcarStatusVenda(launchId, status) {
+  getDb().prepare('UPDATE launches SET status=? WHERE id=?').run(status, launchId);
+}
+
 export function porFrete(frete) {
   return getDb()
     .prepare(`SELECT id, tipo, frete, ca_id, ca_numero, valor, status, created_at, reconciled_at
