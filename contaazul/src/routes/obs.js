@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { requireObsSecret } from '../middleware/sharedSecret.js';
 import { garantirPessoa } from '../contaazul/pessoas.js';
-import { criarVenda } from '../contaazul/vendas.js';
+import { criarVenda, buscarVendaPorNumero } from '../contaazul/vendas.js';
 import { ca } from '../contaazul/client.js';
 import { mapVenda } from '../domain/mapVenda.js';
 import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
@@ -103,12 +103,24 @@ obsRouter.post('/venda', async (req, res, next) => {
 
     // Cliente recém-criado leva ~1-2s pra ficar consultável no CA → a venda pode
     // voltar "Cliente da venda não encontrado". Repetimos com espera (até ~12s).
+    // Nº de venda JÁ USADO (equipe registrou manual no CA) → ADOTA a venda
+    // existente em vez de falhar: registra no ledger e segue (cobrança funciona).
     let venda;
     for (let tent = 1; ; tent++) {
       try { venda = await criarVenda(payload); break; }
       catch (e) {
-        const clienteNaoAchado = e.status === 400 && /n[aã]o encontrado/i.test(JSON.stringify(e.data || {}));
+        const corpoErro = JSON.stringify(e.data || {});
+        const clienteNaoAchado = e.status === 400 && /n[aã]o encontrado/i.test(corpoErro);
         if (clienteNaoAchado && tent < 6) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+        const numeroJaUsado = e.status === 400 && /(j[aá]\s|duplicad|utilizad|existe)/i.test(corpoErro) && /n[uú]mero|venda/i.test(corpoErro);
+        if (numeroJaUsado) {
+          const existente = await buscarVendaPorNumero(input.frete);
+          if (existente?.id) {
+            registrarVenda({ frete: input.frete, valor: input.valor, caId: existente.id, caNumero: existente.numero, status: 'adotada_manual', payload: { adotada: true } });
+            log.info('Venda já existia no CA — adotada', { frete: input.frete, caId: existente.id });
+            return res.status(200).json({ ok: true, duplicado: true, adotada: true, mensagem: 'A venda já estava registrada no Conta Azul (feita manual) — usei a existente.', ca: { id: existente.id, numero: existente.numero } });
+          }
+        }
         throw e;
       }
     }
