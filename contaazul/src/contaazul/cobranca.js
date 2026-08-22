@@ -7,13 +7,14 @@
 import { ca } from './client.js';
 import { config } from '../config.js';
 
-export async function gerarCobranca({ idParcela, tipo, vencimento, descricao }) {
+export async function gerarCobranca({ idParcela, tipo, vencimento, descricao, atributos }) {
   const body = {
     id_conta: config.contaAzul.idContaFinanceira,
     id_parcela: idParcela,
     tipo,
     data_vencimento: vencimento,
     descricao_fatura: descricao,
+    ...(atributos ? { atributos } : {}),
   };
   const { status, data } = await ca.post(
     '/v1/financeiro/eventos-financeiros/contas-a-receber/gerar-cobranca',

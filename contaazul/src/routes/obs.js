@@ -190,6 +190,26 @@ obsRouter.post('/cobranca', async (req, res, next) => {
     if (!parcelas.length) return res.status(502).json({ ok: false, erro: 'Não achei as parcelas da venda no Conta Azul.', tentativas });
 
     const hoje = new Date().toISOString().slice(0, 10);
+
+    // ---- DIAGNÓSTICO (diag:true): testa VARIAÇÕES do corpo na 1ª parcela ----
+    if (req.body?.diag) {
+      const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const pid = parcelas[0].id || parcelas[0].uuid;
+      const variantes = [
+        ['PIX venc amanhã',            { idParcela: pid, tipo: 'PIX_COBRANCA',  vencimento: amanha, descricao: 'Teste' }],
+        ['PIX venc amanhã s/ desc',    { idParcela: pid, tipo: 'PIX_COBRANCA',  vencimento: amanha }],
+        ['LINK venc amanhã',           { idParcela: pid, tipo: 'LINK_PAGAMENTO', vencimento: amanha, descricao: 'Teste' }],
+        ['LINK + atributos',           { idParcela: pid, tipo: 'LINK_PAGAMENTO', vencimento: amanha, descricao: 'Teste', atributos: { maximo_parcelas: 1 } }],
+        ['BOLETO venc amanhã',         { idParcela: pid, tipo: 'BOLETO',        vencimento: amanha, descricao: 'Teste' }],
+      ];
+      const out = {};
+      for (const [nome, args] of variantes) {
+        try { const r = await gerarCobranca(args); out[nome] = { status: r.status, data: r.data }; break; }   // 1º sucesso já basta
+        catch (e) { out[nome] = { erro: (e.status || '?'), msg: e.data?.message || e.message, detalhe: e.data }; }
+      }
+      return res.json({ diag: true, parcela: pid, variantes: out });
+    }
+
     // apenas:'ultima' → cobra SÓ a última parcela em aberto (2ª parte do PIX 50/50,
     // cobrada pelo OPERACIONAL na entrega — a 1ª já foi cobrada pelo financeiro).
     let alvo = parcelas;
