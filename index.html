@@ -466,6 +466,9 @@
   .fdLeg{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.04);border:1px solid var(--card-border);border-radius:8px;padding:5px 11px;font-size:12.5px;color:inherit;font-family:inherit;cursor:pointer}
   .fdLeg i{width:10px;height:10px;border-radius:3px;display:inline-block;flex:none}
   .fdLeg b{font-variant-numeric:tabular-nums}
+  .fdWrap{width:100%;flex:1 1 100%}
+  .fdSide{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px}
+  .fdMini b{font-size:15.5px;white-space:nowrap}
   .fdProgCell{width:24%;min-width:110px}
   .fdProgBar{height:12px;border-radius:0 4px 4px 0;min-width:3px}
 </style>
@@ -3705,6 +3708,7 @@ function renderFinanceiro(){
     `<button class="fdLeg${finFiltro===x.k?' on':''}" onclick="setFinFiltro('${x.k}')" title="Clique para listar"><i style="background:${x.cor}"></i>${x.rot}<b>${moeda(x.v)}</b></button>`).join('');
   const pctRec = totFrete>0 ? (totRec/totFrete*100) : 0;
   $('#finReceberResumo').innerHTML = `
+    <div class="fdWrap">
     <div class="fdGrid">
       <div class="fdHero${finFiltro==='aberto'?' on':''}" onclick="setFinFiltro('aberto')" title="Clique para listar os fretes em aberto">
         <span class="fdLbl">⏳ EM ABERTO (A COBRAR)</span>
@@ -3719,7 +3723,8 @@ function renderFinanceiro(){
       </div>
     </div>
     <div class="fdBar">${barraR}</div>
-    <div class="fdLegs">${legsR}</div>`;
+    <div class="fdLegs">${legsR}</div>
+    </div>`;
 
   // ---- ENTRADAS PROGRAMADAS (por dia de previsão de recebimento) ----
   const prog={};
@@ -3777,6 +3782,7 @@ function renderFinanceiro(){
       `<div class="fdSeg" style="width:${(x.v/somaL*100)}%;background:${x.cor};cursor:default" title="${x.rot}: ${moeda(x.v)} (${(x.v/somaL*100).toFixed(1)}% da receita)"></div>`).join('');
     const legsL=segsL.map(x=>`<span class="fdLeg" style="cursor:default"><i style="background:${x.cor}"></i>${x.rot}<b>${moeda(x.v)}</b></span>`).join('');
     $('#finLucroResumo').innerHTML=`
+      <div class="fdWrap">
       <div class="fdGrid">
         <div class="fdHero" style="cursor:default">
           <span class="fdLbl">📊 LUCRO DO MÊS</span>
@@ -3791,7 +3797,8 @@ function renderFinanceiro(){
         </div>
       </div>
       <div class="fdBar">${barraL}</div>
-      <div class="fdLegs">${legsL}</div>`;
+      <div class="fdLegs">${legsL}</div>
+      </div>`;
   }
 
   // ---- PRESTADORES (conferência) ----
