@@ -134,6 +134,29 @@ obsRouter.post('/venda', async (req, res, next) => {
   } catch (e) { next(mapZod(e)); }
 });
 
+// ---------- ADOTAR VENDAS ANTIGAS (feitas manualmente no CA) ----------
+//  body { fretes: ["1694","1682"] } — acha cada venda pelo número no Conta Azul e
+//  registra no ledger → o robô de BAIXA AUTOMÁTICA passa a vigiar as parcelas delas.
+obsRouter.post('/venda/adotar', async (req, res, next) => {
+  try {
+    const lista = [].concat(req.body?.fretes || req.body?.frete || []).map((x) => String(x).trim()).filter(Boolean);
+    if (!lista.length) return res.status(400).json({ ok: false, erro: 'Informe "fretes": ["1694", ...]' });
+    const resultados = [];
+    for (const fr of lista) {
+      try {
+        if (acharVenda(fr)) { resultados.push({ frete: fr, ja: 'já monitorada' }); continue; }
+        const v = await buscarVendaPorNumero(fr);
+        if (v?.id) {
+          registrarVenda({ frete: fr, valor: Number(v.total || v.valor || 0) || 0, caId: v.id, caNumero: v.numero, status: 'adotada_manual', payload: { adotada: true } });
+          resultados.push({ frete: fr, adotada: true, caId: v.id });
+        } else resultados.push({ frete: fr, erro: 'venda não encontrada no Conta Azul' });
+      } catch (e) { resultados.push({ frete: fr, erro: e.message }); }
+    }
+    log.info('Vendas adotadas p/ monitoramento', { resultados });
+    res.json({ ok: true, resultados });
+  } catch (e) { next(mapZod(e)); }
+});
+
 // ---------- DESPESA ----------
 obsRouter.post('/despesa', async (req, res, next) => {
   try {
