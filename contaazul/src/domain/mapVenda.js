@@ -34,6 +34,15 @@ export function computeParcelas(forma, valor, opts = {}) {
     case 'PIX_100':
     case 'CARTAO':
       return [{ data_vencimento: hoje, valor: v }];
+    case 'CARTAO_PIX': {
+      // misto: uma parte paga no PIX, o restante no link do cartão (Rede)
+      const parte = round2(Math.min(Math.max(Number(opts.pixParte) || v / 2, 0.01), v - 0.01));
+      const resto = round2(v - parte);
+      return [
+        { data_vencimento: opts.vencPix || hoje, valor: parte },
+        { data_vencimento: opts.venc2 || opts.previsaoChegada || hoje, valor: resto },
+      ];
+    }
     case 'FATURAMENTO_PJ':
       return [{ data_vencimento: opts.vencimento || hoje, valor: v }];
     default:
@@ -62,6 +71,9 @@ export function mapVenda(input, refs) {
     hoje,
     previsaoChegada: input.previsaoChegada,
     vencimento: input.vencimento,
+    pixParte: input.pixParte,
+    vencPix: input.vencimentoPix,
+    venc2: input.vencimento2,
   });
 
   // Estrutura REAL da parcela lida via GET /v1/venda/{id}:

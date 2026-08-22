@@ -30,7 +30,10 @@ const vendaSchema = z.object({
   frete: z.union([z.number(), z.string()]),
   modal: z.enum(['cegonha', 'guincho']).default('cegonha'),
   valor: z.number().positive(),
-  formaPagamento: z.enum(['PIX_50_50', 'PIX_100', 'CARTAO', 'FATURAMENTO_PJ']),
+  formaPagamento: z.enum(['PIX_50_50', 'PIX_100', 'CARTAO', 'FATURAMENTO_PJ', 'CARTAO_PIX']),
+  pixParte: z.number().positive().optional(),      // CARTAO_PIX: valor pago no PIX
+  vencimentoPix: z.string().optional(),            // CARTAO_PIX: vencimento da parte PIX
+  vencimento2: z.string().optional(),              // CARTAO_PIX: vencimento do restante (cartão)
   data: z.string().optional(),
   previsaoChegada: z.string().optional(),
   vencimento: z.string().optional(),
@@ -180,10 +183,11 @@ obsRouter.post('/cobranca', async (req, res, next) => {
     // apenas:'ultima' → cobra SÓ a última parcela em aberto (2ª parte do PIX 50/50,
     // cobrada pelo OPERACIONAL na entrega — a 1ª já foi cobrada pelo financeiro).
     let alvo = parcelas;
-    if (String(apenas || '').toLowerCase() === 'ultima') {
+    const modoApenas = String(apenas || '').toLowerCase();
+    if (modoApenas === 'ultima' || modoApenas === 'primeira') {
       const abertas = parcelas.filter((p) => !(/pag[oa]|liquid|recebid/i.test(String(p.status || '')) && !/nao|não|pend/i.test(String(p.status || ''))));
-      abertas.sort((a, b) => String(b.data_vencimento || '').localeCompare(String(a.data_vencimento || '')));
-      alvo = abertas.slice(0, 1);
+      abertas.sort((a, b) => String(a.data_vencimento || '').localeCompare(String(b.data_vencimento || '')));
+      alvo = modoApenas === 'primeira' ? abertas.slice(0, 1) : abertas.slice(-1);
       if (!alvo.length) return res.status(200).json({ ok: false, erro: 'Nenhuma parcela em aberto — tudo já pago.', tentativas });
     }
     const resultados = [];
