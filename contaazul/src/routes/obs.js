@@ -24,6 +24,16 @@ const pessoaSchema = z.object({
   documento: z.string().optional(),
   email: z.string().optional(),
   telefone: z.string().optional(),
+  // endereço completo (necessário p/ cobrança Pix/boleto no cliente da venda)
+  endereco: z.object({
+    cep: z.string().optional(),
+    logradouro: z.string().optional(),
+    numero: z.string().optional(),
+    complemento: z.string().optional(),
+    bairro: z.string().optional(),
+    cidade: z.string().optional(),
+    estado: z.string().optional(),
+  }).optional(),
 });
 
 const vendaSchema = z.object({

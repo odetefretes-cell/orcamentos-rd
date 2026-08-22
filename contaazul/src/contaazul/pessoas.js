@@ -35,13 +35,30 @@ export async function garantirPessoa(p) {
     if (achado?.id) return achado.id;
   }
   // Cria. Sem documento, cria só pelo nome (a OBS aceita prestador sem CPF).
+  // Cliente de VENDA precisa de cadastro COMPLETO pra emitir cobrança Pix/boleto:
+  // CPF/CNPJ + endereço completo (enderecos[]) + telefone_celular. Campos confirmados
+  // lendo uma pessoa real: enderecos[{cep,logradouro,numero,complemento,bairro,cidade,estado,pais}].
+  const end = p.endereco || null;
   const body = {
     nome: p.nome,
     // tipo_pessoa é obrigatório na API: 'Jurídica' p/ CNPJ (14 díg), senão 'Física'.
     tipo_pessoa: (p.tipoPessoa) || (doc.length === 14 ? 'Jurídica' : 'Física'),
     ...(doc ? { documento: doc } : {}),
     ...(p.email ? { email: p.email } : {}),
-    ...(p.telefone ? { telefone: soDigitos(p.telefone) } : {}),
+    // o campo REAL do telefone é telefone_celular (o "telefone" não persiste)
+    ...(p.telefone ? { telefone_celular: soDigitos(p.telefone) } : {}),
+    ...(end && (end.cep || end.logradouro) ? {
+      enderecos: [{
+        cep: String(end.cep || '').replace(/\D/g, ''),
+        logradouro: end.logradouro || '',
+        numero: end.numero || 'S/N',
+        complemento: end.complemento || '',
+        bairro: end.bairro || '',
+        cidade: end.cidade || '',
+        estado: end.estado || '',
+        pais: 'Brasil',
+      }],
+    } : {}),
     // perfis no formato REAL: [{ tipo_perfil: 'Cliente' }] / [{ tipo_perfil: 'Fornecedor' }]
     ...(p.perfis ? { perfis: p.perfis.map((x) => ({ tipo_perfil: PERFIL_LABEL[String(x).toUpperCase()] || x })) } : {}),
   };
