@@ -2678,6 +2678,11 @@ function cardFrete(f){
       <div class="fld"><label>Saldo do frete</label><div class="ro ${saldo<0?'saldo-neg':'saldo-pos'}">${moeda(saldo)}</div></div>
 
       ${camposPagamentoHTML(id,f,true)}
+      ${/pix/i.test(f.formaPgto||'') && abertoDe(f)>0.005 ? `
+      <div class="fld col4" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.35);border-radius:8px;padding:8px 10px">
+        <span style="font-size:13px">⚡ <b>PIX — falta ${moeda(abertoDe(f))}</b> (2ª parte na entrega):</span>
+        <button class="btn-ok" style="padding:5px 12px;font-size:12.5px" onclick="caPixCobrarSaldo('${id}')" title="Emite a cobrança PIX do que falta no Conta Azul e envia o link direto na conversa do cliente no ChatGuru">⚡ Cobrar saldo (CA + ChatGuru)</button>
+      </div>`:''}
 
       <div class="fld col4">
         <div id="pendBar_${id}" class="pend-bar${temPend(id)?' pend-on':''}">
@@ -3256,16 +3261,32 @@ function extrairLinks(obj){
   const urls=String(JSON.stringify(obj||{})).match(/https?:\\?\/\\?\/[^"\s\\]+/g)||[];
   return [...new Set(urls.map(u=>u.replace(/\\\//g,'/')))].filter(u=>!/api-v2\.contaazul/.test(u));
 }
-// emite a cobrança no Conta Azul (BOLETO | PIX | LINK) a partir da venda do frete
-async function caGerarCobranca(id, tipo){
+// emite a cobrança no Conta Azul (BOLETO | PIX | LINK) a partir da venda do frete.
+// opts.apenas='ultima' → cobra SÓ a última parcela em aberto (saldo/2ª parte).
+async function caGerarCobranca(id, tipo, opts){
   const f=lerDB()[id]; if(!f) return null;
   const t=flash('Emitindo cobrança no Conta Azul…','load');
-  const r=await caReq('/api/ca/cobranca',{frete:String(f.numero||''), tipo, vencimento:(f.boletoVencimento||f.pixVenc1||'')||undefined});
+  const r=await caReq('/api/ca/cobranca',{frete:String(f.numero||''), tipo, vencimento:(f.boletoVencimento||f.pixVenc1||'')||undefined, ...(opts&&opts.apenas?{apenas:opts.apenas}:{})});
   t.fechar&&t.fechar();
   if(r.ok && r.data && r.data.ok){ flash('Cobrança emitida no Conta Azul ✔','ok'); return r.data; }
   flash('Cobrança falhou: '+((r.data&&r.data.erro)||('HTTP '+r.status))+' — dá pra emitir manual no CA','erro');
   console.warn('cobranca CA', r);
   return null;
+}
+// OPERACIONAL: cobra o SALDO do PIX (2ª parte, na entrega) — CA + link no ChatGuru
+async function caPixCobrarSaldo(id){
+  const f=lerDB()[id]; if(!f) return;
+  const falta=abertoDe(f);
+  const ok=await uiConfirm('Cobrar o SALDO do PIX deste frete?\n\nFrete #'+(f.numero||'')+'\nCliente: '+(f.clienteEmpresa||'—')+'\nFalta: '+moeda(falta)+'\n\n• Emite a cobrança PIX no Conta Azul (só da parcela em aberto)\n• Envia o link direto na conversa do cliente no ChatGuru',
+    {titulo:'⚡ Cobrar saldo (PIX)', ok:'Cobrar', perigo:false});
+  if(!ok) return;
+  const cob=await caGerarCobranca(id,'PIX',{apenas:'ultima'});
+  const links=cob?extrairLinks(cob):[];
+  const msg=['*OBS Transportes — Saldo do frete* ⚡','','Frete Nº '+(f.numero||''),
+    'Valor restante: '+moeda(falta),
+    (links.length?'Link de pagamento: '+links[0]:''),
+    '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
+  await chatguruEnviar(id, msg);
 }
 // ---- botões por forma de pagamento (CA + envio direto no ChatGuru) ----
 async function caCartaoEnviar(id){
