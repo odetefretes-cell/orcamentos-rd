@@ -247,6 +247,7 @@ app.post('/api/ca/despesa', rota(async (req, res) => repassarCA('POST', '/obs/de
 app.post('/api/ca/despesa/cancelar', rota(async (req, res) => repassarCA('POST', '/obs/despesa/cancelar', req.body || {}, res)));
 app.post('/api/ca/despesa/esquecer', rota(async (req, res) => repassarCA('POST', '/obs/despesa/esquecer', req.body || {}, res)));
 app.post('/api/ca/cobranca',        rota(async (req, res) => repassarCA('POST', '/obs/cobranca', req.body || {}, res)));
+app.post('/api/ca/baixa',           rota(async (req, res) => repassarCA('POST', '/obs/baixa', req.body || {}, res)));
 
 // Envio direto no ChatGuru pelo app (botões do financeiro) → repassa ao obs-automacao
 // (3001) injetando o MESMO segredo compartilhado. Exige login (autenticar em /api).
