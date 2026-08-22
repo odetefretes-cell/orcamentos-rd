@@ -191,6 +191,24 @@ obsRouter.post('/cobranca', async (req, res, next) => {
 
     const hoje = new Date().toISOString().slice(0, 10);
 
+    // ---- DIAGNÓSTICO 2 (diag2:true): testa cada CONTA FINANCEIRA como id_conta ----
+    if (req.body?.diag2) {
+      const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const pid = parcelas[0].id || parcelas[0].uuid;
+      const PATH = '/v1/financeiro/eventos-financeiros/contas-a-receber/gerar-cobranca';
+      const d = (await ca.get('/v1/conta-financeira', { tamanho_pagina: 100 })).data;
+      const contas = Array.isArray(d) ? d : (d?.items || d?.itens || d?.content || []);
+      const out = { parcela: pid, contas: contas.map((c) => ({ id: c.id || c.uuid, nome: c.nome, tipo: c.tipo })) };
+      for (const c of contas) {
+        const cid = c.id || c.uuid; if (!cid) continue;
+        try { const r = await ca.post(PATH, { id_conta: cid, id_parcela: pid, tipo: 'LINK_PAGAMENTO', data_vencimento: amanha, descricao_fatura: 'Teste OBS' }); out['✓ ' + c.nome] = { status: r.status, data: r.data }; break; }
+        catch (e) { out['✗ ' + c.nome] = { erro: e.status || '?', msg: e.data?.message || e.message }; }
+      }
+      try { const r = await ca.post(PATH, { id_parcela: pid, tipo: 'LINK_PAGAMENTO', data_vencimento: amanha, descricao_fatura: 'Teste OBS' }); out['✓ SEM id_conta'] = { status: r.status, data: r.data }; }
+      catch (e) { out['✗ SEM id_conta'] = { erro: e.status || '?', msg: e.data?.message || e.message, detalhe: e.data }; }
+      return res.json(out);
+    }
+
     // ---- DIAGNÓSTICO (diag:true): testa VARIAÇÕES do corpo na 1ª parcela ----
     if (req.body?.diag) {
       const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
