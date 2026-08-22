@@ -3095,7 +3095,19 @@ async function caLancarVenda(id){
       formaPagamento,
       ...(formaPagamento==='CARTAO_PIX' ? { pixParte: numMoeda(f.pixParteValor)||undefined, vencimentoPix: f.pixVenc1||undefined, vencimento2: f.dataCompensacao||f.dataPagLink||undefined } : {}),
       previsaoChegada: f.previsaoRecebimento || undefined,
-      cliente: { nome: f.clienteEmpresa, documento: f.cpfCnpj },
+      // cadastro COMPLETO do cliente (CPF + endereço + telefone) — sem isso o
+      // Conta Azul não emite a cobrança Pix/boleto ("faltam informações no cadastro")
+      cliente: {
+        nome: f.clienteEmpresa, documento: f.cpfCnpj, email: f.email, telefone: f.telefone,
+        endereco: {
+          cep: f.cep || '',
+          logradouro: f.endereco || '',
+          numero: (String(f.endereco||'').match(/(\d+)\s*$/)||[])[1] || 'S/N',
+          bairro: f.bairro || '',
+          cidade: f.cidade || '',
+          estado: f.uf || ''
+        }
+      },
       origem: f.origem,
       destino: f.destino,
       veiculo: veicResumo(f),
