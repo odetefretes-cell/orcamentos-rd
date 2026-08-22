@@ -1,6 +1,6 @@
 # OBS Transportes — Sistema de Orçamentos + Automação de Leads
 
-Contexto do projeto para o Claude Code. Última atualização: **20/08/2026**.
+Contexto do projeto para o Claude Code. Última atualização: **22/08/2026**.
 
 > **Resumo em uma frase:** app single-file (`index.html`) de CRM/orçamentos + backend de
 > automação (pasta `integracao/`) que recebe leads pelo ChatGuru, calcula a média do frete
@@ -276,3 +276,15 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    - **Caddy** (HTTPS automático) com `handle /webhook/*` → 3001. Bug corrigido no dia: era `handle_path` (cortava o `/webhook` → 404 no webhook do ChatGuru).
    - **Formulário do site** tirado do Google: pré-cadastro agora em `/webhook/precadastro` (VPS) e **sem gravação no Firestore** (o lead entra pela automação).
    - Validado em produção com leads reais (médias corretas + `ENVIADO`). Firebase/Cloud mantidos só como rollback.
+8. **Integração Conta Azul + correção dos leads do site (22/08/2026):**
+
+   **Conta Azul (serviço `obs-contaazul`, porta 3002, systemd — ver `contaazul/`):**
+   - Backend Node (Express + SQLite) que lança **despesa do prestador** (conta a pagar) e **venda** no Conta Azul Pro pela API v2 (`api-v2.contaazul.com`, OAuth2/Cognito). Token no SQLite (refresh persistente).
+   - **Proxy seguro:** o app chama `obs-api` (`/api/ca/*`, JWT) que injeta o `X-OBS-Secret` e repassa ao 3002. O segredo (`OBS_SHARED_SECRET`) fica só no servidor (`/etc/obs-db/.env` + `/opt/obs-contaazul/.env`), **nunca no navegador nem no GitHub**.
+   - Botões no app (tela **Financeiro → Prestadores**): **☁ lançar** (1 prestador), **☁ lançar juntos** (várias placas do mesmo prestador num lançamento só — acerto semanal/mensal; dedup de par frete+placa), **↩ cancelar** (Plano B: desmarca no sistema + você exclui manual no CA), campo **🔑 chave PIX** (vai na observação/nota da parcela). Placa vazia do prestador → usa a do veículo transportado.
+   - **Quirks da API v2 descobertos:** listas vêm em `items` (inglês); `tamanho_pagina` ∈ {10,20,50,100,200,500,1000}; despesa (conta a pagar) usa `contato` (não `id_pessoa`), `observacao` (singular), `rateio[{id_categoria, rateio_centro_custo:[{id_centro_custo,valor}]}]`, `condicao_pagamento.parcelas[{descricao, data_vencimento, nota, conta_financeira, detalhe_valor:{valor_bruto,valor_liquido,...}}]`; o POST volta **202 sem id** (a busca depois traz o **id da PARCELA**, e `parcela.evento.id` é o id do EVENTO). **A API NÃO deixa excluir conta a pagar** (DELETE evento=404, DELETE parcela=502) nem cadastrar PIX no fornecedor → por isso cancelar/PIX são "assistidos" (manual no CA). UUIDs reais (vendedor, conta, categorias, centros, serviços) fixados em `contaazul/src/config.js`.
+   - **Baixa em massa:** `servidor-obs/baixa-prestadores.mjs` deu baixa (marcou pago no sistema, sem tocar no CA) em **167 prestadores** de fretes ≤ 31/05 (backup automático antes).
+
+   **Leads do site que sumiam — CORRIGIDO:** o formulário já mandava pro `/webhook/precadastro`, mas o backend **só criava o contato no ChatGuru e NÃO salvava o lead** → o lead se perdia. Corrigido em `integracao/precadastro.js`: agora o pré-cadastro **cria o lead no CRM (Postgres)** (`getFirestore→pg-compat`, merge por `lead_wpp_{últimos8}`). `integracao/obs-cotacao.js` reforçado com **`keepalive`** (sobrevive ao pulo pro WhatsApp) + corpo completo. **Testado: `leadCriado:true`** e lead aparece no CRM com média. O `main` (GitHub Pages) já serve o form com a URL nova; falta só o reforço do keepalive lá se quiser (push no `main`).
+   - **Recuperação:** `servidor-obs/recuperar-leads-firebase.mjs` trouxe 6 leads presos no Firebase (só os que faltavam, sem sobrescrever). Os ~29 anteriores à correção têm os **dados completos no RD Station** (o form manda pro RD via Make c/ keepalive) → recuperar com a skill **`preencher-frete-rd-crm`**.
+   - Diagnóstico do funil: `servidor-obs/diag-intake.mjs` (status do `crm_leads_intake`, presos, webhook_log, busca por telefone).
