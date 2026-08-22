@@ -8,8 +8,12 @@ import { ca } from './client.js';
 import { config } from '../config.js';
 
 export async function gerarCobranca({ idParcela, tipo, vencimento, descricao, atributos }) {
+  // Schema OFICIAL (GerarCobrancaRequestDto): required = [conta_bancaria,
+  // descricao_fatura, id_parcela, data_vencimento, tipo]. O campo da conta é
+  // "conta_bancaria" (NÃO "id_conta" — esse era o 400 genérico).
+  // Mínimo do Conta Azul: R$ 10,00 por cobrança.
   const body = {
-    id_conta: config.contaAzul.idContaFinanceira,
+    conta_bancaria: config.contaAzul.idContaFinanceira,
     id_parcela: idParcela,
     tipo,
     data_vencimento: vencimento,
