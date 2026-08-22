@@ -3078,6 +3078,23 @@ async function caCancelarDespesa(id, idx){
   setPrestFin(id,idx,'contaAzul','');   // volta pra em aberto
   flash('Desmarcado ✔ — agora exclua no Conta Azul: frete #'+(f.numero||'')+' · '+(p.emp||'')+' · '+moeda(numMoeda(p.valor)),'ok');
 }
+// acha o CADASTRO do cliente (CLIENTES) pra completar CPF/endereço que faltem na ficha:
+// 1º pelo CPF da ficha; senão pelo telefone (últimos 8 dígitos); senão pelo nome exato.
+function clienteCadastroDe(f){
+  try{
+    const k=(typeof cpfKey==='function')?cpfKey(f.cpfCnpj):String(f.cpfCnpj||'').replace(/\D/g,'');
+    if(k && CLIENTES[k]) return CLIENTES[k];
+    const tel8=String(f.telefone||'').replace(/\D/g,'').slice(-8);
+    const nome=up(String(f.clienteEmpresa||'').trim());
+    let porNome=null;
+    for(const c of Object.values(CLIENTES||{})){
+      const cTel8=String(c.telefone||'').replace(/\D/g,'').slice(-8);
+      if(tel8 && tel8.length===8 && cTel8===tel8) return c;
+      if(nome && up(String(c.clienteEmpresa||'').trim())===nome && !porNome) porNome=c;
+    }
+    return porNome;
+  }catch(_){ return null; }
+}
 // ===== Conta Azul: registrar a VENDA (receita do frete) =====
 async function caLancarVenda(id){
   try{
@@ -3086,6 +3103,9 @@ async function caLancarVenda(id){
     if(!f.numero){ flash('Preencha o número do frete antes','erro'); return; }
     if(valor<=0){ flash('Valor do frete inválido (informe o valor antes)','erro'); return; }
     const modal = /guincho/i.test(String(f.equipamentos||'')) ? 'guincho' : 'cegonha';
+    if(!String(f.cpfCnpj||'').trim() && !((clienteCadastroDe(f)||{}).cpfCnpj)){
+      flash('⚠ Cliente sem CPF (nem na ficha, nem no cadastro) — a venda registra, mas o Pix/boleto NÃO emite. Complete o CPF na ficha.','erro');
+    }
     const fp = String(f.formaPgto||'');
     const formaPagamento = (/cart/i.test(fp)&&/pix/i.test(fp)) ? 'CARTAO_PIX' : (fp==='Cartão' ? 'CARTAO' : (fp==='Boleto (Empresa)' ? 'FATURAMENTO_PJ' : (String(f.pixTipo||'')==='Integral' ? 'PIX_100' : 'PIX_50_50')));
     const venda = {
@@ -3095,19 +3115,25 @@ async function caLancarVenda(id){
       formaPagamento,
       ...(formaPagamento==='CARTAO_PIX' ? { pixParte: numMoeda(f.pixParteValor)||undefined, vencimentoPix: f.pixVenc1||undefined, vencimento2: f.dataCompensacao||f.dataPagLink||undefined } : {}),
       previsaoChegada: f.previsaoRecebimento || undefined,
-      // cadastro COMPLETO do cliente (CPF + endereço + telefone) — sem isso o
-      // Conta Azul não emite a cobrança Pix/boleto ("faltam informações no cadastro")
-      cliente: {
-        nome: f.clienteEmpresa, documento: f.cpfCnpj, email: f.email, telefone: f.telefone,
-        endereco: {
-          cep: f.cep || '',
-          logradouro: f.endereco || '',
-          numero: (String(f.endereco||'').match(/(\d+)\s*$/)||[])[1] || 'S/N',
-          bairro: f.bairro || '',
-          cidade: f.cidade || '',
-          estado: f.uf || ''
-        }
-      },
+      // cadastro COMPLETO do cliente (CPF + endereço + telefone). O que faltar na
+      // FICHA é completado pelo CADASTRO de clientes do sistema (CLIENTES) — sem
+      // isso o Conta Azul não emite a cobrança Pix/boleto.
+      cliente: (function(){
+        const cad=clienteCadastroDe(f)||{};
+        const end=(f.endereco||cad.endereco||'');
+        return {
+          nome: f.clienteEmpresa || cad.clienteEmpresa, documento: f.cpfCnpj || cad.cpfCnpj,
+          email: f.email || cad.email, telefone: f.telefone || cad.telefone,
+          endereco: {
+            cep: f.cep || cad.cep || '',
+            logradouro: end,
+            numero: (String(end).match(/(\d+)\s*$/)||[])[1] || 'S/N',
+            bairro: f.bairro || cad.bairro || '',
+            cidade: f.cidade || cad.cidade || '',
+            estado: f.uf || cad.uf || ''
+          }
+        };
+      })(),
       origem: f.origem,
       destino: f.destino,
       veiculo: veicResumo(f),
