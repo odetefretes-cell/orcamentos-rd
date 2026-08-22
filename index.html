@@ -3353,7 +3353,8 @@ function msgBoletoDe(f){
   return ['*OBS Transportes — Faturamento (boleto)* 📄','','Frete Nº '+(f.numero||''),
     'Valor: '+moeda(f.valorFrete),
     (f.boletoVencimento?'Vencimento: '+dataBR(f.boletoVencimento):''),
-    '','O boleto é emitido no embarque do veículo e enviado por aqui e por e-mail. 😊'].filter(Boolean).join('\n');
+    (f.boletoLink?'Boleto: '+f.boletoLink:''),
+    '',(f.boletoLink?'Qualquer dúvida é só chamar! 😊':'O boleto é emitido no embarque do veículo e enviado por aqui e por e-mail. 😊')].filter(Boolean).join('\n');
 }
 function msgCobrancaCopiar(id){
   const f=lerDB()[id]; if(!f) return;
@@ -3442,9 +3443,10 @@ async function caBoletoFaturar(id){
   if(okVenda===false) return;
   const cob = await caGerarCobranca(id,'BOLETO');     // emite o boleto pelo CA
   const links = (cob&&cob.links&&cob.links.length)?cob.links:(cob?extrairLinks(cob):[]);
-  const msg = msgBoletoDe(f)+(links.length?('\n\nBoleto: '+links[0]):'');
+  if(links.length) setPag(id,'boletoLink',links[0]);  // o Gmail/ChatGuru passam a incluir o boleto
+  const msg = msgBoletoDe(lerDB()[id]||f)+(links.length&&!(f.boletoLink)?'':'');
   const enviou = await chatguruEnviar(id, msg);
-  if(cob){ setPag(id,'dataFaturamento',hojeISO()); flash('Faturado ✔ — boleto emitido e frete fora da fila','ok'); }
+  if(cob){ setPag(id,'dataFaturamento',hojeISO()); flash('Faturado ✔ — boleto emitido, link salvo e frete fora da fila','ok'); }
   if(enviou) setPag(id,'cobrancaEnviada',hojeISO());
 }
 async function caPixEnviar(id){
@@ -3621,8 +3623,7 @@ function renderFinanceiro(){
           ${emb?`<span class="badge" style="background:#dc2626">🚚 EMBARCOU ${dataBR(f.embarqueFeito)} — FATURAR AGORA</span>`:'<span class="badge" style="background:#374151">aguardando embarque</span>'}
           <label style="font-size:11px;color:#8592a1">vencimento<br><input type="date" value="${escA(f.boletoVencimento)}" onchange="setPag('${f._id}','boletoVencimento',this.value)" title="Vencimento do boleto (obrigatório pra faturar)" style="font-size:12.5px"></label>
           <button class="btn-ok" style="padding:5px 12px;font-size:12.5px" onclick="caBoletoFaturar('${f._id}')" title="Emite o boleto no Conta Azul e envia ao cliente no ChatGuru; marca faturado">☁ Faturar (CA + 📱 ChatGuru)</button>
-          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="gmailFaturamento('${f._id}')" title="E-mail de faturamento pronto no Gmail">✉️ Gmail</button>
-          <label style="font-size:11px;color:#8592a1" title="Preencher manual tira da fila (faturou por fora)">faturado em<br><input type="date" value="${escA(f.dataFaturamento)}" onchange="setPag('${f._id}','dataFaturamento',this.value)" style="font-size:12.5px"></label>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="gmailFaturamento('${f._id}')" title="E-mail de faturamento pronto no Gmail (com o link do boleto após faturar)">✉️ Gmail</button>
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
         </div>
       </div>
