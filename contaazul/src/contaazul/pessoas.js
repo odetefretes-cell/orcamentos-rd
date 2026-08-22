@@ -4,6 +4,16 @@ import { ca } from './client.js';
 import { log, mask } from '../logger.js';
 
 const soDigitos = (s) => String(s || '').replace(/\D/g, '');
+// Telefone no formato que o CA exige: DDXXXXXXXXX (DDD+número, SEM o 55 do país,
+// sem zeros à esquerda). "5511988456171" → "11988456171".
+function telefoneBR(v) {
+  let d = soDigitos(v);
+  if (!d) return '';
+  d = d.replace(/^0+/, '');
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  if (d.length > 11) d = d.slice(-11);
+  return d;
+}
 
 // A API v2 quer `perfis` como lista de OBJETOS { tipo_perfil: 'Cliente'|'Fornecedor' }
 // (português, capitalizado) — confirmado lendo uma pessoa real. NÃO é ['FORNECEDOR'].
@@ -64,7 +74,7 @@ export async function garantirPessoa(p) {
     ...(doc ? { documento: doc } : {}),
     ...(p.email ? { email: p.email } : {}),
     // o campo REAL do telefone é telefone_celular (o "telefone" não persiste)
-    ...(p.telefone ? { telefone_celular: soDigitos(p.telefone) } : {}),
+    ...(telefoneBR(p.telefone) ? { telefone_celular: telefoneBR(p.telefone) } : {}),
     ...(end && (end.cep || end.logradouro) ? {
       enderecos: [{
         cep: String(end.cep || '').replace(/\D/g, ''),
