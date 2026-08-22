@@ -12,7 +12,7 @@ import { ca } from '../contaazul/client.js';
 import { mapVenda } from '../domain/mapVenda.js';
 import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
 import { criarContaAPagar, cancelarContaAPagarPorFrete, listarParcelas } from '../contaazul/financeiro.js';
-import { gerarCobranca } from '../contaazul/cobranca.js';
+import { gerarCobranca, esperarUrlCobranca } from '../contaazul/cobranca.js';
 import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete, removerDespesaPorFrete } from '../store/ledger.js';
 import { log } from '../logger.js';
 
@@ -260,9 +260,17 @@ obsRouter.post('/cobranca', async (req, res, next) => {
         resultados.push({ parcela: pid, status: r.status, data: r.data });
       } catch (e) { resultados.push({ parcela: pid, erro: (e.status || '?') + ' ' + e.message, data: e.data }); }
     }
+    // a emissão é ASSÍNCRONA (url vem null) → espera confirmar e busca o link
+    for (const r of resultados) {
+      const cid = r?.data?.id;
+      if (!cid || r?.data?.url) continue;
+      const confirmada = await esperarUrlCobranca(cid);
+      if (confirmada) { r.data = { ...r.data, ...confirmada }; }
+    }
     const okAlguma = resultados.some((r) => r.status >= 200 && r.status < 300);
-    log.info('Cobrança CA', { frete, tipo: t, emitidas: resultados.filter((r) => r.status).length });
-    res.status(okAlguma ? 200 : 502).json({ ok: okAlguma, frete, tipo: t, resultados, tentativas });
+    const links = resultados.map((r) => r?.data?.url).filter(Boolean);
+    log.info('Cobrança CA', { frete, tipo: t, emitidas: resultados.filter((r) => r.status).length, links: links.length });
+    res.status(okAlguma ? 200 : 502).json({ ok: okAlguma, frete, tipo: t, links, resultados, tentativas });
   } catch (e) { next(mapZod(e)); }
 });
 

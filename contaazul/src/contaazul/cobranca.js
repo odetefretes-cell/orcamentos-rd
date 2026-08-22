@@ -26,3 +26,24 @@ export async function gerarCobranca({ idParcela, tipo, vencimento, descricao, at
   );
   return { status, data };
 }
+
+/** Busca uma cobrança pelo id (a emissão é assíncrona — o link/url sai aqui). */
+export async function buscarCobranca(idCobranca) {
+  const { data } = await ca.get(
+    `/v1/financeiro/eventos-financeiros/contas-a-receber/cobranca/${idCobranca}`
+  );
+  return data; // { id, status, url, ... }
+}
+
+/** Espera a cobrança confirmar e devolve a versão com URL (até ~12s). */
+export async function esperarUrlCobranca(idCobranca, tentativas = 6, esperaMs = 2000) {
+  let ultima = null;
+  for (let i = 0; i < tentativas; i++) {
+    await new Promise((r) => setTimeout(r, esperaMs));
+    try {
+      ultima = await buscarCobranca(idCobranca);
+      if (ultima && ultima.url) return ultima;
+    } catch (_) { /* tenta de novo */ }
+  }
+  return ultima;
+}
