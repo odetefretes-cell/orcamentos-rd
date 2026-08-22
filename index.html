@@ -2706,7 +2706,7 @@ function cardFrete(f){
       <div class="fld"><label>${faturado(f)?'📄 Faturado (boleto)':'Em aberto'}</label><div class="ro ${faturado(f)?'':(abertoV>0?'saldo-neg':'saldo-pos')}" ${faturado(f)?'style="color:#3b82f6;font-weight:700"':''}>${moeda(abertoV)}</div></div>
       <div class="fld"><label>Saldo do frete</label><div class="ro ${saldo<0?'saldo-neg':'saldo-pos'}">${moeda(saldo)}</div></div>
 
-      ${camposPagamentoHTML(id,f,true)}
+      ${finViewOperacionalHTML(f)}
       ${/pix/i.test(f.formaPgto||'') && abertoDe(f)>0.005 ? `
       <div class="fld col4" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.35);border-radius:8px;padding:8px 10px">
         <span style="font-size:13px">⚡ <b>PIX — falta ${moeda(abertoDe(f))}</b> (2ª parte na entrega):</span>
@@ -3273,6 +3273,23 @@ function setPag(id,campo,valor){
     const vr=$('#viewRelatorio'); if(vr && vr.style.display!=='none') renderRelatorio();
     const vf=$('#viewFinanceiro'); if(vf && vf.style.display!=='none') renderFinanceiro();
   },0);
+}
+// FINANCEIRO no card do OPERACIONAL: SOMENTE LEITURA (espelha o que o financeiro
+// definiu — programação, pagos, faturamento). Edição/recebimento é na tela Financeiro;
+// a única ação do operacional é o ⚡ Cobrar saldo (banda própria, abaixo).
+function finViewOperacionalHTML(f){
+  const prog=programacaoDe(f);
+  const chips=prog.map((p,i)=>{
+    const pago=num(f['pago'+(i+1)])>0.005;
+    const dt=f['dataPago'+(i+1)];
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.05);border:1px solid var(--card-border);border-radius:8px;padding:5px 11px;font-size:12.5px">${p.rotulo}: <b>${moeda(p.valor)}</b>${p.venc?' · vence '+dataBR(p.venc):''} ${pago?`<b style="color:#22c55e">✅ pago${dt?' em '+dataBR(dt):''}</b>`:'<b style="color:#e6a100">⏳ em aberto</b>'}</span>`;
+  }).join(' ');
+  const fat=/boleto/i.test(f.formaPgto||'')?`<div class="fld"><label>📄 Faturado em</label><div class="ro">${f.dataFaturamento?dataBR(f.dataFaturamento):'— (fatura no embarque)'}</div></div>`:'';
+  const cobr=f.cobrancaEnviada?`<div class="fld"><label>Cobrança</label><div class="ro" style="color:#fbbf24;font-weight:700">⏳ enviada em ${dataBR(f.cobrancaEnviada)}</div></div>`:'';
+  const obs=f.obsPagamento?`<div class="fld col2"><label>📝 Observação do financeiro</label><div class="ro">${esc(f.obsPagamento)}</div></div>`:'';
+  return `<div class="fld col4" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${chips||'<span class="hint">o financeiro ainda não definiu a programação de pagamento</span>'}</div>
+      ${fat}${cobr}${obs}
+      <div class="fld col4"><div class="hint">🔒 Controle do FINANCEIRO — aqui é só acompanhamento. Recebimentos, datas e alterações são feitos na tela Financeiro.</div></div>`;
 }
 // bloco de campos de pagamento reutilizado (A receber, liberação e card da operadora)
 function camposPagamentoHTML(id,f,defer){
