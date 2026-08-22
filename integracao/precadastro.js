@@ -139,14 +139,16 @@ exports.openerDisparou = onRequest(
       if (!telefone) { res.status(200).json({ ok: false, erro: 'telefone (celular) ausente' }); return; }
 
       // O chat já existe (o cliente mandou a saudação que criou o chat + disparou o
-      // Opener), então o contexto deve gravar de primeira; retry leve por segurança.
+      // Opener), então o contexto costuma gravar de primeira. Retry REFORÇADO (até 6x,
+      // espera crescente): é o Cotando=Sim daqui que faz o encaminhador [6] repassar a
+      // resposta do cliente — se falhar, o bloco preenchido não chega ao backend.
       let ok = false, erro = '';
-      for (let tentativa = 1; tentativa <= 3 && !ok; tentativa++) {
+      for (let tentativa = 1; tentativa <= 6 && !ok; tentativa++) {
         try { await atualizarContexto({ chatNumber: telefone, variaveis: { Cotando: 'Sim' } }); ok = true; }
         catch (e) {
           erro = e.message || String(e);
-          if (tentativa < 3 && /encontrad|not found/i.test(erro)) { await new Promise(r => setTimeout(r, 1500)); }
-          else { console.warn('[openerDisparou] chat_update_context falhou:', erro); break; }
+          if (tentativa < 6) { await new Promise(r => setTimeout(r, 1000 + tentativa * 500)); }
+          else { console.warn('[openerDisparou] chat_update_context falhou (6 tentativas):', erro); }
         }
       }
       console.log(`[openerDisparou] ${telefone}: cotando=${ok}${erro ? ' | ' + erro : ''}`);
