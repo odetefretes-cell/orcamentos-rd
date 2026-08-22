@@ -23,18 +23,22 @@
   var WPP_NUMERO = '5511932225311';
   // Pré-cadastro no ChatGuru (backend): cria o chat + liga Cotando=Sim ANTES da
   // mensagem chegar, pra o Opener não disparar o intake por cima do lead do formulário.
-  var PRECADASTRO_URL = 'https://southamerica-east1-obs-fretes.cloudfunctions.net/preCadastrarLead';
+  // Backend novo (VPS): cria o chat no ChatGuru + liga Cotando=Sim + GRAVA O LEAD NO CRM.
+  var PRECADASTRO_URL = 'https://api.obstransportes.com.br/webhook/precadastro';
   function preCadastrarChatguru(lead) {
     try {
-      var ctrl = ('AbortController' in window) ? new AbortController() : null;
-      var to = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, 4000) : null;
       return fetch(PRECADASTRO_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefone: lead.telefone, nome: lead.nome, origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc, valor: lead.valorVeiculo }),
-        signal: ctrl ? ctrl.signal : undefined
-      }).then(function (r) { if (to) clearTimeout(to); if (!r.ok) console.warn('pré-cadastro status', r.status); })
-        .catch(function (e) { if (to) clearTimeout(to); console.warn('pré-cadastro ChatGuru falhou (segue pro WhatsApp):', e); });
-    } catch (e) { console.warn('pré-cadastro ChatGuru erro (segue):', e); return Promise.resolve(); }
+        keepalive: true,   // ESSENCIAL: a requisição sobrevive ao pulo pro WhatsApp (antes a gravação morria aqui)
+        body: JSON.stringify({
+          telefone: lead.telefone, nome: lead.nome, email: lead.email,
+          origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc,
+          valor: lead.valorVeiculo, funciona: lead.funciona, blindado: lead.blindado,
+          tipoCliente: lead.tipoCliente, categoria: lead.categoria, mensagem: lead.mensagem
+        })
+      }).then(function (r) { if (!r.ok) console.warn('pré-cadastro status', r.status); })
+        .catch(function (e) { console.warn('pré-cadastro/CRM falhou (segue pro WhatsApp):', e); });
+    } catch (e) { console.warn('pré-cadastro erro (segue):', e); return Promise.resolve(); }
   }
   // monta a mensagem que o cliente envia no WhatsApp (mesma estrutura da página #orc do app)
   function montarMsgWpp(lead) {
@@ -215,14 +219,12 @@
       // PRÉ-CADASTRO no ChatGuru PRIMEIRO (liga Cotando=Sim antes da mensagem chegar —
       // barra o Opener). Depois grava no CRM + RD (melhor esforço). O redirecionamento
       // acontece de qualquer forma (todas as etapas são tolerantes a falha).
+      // O pré-cadastro AGORA grava o lead no CRM novo (Postgres), com keepalive — não
+      // depende mais do Firebase. O RD segue por cima (best-effort). Tudo tolerante a falha.
       preCadastrarChatguru(lead).then(function () {
-        return db().then(function (base) {
-          return _fb.setDoc(_fb.doc(base, 'crm_leads', id), lead);
-        }).then(function () {
-          try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
-        });
+        try { enviarRD(lead); } catch (e) { console.error('RD', e); }   // envia ao RD (keepalive sobrevive à navegação)
       }).catch(function (e) {
-        console.error('CRM/RD (segue pro WhatsApp mesmo assim):', e);
+        console.error('pré-cadastro/RD (segue pro WhatsApp mesmo assim):', e);
       }).then(function () {
         form.hidden = true; host.querySelector('#obsOk').hidden = false;   // mensagem de "abrindo o WhatsApp"
         window.location.href = waUrl;                                       // → WhatsApp / ChatGuru
