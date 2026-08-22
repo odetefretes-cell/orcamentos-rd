@@ -91,7 +91,17 @@ obsRouter.post('/venda', async (req, res, next) => {
       idNatureza: config.contaAzul.idNaturezaVenda,
     });
 
-    const venda = await criarVenda(payload);
+    // Cliente recém-criado leva ~1-2s pra ficar consultável no CA → a venda pode
+    // voltar "Cliente da venda não encontrado". Repetimos com espera (até ~12s).
+    let venda;
+    for (let tent = 1; ; tent++) {
+      try { venda = await criarVenda(payload); break; }
+      catch (e) {
+        const clienteNaoAchado = e.status === 400 && /n[aã]o encontrado/i.test(JSON.stringify(e.data || {}));
+        if (clienteNaoAchado && tent < 6) { await new Promise((r) => setTimeout(r, 2000)); continue; }
+        throw e;
+      }
+    }
     registrarVenda({
       frete: input.frete, valor: input.valor,
       caId: venda.id, caNumero: venda.numero, status: 'criado', payload,
