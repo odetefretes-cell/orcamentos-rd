@@ -113,7 +113,20 @@ app.post(['/enviar-cliente', '/webhook/enviar-cliente'], async (req, res) => {
     }
     const { telefone, texto } = req.body || {};
     if (!telefone || !texto) return res.status(400).json({ ok: false, erro: 'informe telefone e texto' });
-    const r = await enviarMensagem({ chatNumber: telefone, texto });
+    // "Chat não encontrado" costuma ser o 9º dígito (ficha com 9, chat sem — ou o
+    // contrário). Tenta o número como veio e, se não achar, a variante com/sem o 9.
+    let r;
+    try { r = await enviarMensagem({ chatNumber: telefone, texto }); }
+    catch (e1) {
+      if (!/encontrad|not found/i.test(e1.message || '')) throw e1;
+      const d = String(telefone).replace(/\D/g, '').replace(/^55/, '');
+      let alt = null;
+      if (d.length === 11 && d[2] === '9') alt = d.slice(0, 2) + d.slice(3);      // tira o 9
+      else if (d.length === 10) alt = d.slice(0, 2) + '9' + d.slice(2);           // põe o 9
+      if (!alt) throw e1;
+      console.log(`[enviar-cliente] chat não encontrado p/ ${telefone} — tentando variante 55${alt}`);
+      r = await enviarMensagem({ chatNumber: '55' + alt, texto });
+    }
     console.log(`[enviar-cliente] → ${telefone}: ${String(texto).slice(0, 60)}…`);
     res.json({ ok: true, chatguru: r });
   } catch (e) {
