@@ -3087,12 +3087,13 @@ async function caLancarVenda(id){
     if(valor<=0){ flash('Valor do frete inválido (informe o valor antes)','erro'); return; }
     const modal = /guincho/i.test(String(f.equipamentos||'')) ? 'guincho' : 'cegonha';
     const fp = String(f.formaPgto||'');
-    const formaPagamento = fp==='Cartão' ? 'CARTAO' : (fp==='Boleto (Empresa)' ? 'FATURAMENTO_PJ' : (String(f.pixTipo||'')==='Integral' ? 'PIX_100' : 'PIX_50_50'));
+    const formaPagamento = (/cart/i.test(fp)&&/pix/i.test(fp)) ? 'CARTAO_PIX' : (fp==='Cartão' ? 'CARTAO' : (fp==='Boleto (Empresa)' ? 'FATURAMENTO_PJ' : (String(f.pixTipo||'')==='Integral' ? 'PIX_100' : 'PIX_50_50')));
     const venda = {
       frete: Number(f.numero),
       modal,
       valor,
       formaPagamento,
+      ...(formaPagamento==='CARTAO_PIX' ? { pixParte: numMoeda(f.pixParteValor)||undefined, vencimentoPix: f.pixVenc1||undefined, vencimento2: f.dataCompensacao||f.dataPagLink||undefined } : {}),
       previsaoChegada: f.previsaoRecebimento || undefined,
       cliente: { nome: f.clienteEmpresa, documento: f.cpfCnpj },
       origem: f.origem,
@@ -3175,6 +3176,7 @@ function setFinPrestF(x){ finPrestF = (finPrestF===x?'TODOS':x); renderFinanceir
 // prazo FINAL do contrato = última data de vencimento da forma de pagamento
 function prazoFinalDe(f){
   const fp=String(f.formaPgto||'');
+  if(/cart/i.test(fp) && /pix/i.test(fp)) return f.dataCompensacao||f.dataPagLink||f.pixVenc1||'';   // misto: o cartão é a última parte
   if(/pix/i.test(fp)) return (String(f.pixTipo||'50/50')==='Integral') ? (f.pixVenc1||'') : (f.pixVenc2||f.pixVenc1||'');
   if(/boleto/i.test(fp)) return f.boletoVencimento||'';
   if(/cart/i.test(fp)) return f.dataCompensacao||f.dataPagLink||'';
@@ -3222,11 +3224,26 @@ function setPagLinkCartao(id,v){
   f._salvoEm=new Date().toISOString(); gravarDB(db);
   setTimeout(()=>renderFinanceiro(),0);
 }
+// Campos de pagamento da FILA: boleto não mostra Pago 1/2 (fatura no embarque);
+// as outras formas mostram Pago/Data sem os campos duplicados do painel.
+function camposPagamentoFilaHTML(id,f){
+  const obs=`<div class="fld col2"><label>📝 Observação de pagamento</label><input value="${escA(f.obsPagamento)}" onchange="setPag('${id}','obsPagamento',this.value)" placeholder="Ex.: pago parcial, aguardando 2ª parcela, desconto combinado…"></div>`;
+  if(/boleto/i.test(f.formaPgto||'')) return obs;
+  return `<div class="fld"><label>Pago 1 (R$)</label><input value="${escA(f.pago1)}" inputmode="decimal" onchange="setPag('${id}','pago1',this.value)"></div>
+    <div class="fld"><label>Data pagamento 1</label><input type="date" value="${escA(f.dataPago1)}" onchange="setPag('${id}','dataPago1',this.value)"></div>
+    <div class="fld"><label>Pago 2 (R$)</label><input value="${escA(f.pago2)}" inputmode="decimal" onchange="setPag('${id}','pago2',this.value)"></div>
+    <div class="fld"><label>Data pagamento 2</label><input type="date" value="${escA(f.dataPago2)}" onchange="setPag('${id}','dataPago2',this.value)"></div>
+    ${obs}`;
+}
 // Programação de recebimento automática — a partir da forma de pagamento e dos
 // vencimentos preenchidos. NÃO marca como pago (isso é o "✔ recebi", 1 clique).
 function programacaoDe(f){
   const vf=num(f.valorFrete); if(vf<=0) return [];
   const fp=String(f.formaPgto||'');
+  if(/cart/i.test(fp) && /pix/i.test(fp)){
+    const parte=numMoeda(f.pixParteValor)||vf/2, resto=Math.max(vf-parte,0);
+    return [{rotulo:'PIX (entrada)', valor:parte, venc:f.pixVenc1||''},{rotulo:'Cartão (restante'+(f.valorComTaxas?' c/ taxas':'')+')', valor:(numMoeda(f.valorComTaxas)||resto), venc:f.dataCompensacao||f.dataPagLink||''}];
+  }
   if(/pix/i.test(fp)){
     if(String(f.pixTipo||'50/50')==='Integral') return [{rotulo:'PIX integral', valor:vf, venc:f.pixVenc1||f.previsaoRecebimento||''}];
     return [{rotulo:'1ª (50%)', valor:vf/2, venc:f.pixVenc1||''},{rotulo:'2ª (50% na entrega)', valor:vf/2, venc:f.pixVenc2||f.previsaoRecebimento||''}];
@@ -3333,6 +3350,26 @@ async function caCartaoEnviar(id){
   if(okVenda===false) return;
   await chatguruEnviar(id, msgCartaoDe(f));           // manda o link direto na conversa
 }
+// MISTO (Cartão + PIX): venda em 2 parcelas → cobrança PIX da 1ª + link Rede do restante
+async function caCartaoPixEnviar(id){
+  const f=lerDB()[id]; if(!f) return;
+  const parte=numMoeda(f.pixParteValor);
+  if(parte<=0){ flash('Informe o valor pago no PIX','erro'); return; }
+  if(parte>=num(f.valorFrete)){ flash('A parte do PIX deve ser MENOR que o valor do frete','erro'); return; }
+  if(!f.cartaoLink){ flash('Cole o link da Rede (restante no cartão)','erro'); return; }
+  const okVenda = await caLancarVenda(id);
+  if(okVenda===false) return;
+  const cob = await caGerarCobranca(id,'PIX',{apenas:'primeira'});   // cobrança PIX só da 1ª parcela
+  const links = cob?extrairLinks(cob):[];
+  const resto = numMoeda(f.valorComTaxas) || Math.max(num(f.valorFrete)-parte,0);
+  const msg=['*OBS Transportes — Pagamento (PIX + Cartão)* ⚡💳','','Frete Nº '+(f.numero||''),
+    'Parte no PIX: '+moeda(parte)+(f.pixVenc1?' (até '+dataBR(f.pixVenc1)+')':''),
+    (links.length?'Link do PIX: '+links[0]:''),
+    '','Restante no cartão'+(f.valorComTaxas?' (com taxas)':'')+': '+moeda(resto),
+    'Link do cartão: '+f.cartaoLink,
+    '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
+  await chatguruEnviar(id, msg);
+}
 async function caBoletoEnviar(id){
   const f=lerDB()[id]; if(!f) return;
   const okVenda = await caLancarVenda(id);
@@ -3416,11 +3453,25 @@ function renderFinanceiro(){
     const opt=v=>`<option${fp===v?' selected':''}>${v}</option>`;
     const seletor = `<div class="fld col2"><label>💰 Forma de pagamento (escolha primeiro)</label>
       <select onchange="setFormaPgtoLiber('${id}',this.value)" style="font-weight:700">
-        <option value=""${fp?'':' selected'}>— selecione —</option>${opt('Cartão')}${opt('Boleto (Empresa)')}${opt('PIX')}
+        <option value=""${fp?'':' selected'}>— selecione —</option>${opt('Cartão')}${opt('Cartão + PIX')}${opt('Boleto (Empresa)')}${opt('PIX')}
       </select></div>`;
 
     let painel='';
-    if(/cart/i.test(fp)){
+    if(/cart/i.test(fp) && /pix/i.test(fp)){
+      // MISTO: parte no PIX + restante no link do cartão (Rede)
+      const vf=num(f.valorFrete), parte=numMoeda(f.pixParteValor), resto=vf>0&&parte>0?Math.max(vf-parte,0):0;
+      painel = `
+      <div class="fld"><label>⚡ Valor pago no PIX</label><input value="${escA(f.pixParteValor)}" inputmode="decimal" onchange="setPag('${id}','pixParteValor',this.value)" placeholder="Ex.: 1.000,00"></div>
+      <div class="fld"><label>📅 Vencimento da parte PIX</label><input type="date" value="${escA(f.pixVenc1)}" onchange="setPag('${id}','pixVenc1',this.value)"></div>
+      <div class="fld col2"><div class="hint" style="padding-top:18px">Restante no cartão: <b>${resto?moeda(resto):'—'}</b> (sem taxas) — informe abaixo o valor c/ taxas e o link da Rede.</div></div>
+      <div class="fld col2"><label>🔗 Link de pagamento do restante (plataforma Rede — cole aqui)</label><input value="${escA(f.cartaoLink)}" onchange="setPag('${id}','cartaoLink',this.value)" placeholder="https://…"></div>
+      <div class="fld"><label>💰 Restante c/ taxas do cartão</label><input value="${escA(f.valorComTaxas)}" inputmode="decimal" onchange="setPag('${id}','valorComTaxas',this.value)" placeholder="Ex.: 1.680,00"></div>
+      <div class="fld"><label>💳 Data de pagamento do link</label><input type="date" value="${escA(f.dataPagLink)}" onchange="setPagLinkCartao('${id}',this.value)"></div>
+      <div class="fld"><label>🏦 Compensação (auto: pagamento + 1 dia)</label><input type="date" value="${escA(f.dataCompensacao)}" onchange="setPag('${id}','dataCompensacao',this.value)"></div>
+      <div class="fld col2" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <button class="btn-ok" onclick="caCartaoPixEnviar('${id}')" title="Registra a venda (2 parcelas) no Conta Azul, emite a cobrança PIX da 1ª parte e envia a mensagem com PIX + link do cartão no ChatGuru">☁ Conta Azul + 📱 mensagem p/ ChatGuru</button>
+      </div>`;
+    } else if(/cart/i.test(fp)){
       painel = `
       <div class="fld col2"><label>🔗 Link de pagamento (plataforma Rede — cole aqui)</label><input value="${escA(f.cartaoLink)}" onchange="setPag('${id}','cartaoLink',this.value)" placeholder="https://…"></div>
       <div class="fld"><label>💰 Valor atualizado c/ taxas do cartão</label><input value="${escA(f.valorComTaxas)}" inputmode="decimal" onchange="setPag('${id}','valorComTaxas',this.value)" placeholder="Ex.: 2.680,00"></div>
@@ -3466,7 +3517,7 @@ function renderFinanceiro(){
         <div class="fld"><label>${faturado(f)?'📄 Faturado (boleto)':'Em aberto'}</label><div class="ro ${faturado(f)?'':(ab>0.005?'saldo-neg':'saldo-pos')}" ${faturado(f)?'style="color:#3b82f6;font-weight:700"':''}>${moeda(ab)}</div></div>
         ${painel}
         ${progHTML}
-        ${camposPagamentoHTML(id,f)}
+        ${camposPagamentoFilaHTML(id,f)}
       </div>
     </div>`;
   }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum frete aguardando liberação.</p>';
