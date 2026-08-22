@@ -1064,6 +1064,21 @@
       </div>
     </div>
     <div class="card">
+      <h2>🚚 Prestadores — conferência e pagamento</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Cada prestador cobra por placa/veículo. Preencher a <b>Data ContaAzul</b> marca como conferido/pago. O <b>Valor</b> é editável — corrija aqui se necessário. Use <b>📋 Ficha</b> para abrir o cadastro completo do frete.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <strong style="font-size:13px;color:rgba(228,228,240,.5)">Ver:</strong>
+          <span id="finPrestPills" class="pills"></span>
+          <input id="finPrestBusca" oninput="renderFinanceiro()" placeholder="🔎 buscar prestador, placa, nº frete ou valor…"
+                 style="flex:1;min-width:220px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
+        </div>
+        <div id="finPrestResumo" class="rel-resumo" style="margin-bottom:10px"></div>
+        <div id="finPrestSelBar" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:9px 12px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.4);border-radius:9px;font-size:13px"></div>
+        <div style="overflow-x:auto"><table class="fin" id="finPrest"></table></div>
+      </div>
+    </div>
+    <div class="card">
       <h2>💰 A receber (clientes)</h2>
       <div class="body">
         <div id="finReceberResumo" class="rel-resumo" style="margin-bottom:10px"></div>
@@ -1087,21 +1102,7 @@
         <div style="overflow-x:auto"><table class="fin" id="finLucro"></table></div>
       </div>
     </div>
-    <div class="card">
-      <h2>🚚 Prestadores — conferência e pagamento</h2>
-      <div class="body">
-        <p class="hint" style="margin-top:0">Cada prestador cobra por placa/veículo. Preencher a <b>Data ContaAzul</b> marca como conferido/pago. O <b>Valor</b> é editável — corrija aqui se necessário. Use <b>📋 Ficha</b> para abrir o cadastro completo do frete.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <strong style="font-size:13px;color:rgba(228,228,240,.5)">Ver:</strong>
-          <span id="finPrestPills" class="pills"></span>
-          <input id="finPrestBusca" oninput="renderFinanceiro()" placeholder="🔎 buscar prestador, placa, nº frete ou valor…"
-                 style="flex:1;min-width:220px;font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
-        </div>
-        <div id="finPrestResumo" class="rel-resumo" style="margin-bottom:10px"></div>
-        <div id="finPrestSelBar" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:9px 12px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.4);border-radius:9px;font-size:13px"></div>
-        <div style="overflow-x:auto"><table class="fin" id="finPrest"></table></div>
-      </div>
-    </div>
+    
   </div>
 
 </div>
