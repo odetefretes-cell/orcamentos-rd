@@ -2572,9 +2572,11 @@ function linhaFrete(f){
   const id=f._id, st=statusDe(f), k=stKey(st), op=opDe(f);
   const aberto=fretesAbertos.has(id);
   const rota=`${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}`;
+  const _trava=travaEntregaDe(f);
   const pg = (num(f.valorFrete)>0 && st!=='CANCELADO')
-    ? (abertoDe(f)<=0.005 ? '<span class="badge" style="background:#0f8a4a">💰 QUITADO</span>'
-      : `<span class="badge" style="background:#b7791f" title="em aberto">💰 falta ${moeda(abertoDe(f))}</span>`) : '';
+    ? (_trava ? `<span class="badge" style="background:#dc2626" title="Não liberar/entregar ao cliente enquanto o financeiro não concluir">⛔ ${_trava} — NÃO ENTREGAR</span>`
+      : (abertoDe(f)<=0.005 ? '<span class="badge" style="background:#0f8a4a">💰 QUITADO</span>'
+      : `<span class="badge" style="background:#0f8a4a" title="faturado — pagamento via boleto em curso">💰 OK p/ entrega</span>`)) : '';
   const nLemb=lembretesDe(f).length;
   const badges = (op?`<span class="badge" style="background:var(--azul)">👤 ${esc(op)}</span>`
                     :`<span class="badge" style="background:#8a6d00">🕓 FILA</span>`)
@@ -2670,6 +2672,7 @@ function cardFrete(f){
       <div class="fld col2"><label>📦 Data de embarque</label><input type="date" value="${escA(f.embarqueFeito)}" onchange="setMarco('${id}','embarqueFeito',this.value,'Embarque confirmada')"></div>
       <div class="fld col2"><label>⏳ Prazo até a entrega</label><div class="ro">${prazoTxt}</div></div>
 
+      ${(()=>{const t=travaEntregaDe(f);return t?`<div class="fld col4" style="background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.45);border-radius:9px;padding:10px 14px;font-size:13.5px"><b style="color:#f87171">⛔ ${t} — NÃO fazer a liberação/entrega ao cliente.</b> Aguarde o financeiro ${/boleto/i.test(f.formaPgto||'')?'faturar o boleto':'registrar a baixa do pagamento'} (o aviso some sozinho quando concluir).</div>`:''})()}
       <div class="fld col4"><label>🚚 Marcos do transporte — marque as datas (geram lembrete e preenchem a mensagem do cliente p/ você conferir e enviar)</label>
         <div class="marcos-grid">
           ${marcoHTML(id,f,{label:'Coleta',prev:'coletaPrev',feito:'coletaFeito'})}
@@ -3291,6 +3294,17 @@ function setPag(id,campo,valor){
 // FINANCEIRO no card do OPERACIONAL: SOMENTE LEITURA (espelha o que o financeiro
 // definiu — programação, pagos, faturamento). Edição/recebimento é na tela Financeiro;
 // a única ação do operacional é o ⚡ Cobrar saldo (banda própria, abaixo).
+// TRAVA DE ENTREGA/LIBERAÇÃO: só libera/entrega ao cliente com o financeiro OK.
+//   Boleto  → precisa do FATURAMENTO concluído (dataFaturamento preenchida).
+//   PIX/Cartão/Misto → precisa da BAIXA registrada (nada em aberto).
+function travaEntregaDe(f){
+  if(num(f.valorFrete)<=0 || statusDe(f)==='CANCELADO') return null;
+  const fp=String(f.formaPgto||'');
+  if(/boleto/i.test(fp)){
+    return String(f.dataFaturamento||'').trim() ? null : '📄 FALTA FATURAR (boleto)';
+  }
+  return abertoDe(f)>0.005 ? ('💰 FALTA BAIXA de '+moeda(abertoDe(f))) : null;
+}
 function finViewOperacionalHTML(f){
   const prog=programacaoDe(f);
   const chips=prog.map((p,i)=>{
