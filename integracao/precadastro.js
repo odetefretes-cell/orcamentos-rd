@@ -17,6 +17,7 @@
    ============================================================================ */
 
 const { onRequest } = require('firebase-functions/v2/https');
+const { getFirestore } = require('firebase-admin/firestore'); // no VPS → pg-compat (Postgres)
 const { criarChat, atualizarContexto } = require('./chatguru-api');
 
 exports.preCadastrarLead = onRequest(
@@ -72,9 +73,34 @@ exports.preCadastrarLead = onRequest(
         }
       }
 
-      console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}`);
+      // 3) CRIA O LEAD NO CRM (Postgres) — é isto que se perdia: o form gravava no
+      // Firebase e a navegação pro WhatsApp matava a escrita. Agora é o backend que
+      // grava (o fetch do site usa keepalive → chega mesmo saindo pro WhatsApp).
+      let leadCriado = false, erroLead = '';
+      try {
+        const soDig = String(telefone).replace(/\D/g, '');
+        const t8 = soDig.slice(-8);
+        const id = t8 ? ('lead_wpp_' + t8) : ('lead_site_' + Date.now());
+        const iso = new Date().toISOString();
+        const lead = {
+          id, nome: b.nome || '', empresa: '', telefone: String(telefone), email: b.email || '', cpfCnpj: '',
+          veiculoDesc: b.veiculo || '', placa: '', origem: b.origem || '', destino: b.destino || '',
+          valorEstimado: '', etapa: 'novo', prioridade: 'morno', vendedor: '',
+          origemLead: 'site', valorVeiculo: b.valor || b.valorVeiculo || '',
+          funciona: b.funciona || '', blindado: b.blindado || '', dataEnvio: iso,
+          tipoCliente: b.tipoCliente || '', categoria: b.categoria || '',
+          mensagem: b.mensagem || '', dataEntrada: iso.slice(0, 10), ultimaInteracao: iso,
+          timeline: [{ data: iso, tipo: 'criacao', texto: 'Lead recebido pelo formulário do site' }],
+          _origemSite: true,
+        };
+        // merge:true → se o lead já existir (cliente mandou msg → webhook), não apaga o que já tem
+        await getFirestore().collection('crm_leads').doc(id).set(lead, { merge: true });
+        leadCriado = true;
+      } catch (e) { erroLead = e.message || String(e); console.warn('[preCadastrarLead] criar lead no CRM falhou:', erroLead); }
+
+      console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto} leadCriado=${leadCriado}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}${erroLead ? ' | erroLead: ' + erroLead : ''}`);
       // sempre 200 (best-effort): o site segue pro WhatsApp de qualquer jeito
-      res.json({ ok: true, criouChat, marcouContexto, erroChat: erroChat || undefined, erroContexto: erroContexto || undefined });
+      res.json({ ok: true, criouChat, marcouContexto, leadCriado, erroChat: erroChat || undefined, erroContexto: erroContexto || undefined, erroLead: erroLead || undefined });
     } catch (e) {
       console.error('[preCadastrarLead] ERRO:', e);
       res.status(200).json({ ok: false, erro: e.message || String(e) });   // 200 pra não travar o site
