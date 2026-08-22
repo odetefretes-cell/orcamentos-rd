@@ -366,7 +366,7 @@ obsRouter.post('/baixa', async (req, res, next) => {
     const aberta = (p) => !(/^(PAG|LIQUID|RECEB|BAIXAD)/i.test(String(p.status || '')));
     const valorDe = (p) => Number(p.valor ?? p.valor_composicao?.valor_bruto ?? p.valor_composicao?.valor_liquido ?? 0);
     const abertas = parcelas.filter(aberta).sort((a, b) => String(a.data_vencimento || '').localeCompare(String(b.data_vencimento || '')));
-    if (!abertas.length) return res.status(200).json({ ok: false, erro: 'Nenhuma parcela em aberto nessa venda — tudo já baixado.' });
+    if (!abertas.length) return res.status(200).json({ ok: false, erro: parcelas.length ? 'Nenhuma parcela em aberto nessa venda — tudo já baixado.' : 'Não achei as parcelas dessa venda (foi excluída no CA?).', parcelas: parcelas.map((p) => ({ id: p.id || p.uuid, status: p.status, venc: p.data_vencimento, valor: valorDe(p) })) });
     const alvo = (valor ? abertas.find((p) => Math.abs(valorDe(p) - Number(valor)) < 0.01) : null) || abertas[0];
     const pid = alvo.id || alvo.uuid;
 
