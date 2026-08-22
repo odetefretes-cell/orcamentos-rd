@@ -24,15 +24,18 @@
   var PRECADASTRO_URL = API_BASE + '/webhook/precadastro';
   function preCadastrarChatguru(lead) {
     try {
-      var ctrl = ('AbortController' in window) ? new AbortController() : null;
-      var to = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, 4000) : null;
       return fetch(PRECADASTRO_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefone: lead.telefone, nome: lead.nome, origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc, valor: lead.valorVeiculo }),
-        signal: ctrl ? ctrl.signal : undefined
-      }).then(function (r) { if (to) clearTimeout(to); if (!r.ok) console.warn('pré-cadastro status', r.status); })
-        .catch(function (e) { if (to) clearTimeout(to); console.warn('pré-cadastro ChatGuru falhou (segue pro WhatsApp):', e); });
-    } catch (e) { console.warn('pré-cadastro ChatGuru erro (segue):', e); return Promise.resolve(); }
+        keepalive: true,   // ESSENCIAL: a requisição sobrevive ao pulo pro WhatsApp (senão a gravação do lead morre aqui)
+        body: JSON.stringify({
+          telefone: lead.telefone, nome: lead.nome, email: lead.email,
+          origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc,
+          valor: lead.valorVeiculo, funciona: lead.funciona, blindado: lead.blindado,
+          tipoCliente: lead.tipoCliente, categoria: lead.categoria, mensagem: lead.mensagem
+        })
+      }).then(function (r) { if (!r.ok) console.warn('pré-cadastro status', r.status); })
+        .catch(function (e) { console.warn('pré-cadastro/CRM falhou (segue pro WhatsApp):', e); });
+    } catch (e) { console.warn('pré-cadastro erro (segue):', e); return Promise.resolve(); }
   }
   // monta a mensagem que o cliente envia no WhatsApp (mesma estrutura da página #orc do app)
   function montarMsgWpp(lead) {
