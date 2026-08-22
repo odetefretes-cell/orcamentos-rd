@@ -3122,7 +3122,7 @@ async function caLancarVenda(id){
     t.fechar&&t.fechar();
     if(r.ok && r.data && r.data.duplicado){ flash('Esse frete já estava registrado no Conta Azul.','info'); return true; }
     else if(r.ok){ flash('Venda registrada no Conta Azul ✔'+(r.data&&r.data.ca&&r.data.ca.numero?(' (nº '+r.data.ca.numero+')'):''),'ok'); return true; }
-    else{ flash('Erro ao registrar: '+((r.data&&r.data.erro)||('HTTP '+r.status)),'erro'); return false; }
+    else{ const det=r.data&&r.data.detalhe&&(r.data.detalhe.message||r.data.detalhe.error); flash('Erro ao registrar: '+((r.data&&r.data.erro)||('HTTP '+r.status))+(det?(' — '+det):''),'erro'); console.warn('venda CA',r); return false; }
   }catch(e){ flash('Erro: '+e.message,'erro'); return false; }
 }
 
