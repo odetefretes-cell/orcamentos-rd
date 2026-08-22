@@ -55,6 +55,25 @@ async function main() {
     if (!jaTem) faltam.push({ id: doc.id, data });
   }
 
+  // Listagem por data (DESDE=YYYY-MM-DD): mostra o que o Firebase tem desde tal dia
+  // e se cada um já está no Postgres. Responde "dá pra recuperar desde o dia X?".
+  const DESDE = process.env.DESDE;
+  if (DESDE) {
+    const dataDe = (o) => String(o.dataEntrada || o.criadoEm || o.data || o.dataFechamento || '').slice(0, 10);
+    const desde = snap.docs.map((d) => ({ id: d.id, data: d.data() || {} }))
+      .map((x) => ({ ...x, dt: dataDe(x.data) }))
+      .filter((x) => x.dt && x.dt >= DESDE)
+      .sort((a, b) => (a.dt < b.dt ? 1 : -1));
+    console.log(`>>> Firebase crm_leads desde ${DESDE}: ${desde.length}. (jaNoPG = já está no Postgres)\n`);
+    for (const x of desde.slice(0, 40)) {
+      const k = ult8(telDe(x.data)) || ult8(x.id);
+      const jaTem = existentes.has(x.id) || (k.length === 8 && existentes.has('t' + k));
+      console.log(`  ${x.dt} ${jaTem ? '[jaNoPG]  ' : '[FALTA!]  '} ${String(x.id).padEnd(26)} | ${x.data.nome || x.data.clienteEmpresa || ''} | ${telDe(x.data)} | ${x.data.origem || ''}→${x.data.destino || ''}`);
+    }
+    await cli.end();
+    return;
+  }
+
   console.log(`>>> Leads no Firebase que FALTAM no Postgres: ${faltam.length}\n`);
   const amostra = faltam.slice(0, 20);
   for (const f of amostra) {
