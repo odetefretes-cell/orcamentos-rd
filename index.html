@@ -3172,9 +3172,23 @@ let finPrestF='TODOS';
 function setFinPrestF(x){ finPrestF = (finPrestF===x?'TODOS':x); renderFinanceiro(); }  // clicar de novo oculta
 
 // salva um campo de pagamento e atualiza a(s) tela(s) visível(is) — mesma regra em todo lugar
+// prazo FINAL do contrato = última data de vencimento da forma de pagamento
+function prazoFinalDe(f){
+  const fp=String(f.formaPgto||'');
+  if(/pix/i.test(fp)) return (String(f.pixTipo||'50/50')==='Integral') ? (f.pixVenc1||'') : (f.pixVenc2||f.pixVenc1||'');
+  if(/boleto/i.test(fp)) return f.boletoVencimento||'';
+  if(/cart/i.test(fp)) return f.dataCompensacao||f.dataPagLink||'';
+  return '';
+}
 function setPag(id,campo,valor){
   const db=lerDB(); if(!db[id]) return;
-  db[id][campo]=valor; db[id]._salvoEm=new Date().toISOString(); gravarDB(db);
+  db[id][campo]=valor; db[id]._salvoEm=new Date().toISOString();
+  // Previsão de recebimento acompanha o PRAZO FINAL do contrato: sempre que um
+  // vencimento (ou o tipo do PIX / forma) muda, ela é recalculada sozinha.
+  if(['pixVenc1','pixVenc2','pixTipo','boletoVencimento','dataCompensacao','formaPgto'].includes(campo)){
+    const pf=prazoFinalDe(db[id]); if(pf) db[id].previsaoRecebimento=pf;
+  }
+  gravarDB(db);
   // adia o re-render para não remover o campo durante o evento (blur)
   setTimeout(()=>{
     atualizarHist();
@@ -3204,6 +3218,7 @@ function setPagLinkCartao(id,v){
   const db=lerDB(); const f=db[id]; if(!f) return;
   f.dataPagLink=v;
   if(v && !String(f.dataCompensacao||'').trim()) f.dataCompensacao=addDiasISO(v,1);
+  const pf=prazoFinalDe(f); if(pf) f.previsaoRecebimento=pf;   // previsão = prazo final
   f._salvoEm=new Date().toISOString(); gravarDB(db);
   setTimeout(()=>renderFinanceiro(),0);
 }
