@@ -3207,6 +3207,28 @@ function setPagLinkCartao(id,v){
   f._salvoEm=new Date().toISOString(); gravarDB(db);
   setTimeout(()=>renderFinanceiro(),0);
 }
+// Programação de recebimento automática — a partir da forma de pagamento e dos
+// vencimentos preenchidos. NÃO marca como pago (isso é o "✔ recebi", 1 clique).
+function programacaoDe(f){
+  const vf=num(f.valorFrete); if(vf<=0) return [];
+  const fp=String(f.formaPgto||'');
+  if(/pix/i.test(fp)){
+    if(String(f.pixTipo||'50/50')==='Integral') return [{rotulo:'PIX integral', valor:vf, venc:f.pixVenc1||f.previsaoRecebimento||''}];
+    return [{rotulo:'1ª (50%)', valor:vf/2, venc:f.pixVenc1||''},{rotulo:'2ª (50% na entrega)', valor:vf/2, venc:f.pixVenc2||f.previsaoRecebimento||''}];
+  }
+  if(/cart/i.test(fp)) return [{rotulo:'Cartão (c/ taxas)', valor:(numMoeda(f.valorComTaxas)||vf), venc:f.dataCompensacao||f.dataPagLink||''}];
+  if(/boleto/i.test(fp)) return [{rotulo:'Boleto', valor:vf, venc:f.boletoVencimento||f.previsaoRecebimento||''}];
+  return [];
+}
+// 1 clique: preenche Pago N + Data pagamento N com a data de HOJE (dinheiro caiu)
+function confirmarRecebimento(id,n,valor){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  f['pago'+n]=String(valor.toFixed(2)).replace('.',',');
+  f['dataPago'+n]=hojeISO();
+  f._salvoEm=new Date().toISOString(); gravarDB(db);
+  flash('Pago '+n+' preenchido: '+moeda(valor)+' em '+dataBR(hojeISO())+' ✔','ok');
+  setTimeout(()=>renderFinanceiro(),0);
+}
 function copiarTexto(t){
   try{ navigator.clipboard.writeText(t); return true; }
   catch(_){ try{ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); return true; }catch(e){ return false; } }
@@ -3413,6 +3435,14 @@ function renderFinanceiro(){
       </div>`;
     }
 
+    // programação de recebimento AUTOMÁTICA (conforme a forma + vencimentos): mostra
+    // valor/venc de cada parte e preenche Pago/Data com 1 clique quando o dinheiro cai.
+    const prog = programacaoDe(f);
+    const progHTML = prog.length ? `<div class="fld col4" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.3);border-radius:8px;padding:8px 10px">
+        <span style="font-size:12.5px;color:#93c5fd;font-weight:700">📅 Programação:</span>
+        ${prog.map((p,i)=>{ const jaPago=num(f['pago'+(i+1)])>0.005;
+          return `<span style="font-size:13px">${p.rotulo}: <b>${moeda(p.valor)}</b>${p.venc?' · vence '+dataBR(p.venc):''} ${jaPago?'<span style="color:#22c55e;font-weight:700">✔ recebido</span>':`<button class="btn-ok" style="padding:2px 9px;font-size:11.5px;margin-left:4px" onclick="confirmarRecebimento('${id}',${i+1},${p.valor})" title="Preenche Pago ${i+1} + a data de hoje automaticamente">✔ recebi</button>`}</span>`; }).join('<span style="opacity:.4">|</span>')}
+      </div>` : '';
     return `<div class="fcard" style="border-left:6px solid #e6a100;margin-bottom:10px">
       ${top}
       <div class="body2">
@@ -3420,6 +3450,7 @@ function renderFinanceiro(){
         <div class="fld"><label>Previsão de recebimento</label><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setPag('${id}','previsaoRecebimento',this.value)"></div>
         <div class="fld"><label>${faturado(f)?'📄 Faturado (boleto)':'Em aberto'}</label><div class="ro ${faturado(f)?'':(ab>0.005?'saldo-neg':'saldo-pos')}" ${faturado(f)?'style="color:#3b82f6;font-weight:700"':''}>${moeda(ab)}</div></div>
         ${painel}
+        ${progHTML}
         ${camposPagamentoHTML(id,f)}
       </div>
     </div>`;
