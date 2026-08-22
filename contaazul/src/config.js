@@ -82,8 +82,9 @@ export const config = {
   // de chegada. Decisão pendente no spec (ver docs/ARQUITETURA.md).
   parcela2FallbackDias: Number(process.env.PARCELA2_FALLBACK_DIAS || 15),
 
-  // Reconciliação do 202 (contas a pagar não devolve ID). Intervalo em ms.
-  reconcileIntervalMs: Number(process.env.RECONCILE_INTERVAL_MS || 5 * 60 * 1000),
+  // Intervalo dos jobs (reconciliação do 202 + baixa automática CA→sistema).
+  // 3 min: rápido o bastante pro PIX liberar logo, e leve pra API (limite 600/min).
+  reconcileIntervalMs: Number(process.env.RECONCILE_INTERVAL_MS || 3 * 60 * 1000),
 
   env: process.env.NODE_ENV || 'development',
 };
