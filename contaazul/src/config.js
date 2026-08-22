@@ -60,6 +60,8 @@ export const config = {
     idCategoriaReceita: process.env.CA_ID_CATEGORIA_RECEITA || '2b7ff6ea-dcd1-405b-9edc-44e012ffffd3',
     idCategoriaDespesa: process.env.CA_ID_CATEGORIA_DESPESA || 'b7ae7519-6340-4776-9880-c128e128d463',
     idNaturezaVenda: process.env.CA_ID_NATUREZA_VENDA || '529c30e4-423a-11f1-b45c-b7eaf5fe82d3',
+    // conta ITAU — onde a Rede deposita os pagamentos de CARTÃO (baixa do cartão vai nela)
+    idContaItau: process.env.CA_ID_CONTA_ITAU || '3063807a-87f9-4cce-90ad-d3c6c53d0c5f',
   },
 
   // UUIDs dos serviços já cadastrados no Conta Azul (a API exige serviço, não

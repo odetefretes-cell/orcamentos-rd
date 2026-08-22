@@ -142,3 +142,21 @@ export async function cancelarContaAPagarPorFrete(frete, aplicar = false, diag =
   }
   return { aplicar: true, encontrados: achados.length, achados, resultados };
 }
+
+/**
+ * Dá BAIXA numa parcela (schema oficial BaixaCriacaoRequestDTO):
+ *   POST /v1/financeiro/eventos-financeiros/parcelas/{parcela_id}/baixa
+ *   required: data_pagamento, conta_financeira, composicao_valor
+ */
+export async function darBaixaParcela({ parcelaId, valor, data, contaFinanceira, metodo, observacao }) {
+  const v = Math.round(Number(valor) * 100) / 100;
+  const body = {
+    data_pagamento: data,
+    conta_financeira: contaFinanceira,
+    composicao_valor: { valor_bruto: v, valor_liquido: v, desconto: 0, juros: 0, multa: 0, taxa: 0 },
+    ...(metodo ? { metodo_pagamento: metodo } : {}),
+    ...(observacao ? { observacao } : {}),
+  };
+  const { status, data: d } = await ca.post(`/v1/financeiro/eventos-financeiros/parcelas/${parcelaId}/baixa`, body);
+  return { status, data: d };
+}

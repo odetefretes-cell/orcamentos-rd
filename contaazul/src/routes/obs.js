@@ -11,7 +11,7 @@ import { criarVenda, buscarVendaPorNumero } from '../contaazul/vendas.js';
 import { ca } from '../contaazul/client.js';
 import { mapVenda } from '../domain/mapVenda.js';
 import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
-import { criarContaAPagar, cancelarContaAPagarPorFrete, listarParcelas } from '../contaazul/financeiro.js';
+import { criarContaAPagar, cancelarContaAPagarPorFrete, listarParcelas, darBaixaParcela } from '../contaazul/financeiro.js';
 import { gerarCobranca, esperarUrlCobranca } from '../contaazul/cobranca.js';
 import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete, removerDespesaPorFrete } from '../store/ledger.js';
 import { log } from '../logger.js';
@@ -340,6 +340,46 @@ obsRouter.post('/cobranca', async (req, res, next) => {
         : 'Falha ao emitir a cobrança no Conta Azul.' }),
       resultados, tentativas,
     });
+  } catch (e) { next(mapZod(e)); }
+});
+
+// ---------- BAIXA DE PARCELA (cartão pago na Rede → baixa na conta ITAU) ----------
+//  body { frete, valor?, data?, metodo?, observacao? }
+//  Acha a parcela EM ABERTO da venda do frete (a que casa com o valor, senão a 1ª)
+//  e dá a baixa na conta ITAU (onde a Rede deposita).
+obsRouter.post('/baixa', async (req, res, next) => {
+  try {
+    const { frete, valor, data, metodo, observacao } = req.body || {};
+    if (!frete) return res.status(400).json({ ok: false, erro: 'Informe o "frete".' });
+    const v = acharVenda(frete);
+    if (!v?.ca_id) return res.status(404).json({ ok: false, erro: `Venda do frete ${frete} não está no radar — registre/adote primeiro.` });
+
+    let parcelas = [];
+    try { parcelas = await listarParcelas(v.ca_id); } catch (_) {}
+    if (!parcelas.length) {
+      try {
+        const vd = (await ca.get('/v1/venda/' + v.ca_id)).data;
+        const fid = vd?.evento_financeiro?.id || vd?.id_evento_financeiro || vd?.financeiro?.id;
+        if (fid) parcelas = await listarParcelas(fid);
+      } catch (_) {}
+    }
+    const aberta = (p) => !(/^(PAG|LIQUID|RECEB|BAIXAD)/i.test(String(p.status || '')));
+    const valorDe = (p) => Number(p.valor ?? p.valor_composicao?.valor_bruto ?? p.valor_composicao?.valor_liquido ?? 0);
+    const abertas = parcelas.filter(aberta).sort((a, b) => String(a.data_vencimento || '').localeCompare(String(b.data_vencimento || '')));
+    if (!abertas.length) return res.status(200).json({ ok: false, erro: 'Nenhuma parcela em aberto nessa venda — tudo já baixado.' });
+    const alvo = (valor ? abertas.find((p) => Math.abs(valorDe(p) - Number(valor)) < 0.01) : null) || abertas[0];
+    const pid = alvo.id || alvo.uuid;
+
+    const r = await darBaixaParcela({
+      parcelaId: pid,
+      valor: valor || valorDe(alvo),
+      data: String(data || new Date().toISOString()).slice(0, 10),
+      contaFinanceira: config.contaAzul.idContaItau,
+      metodo: metodo || 'CARTAO_CREDITO_VIA_LINK',
+      observacao: observacao || `Baixa automática OBS — frete #${frete} (link cartão/Rede)`,
+    });
+    log.info('Baixa de cartão aplicada no CA', { frete, parcela: pid, status: r.status });
+    res.json({ ok: r.status >= 200 && r.status < 300, frete, parcela: pid, conta: 'ITAU', status: r.status, baixa: r.data });
   } catch (e) { next(mapZod(e)); }
 });
 
