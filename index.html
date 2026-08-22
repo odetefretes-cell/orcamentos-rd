@@ -3320,6 +3320,8 @@ function camposPagamentoHTML(id,f,defer){
 // ===== Fila de liberação: linha fechada que abre ao clique + forma de pagamento =====
 let liberAbertos = new Set();
 function toggleLiber(id){ if(liberAbertos.has(id)) liberAbertos.delete(id); else liberAbertos.add(id); renderFinanceiro(); }
+let fatAbertos = new Set();
+function toggleFat(id){ if(fatAbertos.has(id)) fatAbertos.delete(id); else fatAbertos.add(id); renderFinanceiro(); }
 function setFormaPgtoLiber(id,v){ setPag(id,'formaPgto',v); }
 function addDiasISO(iso,n){ if(!iso) return ''; const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 // data de pagamento do link (cartão) → compensação automática = pagamento + 1 dia
@@ -3676,17 +3678,26 @@ function renderFinanceiro(){
   if(elFat) elFat.innerHTML = aFaturar.length ? aFaturar.map(f=>{
     const emb=!!String(f.embarqueFeito||'').trim();
     const solic=!emb && !!String(f.faturamentoSolicitado||'').trim();
-    return `<div class="fcard" style="border-left:6px solid ${emb?'#ef4444':(solic?'#e6a100':'#3b82f6')};margin-bottom:8px">
-      <div class="top">
+    const aberto=fatAbertos.has(f._id);
+    const cor=emb?'#ef4444':(solic?'#e6a100':'#3b82f6');
+    const badge=emb?`<span class="badge" style="background:#dc2626">🚚 EMBARCOU ${dataBR(f.embarqueFeito)} — FATURAR AGORA</span>`
+      :(solic?`<span class="badge" style="background:#b45309">📣 OPERACIONAL PEDIU — FATURAR (${dataBR(f.faturamentoSolicitado)})</span>`
+      :'<span class="badge" style="background:#374151">aguardando embarque</span>');
+    const top=`<div class="top" style="cursor:pointer" onclick="toggleFat('${f._id}')" title="${aberto?'Fechar':'Clique para abrir as ações de faturamento'}">
         <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${esc(up(f.clienteEmpresa))||'—'} · ${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}</span></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span style="font-weight:700">${moeda(f.valorFrete)}</span>
-          ${emb?`<span class="badge" style="background:#dc2626">🚚 EMBARCOU ${dataBR(f.embarqueFeito)} — FATURAR AGORA</span>`:(solic?`<span class="badge" style="background:#b45309">📣 OPERACIONAL PEDIU — FATURAR (embarque próximo, ${dataBR(f.faturamentoSolicitado)})</span>`:'<span class="badge" style="background:#374151">aguardando embarque</span>')}
-          <label style="font-size:11px;color:#8592a1">vencimento<br><input type="date" value="${escA(f.boletoVencimento)}" onchange="setPag('${f._id}','boletoVencimento',this.value)" title="Vencimento do boleto (obrigatório pra faturar)" style="font-size:12.5px"></label>
-          <button class="btn-ok" style="padding:5px 12px;font-size:12.5px" onclick="caBoletoFaturar('${f._id}')" title="Emite o boleto no Conta Azul e envia ao cliente no ChatGuru; marca faturado">☁ Faturar (CA + 📱 ChatGuru)</button>
-          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="gmailFaturamento('${f._id}')" title="E-mail de faturamento pronto no Gmail (com o link do boleto após faturar)">✉️ Gmail</button>
-          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
+          ${badge}
+          ${aberto?'':'<span class="hint" style="font-size:12px">✏️ clique p/ faturar</span>'}
         </div>
+      </div>`;
+    if(!aberto) return `<div class="fcard" style="border-left:6px solid ${cor};margin-bottom:8px">${top}</div>`;
+    return `<div class="fcard" style="border-left:6px solid ${cor};margin-bottom:8px">${top}
+      <div class="body2" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <label style="font-size:11px;color:#8592a1">vencimento do boleto<br><input type="date" value="${escA(f.boletoVencimento)}" onchange="setPag('${f._id}','boletoVencimento',this.value)" title="Vencimento do boleto (obrigatório pra faturar)" style="font-size:13px"></label>
+        <button class="btn-ok" style="padding:7px 14px;font-size:13px" onclick="caBoletoFaturar('${f._id}')" title="Emite o boleto no Conta Azul, envia ao cliente no ChatGuru e marca faturado">☁ Faturar (CA + 📱 ChatGuru)</button>
+        <button class="btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="gmailFaturamento('${f._id}')" title="E-mail de faturamento pronto (com o link do boleto após faturar)">✉️ Gmail</button>
+        <button class="btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
       </div>
     </div>`;
   }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum boleto aguardando faturamento.</p>';
