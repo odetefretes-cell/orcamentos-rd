@@ -19,8 +19,11 @@ const listaDe = (data) => (Array.isArray(data) ? data : (data?.items || data?.it
 export async function buscarPessoaPorDocumento(documento) {
   const doc = soDigitos(documento);
   if (!doc) return null;
-  const { data } = await ca.get('/v1/pessoas', { documento: doc, tamanho_pagina: 10 });
-  return listaDe(data)[0] || null;
+  // ⚠️ A API pode IGNORAR o filtro e devolver a lista geral — por isso conferimos
+  // o documento de verdade (pegar o [0] às cegas devolvia a pessoa errada, e a
+  // venda caía em "Cliente da venda não encontrado com o ID informado").
+  const { data } = await ca.get('/v1/pessoas', { documento: doc, termo_busca: doc, tamanho_pagina: 100 });
+  return listaDe(data).find((x) => soDigitos(x.documento) === doc) || null;
 }
 
 /**
@@ -32,7 +35,22 @@ export async function garantirPessoa(p) {
   const doc = soDigitos(p.documento);
   if (doc) {
     const achado = await buscarPessoaPorDocumento(doc);
-    if (achado?.id) return achado.id;
+    if (achado?.id) {
+      // pessoa existe mas sem o PERFIL necessário (ex.: só Fornecedor e a venda
+      // precisa de Cliente) → tenta acrescentar o perfil (best-effort).
+      const alvos = (p.perfis || []).map((x) => PERFIL_LABEL[String(x).toUpperCase()] || x);
+      const tem = (alvo) => (achado.perfis || []).some((x) => String(x.tipo_perfil || x).toLowerCase() === String(alvo).toLowerCase());
+      const faltando = alvos.filter((a) => !tem(a));
+      if (faltando.length) {
+        try {
+          await ca.put('/v1/pessoas/' + achado.id, {
+            perfis: [ ...(achado.perfis || []).map((x) => ({ tipo_perfil: x.tipo_perfil || x })), ...faltando.map((a) => ({ tipo_perfil: a })) ],
+          });
+          log.info('CA pessoa: perfil adicionado', { id: achado.id, faltava: faltando.join(',') });
+        } catch (e) { log.warn('CA pessoa: não consegui adicionar perfil (segue com o id achado)', { id: achado.id, erro: e.message }); }
+      }
+      return achado.id;
+    }
   }
   // Cria. Sem documento, cria só pelo nome (a OBS aceita prestador sem CPF).
   // Cliente de VENDA precisa de cadastro COMPLETO pra emitir cobrança Pix/boleto:
