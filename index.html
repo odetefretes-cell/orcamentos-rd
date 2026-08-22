@@ -3010,6 +3010,15 @@ function setPrestFin(id,idx,campo,val){
   gravarDB(db); renderFinanceiro();
 }
 
+// destrava o faturamento de um frete cuja cobrança já foi enviada
+async function alterarFaturamento(id){
+  const f=lerDB()[id]; if(!f) return;
+  const ok=await uiConfirm('Alterar o faturamento deste frete?\n\nA cobrança já foi enviada ao cliente ('+dataBR(f.cobrancaEnviada)+').\n\n• Se já EMITIU cobrança no Conta Azul e vai TROCAR a forma, cancele a cobrança antiga lá (senão o cliente tem 2 cobranças).\n• Aqui, a forma de pagamento será destravada para editar e reenviar.',
+    {titulo:'✏️ Alterar faturamento', ok:'Destravar', perigo:true});
+  if(!ok) return;
+  setPag(id,'cobrancaEnviada','');
+  flash('Faturamento destravado — ajuste a forma e reenvie ✔','ok');
+}
 // ===== Conta Azul: seleção de várias placas p/ 1 lançamento =====
 let selPrest = new Set();   // chaves "freteId:idx" marcadas
 function placaDe(f,p){ return (p.placa && String(p.placa).trim()) || (f.veiculos&&f.veiculos[0]&&f.veiculos[0].placa) || f.placa || ''; }
@@ -3386,7 +3395,7 @@ async function caCartaoEnviar(id){
   if(!f.cartaoLink){ flash('Cole primeiro o link da Rede','erro'); return; }
   const okVenda = await caLancarVenda(id);            // registra a venda no CA (link é da Rede)
   if(okVenda===false) return;
-  await chatguruEnviar(id, msgCartaoDe(f));           // manda o link direto na conversa
+  if(await chatguruEnviar(id, msgCartaoDe(f))) setPag(id,'cobrancaEnviada',hojeISO());
 }
 // MISTO (Cartão + PIX): venda em 2 parcelas → cobrança PIX da 1ª + link Rede do restante
 async function caCartaoPixEnviar(id){
@@ -3406,16 +3415,16 @@ async function caCartaoPixEnviar(id){
     '','Restante no cartão'+(f.valorComTaxas?' (com taxas)':'')+': '+moeda(resto),
     'Link do cartão: '+f.cartaoLink,
     '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
-  await chatguruEnviar(id, msg);
+  if(await chatguruEnviar(id, msg)) setPag(id,'cobrancaEnviada',hojeISO());
 }
 async function caBoletoEnviar(id){
   const f=lerDB()[id]; if(!f) return;
   const okVenda = await caLancarVenda(id);
   if(okVenda===false) return;
   const cob = await caGerarCobranca(id,'BOLETO');     // emite o boleto pelo CA
-  const links = cob?extrairLinks(cob):[];
+  const links = (cob&&cob.links&&cob.links.length)?cob.links:(cob?extrairLinks(cob):[]);
   const msg = msgBoletoDe(f)+(links.length?('\n\nBoleto: '+links[0]):'');
-  await chatguruEnviar(id, msg);
+  if(await chatguruEnviar(id, msg)) setPag(id,'cobrancaEnviada',hojeISO());
 }
 async function caPixEnviar(id){
   const f=lerDB()[id]; if(!f) return;
@@ -3439,7 +3448,7 @@ async function caPixEnviar(id){
       '','A 2ª parte ('+moeda(meia)+') será cobrada na entrega do veículo.',
       '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
   }
-  await chatguruEnviar(id, msg);
+  if(await chatguruEnviar(id, msg)) setPag(id,'cobrancaEnviada',hojeISO());
 }
 // ---- e-mail de faturamento pronto no Gmail ----
 function gmailFaturamento(id){
@@ -3488,12 +3497,14 @@ function renderFinanceiro(){
       ? `Nº <input value="${escA(f.numero)}" inputmode="numeric" onclick="event.stopPropagation()" onchange="setNumeroFrete('${id}',this.value)" title="Definir/alterar o número do frete" placeholder="nº" style="width:66px;padding:2px 6px;border-radius:6px;border:1px solid var(--card-border);background:rgba(255,255,255,.06);color:inherit;font-weight:700">`
       : `Nº ${esc(f.numero||'s/nº')}`;
     const fpBadge = f.formaPgto ? `<span class="badge" style="background:#374151">${esc(up(f.formaPgto))}</span>` : '<span class="badge" style="background:#7c2d12" title="Abrir e escolher a forma de pagamento">⚠ SEM FORMA PGTO</span>';
+    const agPagBadge = (f.cobrancaEnviada && ab>0.005) ? `<span class="badge" style="background:#b45309" title="Cobrança enviada em ${dataBR(f.cobrancaEnviada)} — aguardando o cliente pagar">⏳ AGUARDANDO PGTO</span>` : '';
     const top = `
       <div class="top" style="cursor:pointer" onclick="toggleLiber('${id}')" title="${aberto?'Fechar':'Clique para abrir e editar'}">
         <div><span class="nf">${nHtml}</span> &nbsp;<span class="rota">${esc(up(f.clienteEmpresa))||'—'} · ${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}</span></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span style="font-weight:700">${moeda(f.valorFrete)||'—'}</span>
           ${fpBadge}
+          ${agPagBadge}
           <span class="tagv ${s.k}">${s.t}</span>
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();abrirFicha('${id}')">Abrir ficha</button>
           ${aberto?`<button class="btn-ok" style="padding:6px 14px" onclick="event.stopPropagation();liberarOperacional('${id}')">✅ Liberar para operacional</button>`:`<span class="hint" style="font-size:12px">${aberto?'':'✏️ clique p/ editar'}</span>`}
@@ -3504,7 +3515,7 @@ function renderFinanceiro(){
     // ---------- ABERTO: 1º a forma de pagamento; depois o painel da forma ----------
     const fp=String(f.formaPgto||'');
     const opt=v=>`<option${fp===v?' selected':''}>${v}</option>`;
-    const seletor = `<div class="fld col2"><label>💰 Forma de pagamento (escolha primeiro)</label>
+    let seletor = `<div class="fld col2"><label>💰 Forma de pagamento (escolha primeiro)</label>
       <select onchange="setFormaPgtoLiber('${id}',this.value)" style="font-weight:700">
         <option value=""${fp?'':' selected'}>— selecione —</option>${opt('Cartão')}${opt('Cartão + PIX')}${opt('Boleto (Empresa)')}${opt('PIX')}
       </select></div>`;
@@ -3562,6 +3573,13 @@ function renderFinanceiro(){
         ${prog.map((p,i)=>{ const jaPago=num(f['pago'+(i+1)])>0.005;
           return `<span style="font-size:13px">${p.rotulo}: <b>${moeda(p.valor)}</b>${p.venc?' · vence '+dataBR(p.venc):''} ${jaPago?'<span style="color:#22c55e;font-weight:700">✔ recebido</span>':`<button class="btn-ok" style="padding:2px 9px;font-size:11.5px;margin-left:4px" onclick="confirmarRecebimento('${id}',${i+1},${p.valor})" title="Preenche Pago ${i+1} + a data de hoje automaticamente">✔ recebi</button>`}</span>`; }).join('<span style="opacity:.4">|</span>')}
       </div>` : '';
+    // cobrança já enviada → trava a forma (evita reemissão sem querer); ✏️ destrava
+    if(f.cobrancaEnviada){
+      seletor = `<div class="fld col2"><label>💰 Faturamento</label><div class="ro" style="color:#fbbf24;font-weight:700">${esc(up(f.formaPgto))} · cobrança enviada em ${dataBR(f.cobrancaEnviada)} — ⏳ aguardando pagamento</div></div>`;
+      painel = `<div class="fld col2" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <button class="btn-ghost" onclick="alterarFaturamento('${id}')" title="Destrava a forma de pagamento para mudar ou emitir outra cobrança">✏️ Alterar faturamento</button>
+      </div>`;
+    }
     return `<div class="fcard" style="border-left:6px solid #e6a100;margin-bottom:10px">
       ${top}
       <div class="body2">
