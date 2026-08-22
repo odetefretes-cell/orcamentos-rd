@@ -249,6 +249,27 @@ app.post('/api/ca/despesa/esquecer', rota(async (req, res) => repassarCA('POST',
 app.post('/api/ca/cobranca',        rota(async (req, res) => repassarCA('POST', '/obs/cobranca', req.body || {}, res)));
 app.post('/api/ca/baixa',           rota(async (req, res) => repassarCA('POST', '/obs/baixa', req.body || {}, res)));
 
+// Módulo FISCAL (obs-fiscal :3003) — mesmo padrão do Conta Azul (injeta o segredo).
+const FISCAL_URL = (process.env.FISCAL_URL || 'http://127.0.0.1:3003').replace(/\/$/, '');
+async function repassarFiscal(metodo, caminho, corpo, res) {
+  if (!OBS_SHARED_SECRET) return res.status(503).json({ ok: false, erro: 'falta OBS_SHARED_SECRET no obs-api' });
+  let r;
+  try {
+    r = await fetch(FISCAL_URL + caminho, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json', 'X-OBS-Secret': OBS_SHARED_SECRET },
+      body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
+    });
+  } catch (e) {
+    return res.status(502).json({ ok: false, erro: 'módulo fiscal indisponível: ' + (e && e.message || e) });
+  }
+  const txt = await r.text();
+  res.status(r.status).set('Content-Type', 'application/json').send(txt || '{}');
+}
+app.get('/api/fiscal/cte/preview', rota(async (req, res) => repassarFiscal('GET', '/obs/cte/preview?frete=' + encodeURIComponent(req.query.frete || ''), undefined, res)));
+app.post('/api/fiscal/cte/emitir', rota(async (req, res) => repassarFiscal('POST', '/obs/cte/emitir', req.body || {}, res)));
+app.get('/api/fiscal/cte/status',  rota(async (req, res) => repassarFiscal('GET', '/obs/cte/status?frete=' + encodeURIComponent(req.query.frete || ''), undefined, res)));
+
 // Envio direto no ChatGuru pelo app (botões do financeiro) → repassa ao obs-automacao
 // (3001) injetando o MESMO segredo compartilhado. Exige login (autenticar em /api).
 const AUTOMACAO_URL = (process.env.AUTOMACAO_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
