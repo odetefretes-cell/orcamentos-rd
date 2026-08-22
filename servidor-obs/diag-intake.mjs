@@ -40,16 +40,22 @@ async function main() {
     console.log(`  ${String(r.id).padEnd(15)} status=${g(r.data,'statusIntake')} perguntas=${g(r.data,'perguntasFeitas')||0} ia=${r.data?.iaProcessado?'sim':'nao'} respostaEnviada=${g(r.data,'respostaEnviada')} decisao=${g(e,'decisao')} faltaInfo=${g(e,'faltaInfo')} | ${g(e,'nome')||g(r.data,'nome')} | ${g(e,'origem')}→${g(e,'destino')} | ${g(e,'veiculo')} | ${String(r.updated_at).slice(0,16)}`);
   }
 
-  // Caixa-preta: o webhook está RECEBENDO POSTs? Quando foi o último?
+  // Caixa-preta: POSTs que chegaram mas NÃO viraram intake (leads perdidos)
   try {
-    const { rows: wl } = await pool.query('SELECT id, data, updated_at FROM chatguru_webhook_log ORDER BY updated_at DESC LIMIT 8');
-    const { rows: wc } = await pool.query('SELECT count(*)::int c, max(updated_at) ult FROM chatguru_webhook_log');
-    console.log(`\n>>> WEBHOOK LOG (POSTs recebidos): total=${wc[0].c}, último=${String(wc[0].ult).slice(0,16)}`);
+    const ult8 = (t) => String(t || '').replace(/\D/g, '').slice(-8);
+    const intakeSet = new Set(all.map((r) => ult8(r.id)));
+    const { rows: wl } = await pool.query('SELECT id, data, updated_at FROM chatguru_webhook_log ORDER BY updated_at DESC');
+    console.log(`\n>>> WEBHOOK LOG: ${wl.length} POSTs, último=${wl[0] ? String(wl[0].updated_at).slice(0,16) : '-'}`);
+    const perdidos = [];
     for (const r of wl) {
-      const b = r.data || {};
-      const tel = b.celular || b.telefone || b.phone || b.numero || (b.chat && b.chat.celular) || '';
-      const nome = b.nome || b.name || (b.chat && b.chat.nome) || '';
-      console.log(`  ${String(r.updated_at).slice(0,16)} tel=${tel} nome=${nome} chaves=[${Object.keys(b).slice(0,12).join(',')}]`);
+      const tel = r.data?.telefone || r.data?.raw?.celular || r.data?.raw?.telefone || '';
+      if (tel && !intakeSet.has(ult8(tel))) perdidos.push(r);
+    }
+    console.log(`>>> POSTs SEM intake (leads perdidos): ${perdidos.length}. Amostra crua (3):`);
+    for (const r of perdidos.slice(0, 3)) {
+      const raw = r.data?.raw ?? r.data;
+      console.log(`\n  --- ${String(r.updated_at).slice(0,16)} tel=${r.data?.telefone} ---`);
+      console.log('  ' + JSON.stringify(raw).slice(0, 900));
     }
   } catch (e) { console.log('webhook_log erro:', e.message); }
 
