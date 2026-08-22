@@ -279,10 +279,20 @@ obsRouter.post('/cobranca', async (req, res, next) => {
       const confirmada = await esperarUrlCobranca(cid);
       if (confirmada) { r.data = { ...r.data, ...confirmada }; }
     }
-    const okAlguma = resultados.some((r) => r.status >= 200 && r.status < 300);
+    const okEmissao = resultados.some((r) => r.status >= 200 && r.status < 300);
     const links = resultados.map((r) => r?.data?.url).filter(Boolean);
-    log.info('Cobrança CA', { frete, tipo: t, emitidas: resultados.filter((r) => r.status).length, links: links.length });
-    res.status(okAlguma ? 200 : 502).json({ ok: okAlguma, frete, tipo: t, links, resultados, tentativas });
+    const statusFinais = [...new Set(resultados.map((r) => r?.data?.status).filter(Boolean))];
+    // SÓ é sucesso com LINK confirmado — a emissão é assíncrona e pode ser
+    // recusada depois (ex.: cliente sem CPF/endereço → status INVALIDO).
+    const ok = okEmissao && links.length > 0;
+    log.info('Cobrança CA', { frete, tipo: t, emitidas: resultados.filter((r) => r.status).length, links: links.length, statusFinais });
+    res.status(ok ? 200 : 502).json({
+      ok, frete, tipo: t, links, statusCobranca: statusFinais,
+      ...(ok ? {} : { erro: okEmissao
+        ? 'A cobrança não confirmou (status: ' + (statusFinais.join(', ') || 'sem retorno') + '). Normalmente é cadastro do cliente incompleto no Conta Azul (CPF/endereço/telefone).'
+        : 'Falha ao emitir a cobrança no Conta Azul.' }),
+      resultados, tentativas,
+    });
   } catch (e) { next(mapZod(e)); }
 });
 
