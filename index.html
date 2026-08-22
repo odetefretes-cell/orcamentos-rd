@@ -1024,8 +1024,15 @@
     <div class="card" style="border:2px solid #e6a100">
       <h2 style="background:rgba(230,161,0,.12);color:#fbbf24">🚦 Aguardando liberação → Operacional</h2>
       <div class="body">
-        <p class="hint" style="margin-top:0">Fretes emitidos pelo comercial. Confira/cobre o pagamento e clique em <b>Liberar</b> para enviar à fila do operacional (NATALY / YASMIN).</p>
+        <p class="hint" style="margin-top:0">Fretes emitidos pelo comercial. Clique na linha para abrir, escolha a <b>forma de pagamento</b>, preencha e clique em <b>Liberar</b> para enviar à fila do operacional (NATALY / YASMIN).</p>
         <div id="finLiberar"></div>
+      </div>
+    </div>
+    <div class="card" style="border:2px solid #3b82f6">
+      <h2 style="background:rgba(59,130,246,.12);color:#60a5fa">📄 Fila de faturamento (boleto)</h2>
+      <div class="body">
+        <p class="hint" style="margin-top:0">Fretes em <b>boleto</b> ainda não faturados. O faturamento é feito <b>no embarque</b> — quando o operacional confirma o embarque, o frete acende aqui em vermelho.</p>
+        <div id="finFaturar"></div>
       </div>
     </div>
     <div class="card">
@@ -2830,6 +2837,10 @@ function setMarco(id,campo,valor,rotulo){
   const db=lerDB(); const f=db[id]; if(!f) return;
   f[campo]=valor; f._salvoEm=new Date().toISOString();   // marca a data (lembrete/prazo)
   gravarDB(db); renderRelatorio();
+  // BOLETO fatura no embarque: embarque confirmado + ainda sem faturamento → avisa o financeiro
+  if(campo==='embarqueFeito' && valor && /boleto/i.test(f.formaPgto||'') && !String(f.dataFaturamento||'').trim()){
+    flash('📄 Frete Nº '+(f.numero||'')+' é BOLETO e EMBARCOU — faturar agora! (Financeiro → Fila de faturamento)','erro');
+  }
   if(valor){
     // NÃO envia automático — só sugere o texto no campo do cliente; o operador confere e clica em "Adicionar".
     const msg=mensagemClienteMarco(campo,valor);
@@ -3071,7 +3082,7 @@ async function caLancarVenda(id){
     if(valor<=0){ flash('Valor do frete inválido (informe o valor antes)','erro'); return; }
     const modal = /guincho/i.test(String(f.equipamentos||'')) ? 'guincho' : 'cegonha';
     const fp = String(f.formaPgto||'');
-    const formaPagamento = fp==='Cartão' ? 'CARTAO' : (fp==='Boleto (Empresa)' ? 'FATURAMENTO_PJ' : 'PIX_50_50');
+    const formaPagamento = fp==='Cartão' ? 'CARTAO' : (fp==='Boleto (Empresa)' ? 'FATURAMENTO_PJ' : (String(f.pixTipo||'')==='Integral' ? 'PIX_100' : 'PIX_50_50'));
     const venda = {
       frete: Number(f.numero),
       modal,
@@ -3178,6 +3189,72 @@ function camposPagamentoHTML(id,f,defer){
     ${/cart[ãa]o/i.test(f.formaPgto||'')?`<div class="fld"><label>💳 Data de pagamento do link (cartão)</label><input type="date" value="${gv('dataPagLink')}" onchange="${set}('${id}','dataPagLink',this.value)"></div>`:''}
     <div class="fld col2"><label>📝 Observação de pagamento</label><input value="${gv('obsPagamento')}" onchange="${set}('${id}','obsPagamento',this.value)" placeholder="Ex.: pago parcial, aguardando 2ª parcela, desconto combinado…"></div>`;
 }
+// ===== Fila de liberação: linha fechada que abre ao clique + forma de pagamento =====
+let liberAbertos = new Set();
+function toggleLiber(id){ if(liberAbertos.has(id)) liberAbertos.delete(id); else liberAbertos.add(id); renderFinanceiro(); }
+function setFormaPgtoLiber(id,v){ setPag(id,'formaPgto',v); }
+function addDiasISO(iso,n){ if(!iso) return ''; const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+// data de pagamento do link (cartão) → compensação automática = pagamento + 1 dia
+function setPagLinkCartao(id,v){
+  const db=lerDB(); const f=db[id]; if(!f) return;
+  f.dataPagLink=v;
+  if(v && !String(f.dataCompensacao||'').trim()) f.dataCompensacao=addDiasISO(v,1);
+  f._salvoEm=new Date().toISOString(); gravarDB(db);
+  setTimeout(()=>renderFinanceiro(),0);
+}
+function copiarTexto(t){
+  try{ navigator.clipboard.writeText(t); return true; }
+  catch(_){ try{ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); return true; }catch(e){ return false; } }
+}
+// ---- mensagens prontas (copiar → colar no ChatGuru) ----
+function msgCartaoDe(f){
+  return ['*OBS Transportes — Pagamento via cartão* 💳','',
+    'Frete Nº '+(f.numero||''),
+    'Valor (com taxas do cartão): '+(f.valorComTaxas?moeda(f.valorComTaxas):moeda(f.valorFrete)),
+    (f.cartaoLink?'Link para pagamento: '+f.cartaoLink:'(cole o link da Rede no sistema para incluir aqui)'),
+    '','Após o pagamento nos envie o comprovante, por favor. 😊'].join('\n');
+}
+function msgPixDe(f){
+  const vf=num(f.valorFrete), meia=vf/2, tipo=String(f.pixTipo||'50/50');
+  if(tipo==='Integral'){
+    return ['*OBS Transportes — Pagamento via PIX* ⚡','','Frete Nº '+(f.numero||''),
+      'Valor: '+moeda(vf)+(f.pixVenc1?' (até '+dataBR(f.pixVenc1)+')':''),
+      '','Enviaremos o link/chave para o pagamento. Qualquer dúvida é só chamar! 😊'].join('\n');
+  }
+  return ['*OBS Transportes — Pagamento via PIX (50% + 50%)* ⚡','','Frete Nº '+(f.numero||''),
+    '1ª parte: '+moeda(meia)+(f.pixVenc1?' (até '+dataBR(f.pixVenc1)+')':' (na contratação)'),
+    '2ª parte: '+moeda(meia)+(f.pixVenc2?' (até '+dataBR(f.pixVenc2)+')':' (na entrega do veículo)'),
+    '','Enviaremos o link/chave para o pagamento. Qualquer dúvida é só chamar! 😊'].join('\n');
+}
+function msgBoletoDe(f){
+  return ['*OBS Transportes — Faturamento (boleto)* 📄','','Frete Nº '+(f.numero||''),
+    'Valor: '+moeda(f.valorFrete),
+    (f.boletoVencimento?'Vencimento: '+dataBR(f.boletoVencimento):''),
+    '','O boleto é emitido no embarque do veículo e enviado por aqui e por e-mail. 😊'].filter(Boolean).join('\n');
+}
+function msgCobrancaCopiar(id){
+  const f=lerDB()[id]; if(!f) return;
+  const fp=String(f.formaPgto||'');
+  const t=/cart/i.test(fp)?msgCartaoDe(f):(/pix/i.test(fp)?msgPixDe(f):msgBoletoDe(f));
+  copiarTexto(t) ? flash('Mensagem copiada ✔ — cole na conversa do ChatGuru','ok') : flash('Não consegui copiar — copie manual','erro');
+}
+// ---- botões "Conta Azul + mensagem" por forma de pagamento ----
+async function caCartaoEnviar(id){
+  const f=lerDB()[id]; if(!f) return;
+  if(!f.cartaoLink){ flash('Cole primeiro o link da Rede','erro'); return; }
+  await caLancarVenda(id);                       // registra a venda no Conta Azul
+  msgCobrancaCopiar(id);                         // e deixa a mensagem pronta pro ChatGuru
+}
+async function caBoletoEnviar(id){ await caLancarVenda(id); msgCobrancaCopiar(id); }
+async function caPixEnviar(id){ await caLancarVenda(id); msgCobrancaCopiar(id); }
+// ---- e-mail de faturamento pronto no Gmail ----
+function gmailFaturamento(id){
+  const f=lerDB()[id]; if(!f) return;
+  const para=encodeURIComponent(f.email||'');
+  const ass=encodeURIComponent('OBS Transportes — Faturamento do frete Nº '+(f.numero||''));
+  const corpo=encodeURIComponent(msgBoletoDe(f).replace(/\*/g,''));
+  window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+para+'&su='+ass+'&body='+corpo,'_blank');
+}
 function liberarOperacional(id){
   const db=lerDB(); if(!db[id]) return;
   const tinha = String(db[id].numero||'').trim();
@@ -3207,31 +3284,100 @@ function renderFinanceiro(){
   fretes.sort((a,b)=>num(b.numero)-num(a.numero));
 
   // ---- AGUARDANDO LIBERAÇÃO (financeiro -> operacional) ----
+  // Linha FECHADA (igual à fila do operacional); clique abre pra edição. Ao abrir,
+  // a 1ª coisa é a FORMA DE PAGAMENTO (Cartão / Boleto / PIX) — cada uma com seu painel.
   const aguard=Object.values(lerDB()).filter(emFinanceiroEtapa).sort((a,b)=>num(b.numero)-num(a.numero));
   const podeEditarNum = !sessaoUser || !sessaoUser.papel || sessaoUser.papel==='admin' || sessaoUser.papel==='financeiro';
   $('#finLiberar').innerHTML = aguard.length ? aguard.map(f=>{
-    const ab=abertoDe(f), s=situacaoReceber(f);
-    const nHtml = podeEditarNum
-      ? `Nº <input value="${escA(f.numero)}" inputmode="numeric" onchange="setNumeroFrete('${f._id}',this.value)" title="Definir/alterar o número do frete" placeholder="nº" style="width:66px;padding:2px 6px;border-radius:6px;border:1px solid var(--card-border);background:rgba(255,255,255,.06);color:inherit;font-weight:700">`
-      : `Nº ${esc(f.numero||'')}`;
-    return `<div class="fcard" style="border-left:6px solid #e6a100;margin-bottom:10px">
-      <div class="top">
+    const id=f._id, ab=abertoDe(f), s=situacaoReceber(f), aberto=liberAbertos.has(id);
+    const nHtml = (aberto && podeEditarNum)
+      ? `Nº <input value="${escA(f.numero)}" inputmode="numeric" onclick="event.stopPropagation()" onchange="setNumeroFrete('${id}',this.value)" title="Definir/alterar o número do frete" placeholder="nº" style="width:66px;padding:2px 6px;border-radius:6px;border:1px solid var(--card-border);background:rgba(255,255,255,.06);color:inherit;font-weight:700">`
+      : `Nº ${esc(f.numero||'s/nº')}`;
+    const fpBadge = f.formaPgto ? `<span class="badge" style="background:#374151">${esc(up(f.formaPgto))}</span>` : '<span class="badge" style="background:#7c2d12" title="Abrir e escolher a forma de pagamento">⚠ SEM FORMA PGTO</span>';
+    const top = `
+      <div class="top" style="cursor:pointer" onclick="toggleLiber('${id}')" title="${aberto?'Fechar':'Clique para abrir e editar'}">
         <div><span class="nf">${nHtml}</span> &nbsp;<span class="rota">${esc(up(f.clienteEmpresa))||'—'} · ${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}</span></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font-weight:700">${moeda(f.valorFrete)||'—'}</span>
+          ${fpBadge}
           <span class="tagv ${s.k}">${s.t}</span>
-          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
-          <button class="btn-ok" style="padding:6px 14px" onclick="liberarOperacional('${f._id}')">✅ Liberar para operacional</button>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();abrirFicha('${id}')">Abrir ficha</button>
+          ${aberto?`<button class="btn-ok" style="padding:6px 14px" onclick="event.stopPropagation();liberarOperacional('${id}')">✅ Liberar para operacional</button>`:`<span class="hint" style="font-size:12px">${aberto?'':'✏️ clique p/ editar'}</span>`}
         </div>
-      </div>
+      </div>`;
+    if(!aberto) return `<div class="fcard" style="border-left:6px solid #e6a100;margin-bottom:8px">${top}</div>`;
+
+    // ---------- ABERTO: 1º a forma de pagamento; depois o painel da forma ----------
+    const fp=String(f.formaPgto||'');
+    const opt=v=>`<option${fp===v?' selected':''}>${v}</option>`;
+    const seletor = `<div class="fld col2"><label>💰 Forma de pagamento (escolha primeiro)</label>
+      <select onchange="setFormaPgtoLiber('${id}',this.value)" style="font-weight:700">
+        <option value=""${fp?'':' selected'}>— selecione —</option>${opt('Cartão')}${opt('Boleto (Empresa)')}${opt('PIX')}
+      </select></div>`;
+
+    let painel='';
+    if(/cart/i.test(fp)){
+      painel = `
+      <div class="fld col2"><label>🔗 Link de pagamento (plataforma Rede — cole aqui)</label><input value="${escA(f.cartaoLink)}" onchange="setPag('${id}','cartaoLink',this.value)" placeholder="https://…"></div>
+      <div class="fld"><label>💰 Valor atualizado c/ taxas do cartão</label><input value="${escA(f.valorComTaxas)}" inputmode="decimal" onchange="setPag('${id}','valorComTaxas',this.value)" placeholder="Ex.: 2.680,00"></div>
+      <div class="fld"><label>💳 Data de pagamento do link</label><input type="date" value="${escA(f.dataPagLink)}" onchange="setPagLinkCartao('${id}',this.value)"></div>
+      <div class="fld"><label>🏦 Compensação (auto: pagamento + 1 dia)</label><input type="date" value="${escA(f.dataCompensacao)}" onchange="setPag('${id}','dataCompensacao',this.value)"></div>
+      <div class="fld col2" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <button class="btn-ok" onclick="caCartaoEnviar('${id}')" title="Registra a venda no Conta Azul e copia a mensagem com o link pra colar no ChatGuru">☁ Conta Azul + 📱 mensagem p/ ChatGuru</button>
+      </div>`;
+    } else if(/boleto/i.test(fp)){
+      painel = `
+      <div class="fld"><label>📄 Data de faturamento</label><input type="date" value="${escA(f.dataFaturamento)}" onchange="setPag('${id}','dataFaturamento',this.value)"></div>
+      <div class="fld"><label>📅 Vencimento do boleto</label><input type="date" value="${escA(f.boletoVencimento)}" onchange="setPag('${id}','boletoVencimento',this.value)"></div>
+      <div class="fld col2"><div class="hint" style="padding-top:18px">Pode <b>liberar ao operacional</b> sem faturar — o frete entra na <b>fila de faturamento</b> e acende quando o embarque for confirmado.</div></div>
+      <div class="fld col2" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <button class="btn-ok" onclick="caBoletoEnviar('${id}')" title="Registra a venda/boleto no Conta Azul e copia a mensagem de faturamento">☁ Conta Azul</button>
+        <button class="btn-ghost" onclick="msgCobrancaCopiar('${id}')" title="Copia a mensagem de cobrança pra colar no ChatGuru">📱 ChatGuru</button>
+        <button class="btn-ghost" onclick="gmailFaturamento('${id}')" title="Abre o Gmail com o e-mail de faturamento pronto">✉️ Gmail</button>
+      </div>`;
+    } else if(/pix/i.test(fp)){
+      const tipo=String(f.pixTipo||'50/50');
+      painel = `
+      <div class="fld"><label>⚡ Tipo de PIX</label><select onchange="setPag('${id}','pixTipo',this.value)"><option${tipo==='50/50'?' selected':''}>50/50</option><option${tipo==='Integral'?' selected':''}>Integral</option></select></div>
+      <div class="fld"><label>📅 Vencimento ${tipo==='50/50'?'1ª parcela (50%)':'(integral)'}</label><input type="date" value="${escA(f.pixVenc1)}" onchange="setPag('${id}','pixVenc1',this.value)"></div>
+      ${tipo==='50/50'?`<div class="fld"><label>📅 Vencimento 2ª parcela (50% — na entrega)</label><input type="date" value="${escA(f.pixVenc2)}" onchange="setPag('${id}','pixVenc2',this.value)"></div>`:'<div class="fld"></div>'}
+      <div class="fld col2" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <button class="btn-ok" onclick="caPixEnviar('${id}')" title="Registra a venda no Conta Azul (link de pagamento) e copia a mensagem PIX pro ChatGuru">☁ Conta Azul + 📱 mensagem p/ ChatGuru</button>
+      </div>`;
+    }
+
+    return `<div class="fcard" style="border-left:6px solid #e6a100;margin-bottom:10px">
+      ${top}
       <div class="body2">
-        <div class="fld"><label>Valor do frete</label><div class="ro">${moeda(f.valorFrete)||'—'}</div></div>
-        <div class="fld"><label>Forma de pgto</label><div class="ro">${esc(up(f.formaPgto))||'—'}</div></div>
-        <div class="fld"><label>Previsão de recebimento</label><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setPag('${f._id}','previsaoRecebimento',this.value)"></div>
+        ${seletor}
+        <div class="fld"><label>Previsão de recebimento</label><input type="date" value="${escA(f.previsaoRecebimento)}" onchange="setPag('${id}','previsaoRecebimento',this.value)"></div>
         <div class="fld"><label>${faturado(f)?'📄 Faturado (boleto)':'Em aberto'}</label><div class="ro ${faturado(f)?'':(ab>0.005?'saldo-neg':'saldo-pos')}" ${faturado(f)?'style="color:#3b82f6;font-weight:700"':''}>${moeda(ab)}</div></div>
-        ${camposPagamentoHTML(f._id,f)}
+        ${painel}
+        ${camposPagamentoHTML(id,f)}
       </div>
     </div>`;
   }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum frete aguardando liberação.</p>';
+
+  // ---- FILA DE FATURAMENTO (boleto — fatura no embarque) ----
+  const aFaturar=Object.values(lerDB()).filter(f=>/boleto/i.test(f.formaPgto||'') && num(f.valorFrete)>0 && statusDe(f)!=='CANCELADO' && !String(f.dataFaturamento||'').trim() && abertoDe(f)>0.005)
+    .sort((a,b)=>(b.embarqueFeito?1:0)-(a.embarqueFeito?1:0) || num(b.numero)-num(a.numero));
+  const elFat=$('#finFaturar');
+  if(elFat) elFat.innerHTML = aFaturar.length ? aFaturar.map(f=>{
+    const emb=!!String(f.embarqueFeito||'').trim();
+    return `<div class="fcard" style="border-left:6px solid ${emb?'#ef4444':'#3b82f6'};margin-bottom:8px">
+      <div class="top">
+        <div><span class="nf">Nº ${esc(f.numero||'s/nº')}</span> &nbsp;<span class="rota">${esc(up(f.clienteEmpresa))||'—'} · ${esc(up(f.origem))||'—'} → ${esc(up(f.destino))||'—'}</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font-weight:700">${moeda(f.valorFrete)}</span>
+          ${emb?`<span class="badge" style="background:#dc2626">🚚 EMBARCOU ${dataBR(f.embarqueFeito)} — FATURAR AGORA</span>`:'<span class="badge" style="background:#374151">aguardando embarque</span>'}
+          <input type="date" value="${escA(f.dataFaturamento)}" onchange="setPag('${f._id}','dataFaturamento',this.value)" title="Data de faturamento — preencher tira da fila" style="font-size:12.5px">
+          <input type="date" value="${escA(f.boletoVencimento)}" onchange="setPag('${f._id}','boletoVencimento',this.value)" title="Vencimento do boleto" style="font-size:12.5px">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="gmailFaturamento('${f._id}')">✉️ Gmail</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum boleto aguardando faturamento.</p>';
 
   // ---- A RECEBER ----
   let totFrete=0,totRec=0,totAberto=0,totVenc=0,totFat=0,nQuit=0,nReceber=0,nFat=0;
