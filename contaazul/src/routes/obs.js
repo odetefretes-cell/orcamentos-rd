@@ -11,7 +11,8 @@ import { criarVenda } from '../contaazul/vendas.js';
 import { ca } from '../contaazul/client.js';
 import { mapVenda } from '../domain/mapVenda.js';
 import { mapDespesa, paresDespesa } from '../domain/mapDespesa.js';
-import { criarContaAPagar, cancelarContaAPagarPorFrete } from '../contaazul/financeiro.js';
+import { criarContaAPagar, cancelarContaAPagarPorFrete, listarParcelas } from '../contaazul/financeiro.js';
+import { gerarCobranca } from '../contaazul/cobranca.js';
 import { acharVenda, registrarVenda, conflitosDespesa, registrarDespesa, porFrete, removerDespesaPorFrete } from '../store/ledger.js';
 import { log } from '../logger.js';
 
@@ -144,6 +145,53 @@ obsRouter.post('/despesa', async (req, res, next) => {
       status: 'pendente_reconciliacao',
       mensagem: 'Despesa criada no Conta Azul. O número é confirmado pela reconciliação em alguns minutos. Pague pelo CA de Bolso.',
     });
+  } catch (e) { next(mapZod(e)); }
+});
+
+// ---------- COBRANÇA (boleto / Pix / link) a partir da VENDA do frete ----------
+//  body { frete, tipo: 'BOLETO'|'PIX'|'LINK', vencimento?, descricao? }
+//  Emite 1 cobrança POR PARCELA em aberto da venda (PIX 50/50 → 2 cobranças).
+obsRouter.post('/cobranca', async (req, res, next) => {
+  try {
+    const { frete, tipo, vencimento, descricao } = req.body || {};
+    const TIPOS = { BOLETO: 'BOLETO', PIX: 'PIX_COBRANCA', LINK: 'LINK_PAGAMENTO' };
+    const t = TIPOS[String(tipo || '').toUpperCase()];
+    if (!frete || !t) return res.status(400).json({ ok: false, erro: 'Informe "frete" e "tipo" (BOLETO|PIX|LINK).' });
+
+    const v = acharVenda(frete);
+    if (!v || !v.ca_id) return res.status(404).json({ ok: false, erro: `Venda do frete ${frete} não está registrada no Conta Azul — registre primeiro (botão ☁).` });
+
+    // parcelas da venda — o id da venda pode não ser o do evento financeiro; descobre com fallback
+    const tentativas = {};
+    let parcelas = [];
+    try { parcelas = await listarParcelas(v.ca_id); tentativas['parcelas via id da venda'] = parcelas.length; }
+    catch (e) { tentativas['parcelas via id da venda'] = (e.status || '?') + ' ' + e.message; }
+    if (!parcelas.length) {
+      try {
+        const vd = (await ca.get('/v1/venda/' + v.ca_id)).data;
+        const fid = vd?.evento_financeiro?.id || vd?.id_evento_financeiro || vd?.financeiro?.id;
+        tentativas['venda detalhe → evento'] = fid || 'campo não achado (chaves: ' + Object.keys(vd || {}).slice(0, 15).join(',') + ')';
+        if (fid) { parcelas = await listarParcelas(fid); tentativas['parcelas via evento'] = parcelas.length; }
+      } catch (e) { tentativas['venda detalhe'] = (e.status || '?') + ' ' + e.message; }
+    }
+    if (!parcelas.length) return res.status(502).json({ ok: false, erro: 'Não achei as parcelas da venda no Conta Azul.', tentativas });
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    const resultados = [];
+    for (const p of parcelas) {
+      const pid = p.id || p.uuid;
+      if (!pid) continue;
+      const jaPaga = /pag[oa]|liquid|recebid/i.test(String(p.status || '')) && !/nao|não|pend/i.test(String(p.status || ''));
+      if (jaPaga) { resultados.push({ parcela: pid, pulada: 'já paga' }); continue; }
+      const venc = String(p.data_vencimento || vencimento || hoje).slice(0, 10);
+      try {
+        const r = await gerarCobranca({ idParcela: pid, tipo: t, vencimento: venc, descricao: descricao || `Frete #${frete} — OBS Transportes` });
+        resultados.push({ parcela: pid, status: r.status, data: r.data });
+      } catch (e) { resultados.push({ parcela: pid, erro: (e.status || '?') + ' ' + e.message, data: e.data }); }
+    }
+    const okAlguma = resultados.some((r) => r.status >= 200 && r.status < 300);
+    log.info('Cobrança CA', { frete, tipo: t, emitidas: resultados.filter((r) => r.status).length });
+    res.status(okAlguma ? 200 : 502).json({ ok: okAlguma, frete, tipo: t, resultados, tentativas });
   } catch (e) { next(mapZod(e)); }
 });
 

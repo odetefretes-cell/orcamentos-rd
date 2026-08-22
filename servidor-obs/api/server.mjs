@@ -246,6 +246,26 @@ app.post('/api/ca/venda',   rota(async (req, res) => repassarCA('POST', '/obs/ve
 app.post('/api/ca/despesa', rota(async (req, res) => repassarCA('POST', '/obs/despesa', req.body || {}, res)));
 app.post('/api/ca/despesa/cancelar', rota(async (req, res) => repassarCA('POST', '/obs/despesa/cancelar', req.body || {}, res)));
 app.post('/api/ca/despesa/esquecer', rota(async (req, res) => repassarCA('POST', '/obs/despesa/esquecer', req.body || {}, res)));
+app.post('/api/ca/cobranca',        rota(async (req, res) => repassarCA('POST', '/obs/cobranca', req.body || {}, res)));
+
+// Envio direto no ChatGuru pelo app (botões do financeiro) → repassa ao obs-automacao
+// (3001) injetando o MESMO segredo compartilhado. Exige login (autenticar em /api).
+const AUTOMACAO_URL = (process.env.AUTOMACAO_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
+app.post('/api/chatguru/enviar', rota(async (req, res) => {
+  if (!OBS_SHARED_SECRET) return res.status(503).json({ ok: false, erro: 'falta OBS_SHARED_SECRET no obs-api' });
+  let r;
+  try {
+    r = await fetch(AUTOMACAO_URL + '/webhook/enviar-cliente', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-OBS-Secret': OBS_SHARED_SECRET },
+      body: JSON.stringify(req.body || {}),
+    });
+  } catch (e) {
+    return res.status(502).json({ ok: false, erro: 'automação indisponível: ' + (e && e.message || e) });
+  }
+  const txt = await r.text();
+  res.status(r.status).set('Content-Type', 'application/json').send(txt || '{}');
+}));
 app.get('/api/ca/status',   rota(async (req, res) => repassarCA('GET',  '/obs/status?frete=' + encodeURIComponent(req.query.frete || ''), undefined, res)));
 
 // listar uma coleção.
