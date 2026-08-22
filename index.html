@@ -3098,14 +3098,14 @@ async function caLancarVenda(id){
     const ok = await uiConfirm(
       'Registrar VENDA no Conta Azul?\n\nFrete #'+f.numero+'\nCliente: '+(f.clienteEmpresa||'—')+'\nValor: '+moeda(valor)+'\nForma: '+formaPagamento+'\nModal: '+modal,
       {titulo:'Conta Azul — Venda', ok:'Registrar', perigo:false});
-    if(!ok) return;
+    if(!ok) return false;
     const t = flash('Registrando venda no Conta Azul…','load');
     const r = await caReq('/api/ca/venda', venda);
     t.fechar&&t.fechar();
-    if(r.ok && r.data && r.data.duplicado){ flash('Esse frete já estava registrado no Conta Azul.','info'); }
-    else if(r.ok){ flash('Venda registrada no Conta Azul ✔'+(r.data&&r.data.ca&&r.data.ca.numero?(' (nº '+r.data.ca.numero+')'):''),'ok'); }
-    else{ flash('Erro ao registrar: '+((r.data&&r.data.erro)||('HTTP '+r.status)),'erro'); }
-  }catch(e){ flash('Erro: '+e.message,'erro'); }
+    if(r.ok && r.data && r.data.duplicado){ flash('Esse frete já estava registrado no Conta Azul.','info'); return true; }
+    else if(r.ok){ flash('Venda registrada no Conta Azul ✔'+(r.data&&r.data.ca&&r.data.ca.numero?(' (nº '+r.data.ca.numero+')'):''),'ok'); return true; }
+    else{ flash('Erro ao registrar: '+((r.data&&r.data.erro)||('HTTP '+r.status)),'erro'); return false; }
+  }catch(e){ flash('Erro: '+e.message,'erro'); return false; }
 }
 
 // ===== Conta Azul: lançar a DESPESA do prestador =====
@@ -3238,15 +3238,61 @@ function msgCobrancaCopiar(id){
   const t=/cart/i.test(fp)?msgCartaoDe(f):(/pix/i.test(fp)?msgPixDe(f):msgBoletoDe(f));
   copiarTexto(t) ? flash('Mensagem copiada ✔ — cole na conversa do ChatGuru','ok') : flash('Não consegui copiar — copie manual','erro');
 }
-// ---- botões "Conta Azul + mensagem" por forma de pagamento ----
+// ---- envio DIRETO no ChatGuru (o obs-api injeta o segredo; nada fica no navegador) ----
+async function chatguruEnviar(id, texto){
+  const f=lerDB()[id]; if(!f) return false;
+  const tel=String(f.telefone||'').trim();
+  if(!tel){ flash('Frete sem telefone do cliente — copiei a mensagem, cole manual no ChatGuru','erro'); copiarTexto(texto); return false; }
+  const t=flash('Enviando no ChatGuru…','load');
+  const r=await caReq('/api/chatguru/enviar',{telefone:tel, texto});
+  t.fechar&&t.fechar();
+  if(r.ok && r.data && r.data.ok){ flash('Mensagem enviada ao cliente no ChatGuru ✔','ok'); return true; }
+  copiarTexto(texto);
+  flash('Envio automático falhou ('+((r.data&&r.data.erro)||('HTTP '+r.status))+') — mensagem COPIADA, cole no ChatGuru','erro');
+  return false;
+}
+// acha os links (URLs) que a cobrança do Conta Azul devolver (boleto/pix/link)
+function extrairLinks(obj){
+  const urls=String(JSON.stringify(obj||{})).match(/https?:\\?\/\\?\/[^"\s\\]+/g)||[];
+  return [...new Set(urls.map(u=>u.replace(/\\\//g,'/')))].filter(u=>!/api-v2\.contaazul/.test(u));
+}
+// emite a cobrança no Conta Azul (BOLETO | PIX | LINK) a partir da venda do frete
+async function caGerarCobranca(id, tipo){
+  const f=lerDB()[id]; if(!f) return null;
+  const t=flash('Emitindo cobrança no Conta Azul…','load');
+  const r=await caReq('/api/ca/cobranca',{frete:String(f.numero||''), tipo, vencimento:(f.boletoVencimento||f.pixVenc1||'')||undefined});
+  t.fechar&&t.fechar();
+  if(r.ok && r.data && r.data.ok){ flash('Cobrança emitida no Conta Azul ✔','ok'); return r.data; }
+  flash('Cobrança falhou: '+((r.data&&r.data.erro)||('HTTP '+r.status))+' — dá pra emitir manual no CA','erro');
+  console.warn('cobranca CA', r);
+  return null;
+}
+// ---- botões por forma de pagamento (CA + envio direto no ChatGuru) ----
 async function caCartaoEnviar(id){
   const f=lerDB()[id]; if(!f) return;
   if(!f.cartaoLink){ flash('Cole primeiro o link da Rede','erro'); return; }
-  await caLancarVenda(id);                       // registra a venda no Conta Azul
-  msgCobrancaCopiar(id);                         // e deixa a mensagem pronta pro ChatGuru
+  const okVenda = await caLancarVenda(id);            // registra a venda no CA (link é da Rede)
+  if(okVenda===false) return;
+  await chatguruEnviar(id, msgCartaoDe(f));           // manda o link direto na conversa
 }
-async function caBoletoEnviar(id){ await caLancarVenda(id); msgCobrancaCopiar(id); }
-async function caPixEnviar(id){ await caLancarVenda(id); msgCobrancaCopiar(id); }
+async function caBoletoEnviar(id){
+  const f=lerDB()[id]; if(!f) return;
+  const okVenda = await caLancarVenda(id);
+  if(okVenda===false) return;
+  const cob = await caGerarCobranca(id,'BOLETO');     // emite o boleto pelo CA
+  const links = cob?extrairLinks(cob):[];
+  const msg = msgBoletoDe(f)+(links.length?('\n\nBoleto: '+links[0]):'');
+  await chatguruEnviar(id, msg);
+}
+async function caPixEnviar(id){
+  const f=lerDB()[id]; if(!f) return;
+  const okVenda = await caLancarVenda(id);
+  if(okVenda===false) return;
+  const cob = await caGerarCobranca(id,'PIX');        // emite a cobrança PIX (link/QR) pelo CA
+  const links = cob?extrairLinks(cob):[];
+  const msg = msgPixDe(f)+(links.length?('\n\nLink de pagamento: '+links.join('\n')):'');
+  await chatguruEnviar(id, msg);
+}
 // ---- e-mail de faturamento pronto no Gmail ----
 function gmailFaturamento(id){
   const f=lerDB()[id]; if(!f) return;

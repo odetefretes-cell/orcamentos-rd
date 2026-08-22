@@ -102,6 +102,26 @@ app.all('/interesse', (req, res) => obsIntegracao(req, res));
 app.all(['/precadastro', '/webhook/precadastro'], (req, res) => preCadastrarLead(req, res));
 app.all(['/opener', '/webhook/opener'], (req, res) => openerDisparou(req, res));
 
+// Envio direto de mensagem ao cliente pelo ChatGuru (botões do financeiro no app).
+// SÓ com o segredo compartilhado (o obs-api injeta o X-OBS-Secret — nunca o navegador).
+const { enviarMensagem } = require('../chatguru-api');
+app.post(['/enviar-cliente', '/webhook/enviar-cliente'], async (req, res) => {
+  try {
+    const seg = req.get('x-obs-secret') || '';
+    if (!process.env.OBS_SHARED_SECRET || seg !== process.env.OBS_SHARED_SECRET) {
+      return res.status(401).json({ ok: false, erro: 'não autorizado' });
+    }
+    const { telefone, texto } = req.body || {};
+    if (!telefone || !texto) return res.status(400).json({ ok: false, erro: 'informe telefone e texto' });
+    const r = await enviarMensagem({ chatNumber: telefone, texto });
+    console.log(`[enviar-cliente] → ${telefone}: ${String(texto).slice(0, 60)}…`);
+    res.json({ ok: true, chatguru: r });
+  } catch (e) {
+    console.error('[enviar-cliente] ERRO:', e.message || e);
+    res.status(200).json({ ok: false, erro: e.message || String(e) });
+  }
+});
+
 app.listen(PORT, HOST, () => {
   console.log(`[orquestrador] HTTP ouvindo em http://${HOST}:${PORT}`);
   console.log(`[orquestrador] OBS_USAR_PG=${process.env.OBS_USAR_PG} | OBS_API_URL=${process.env.OBS_API_URL || '(padrão)'}`);
