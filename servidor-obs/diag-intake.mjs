@@ -34,15 +34,22 @@ async function main() {
     return !criou && s !== 'em_atendimento_humano';
   }).sort((a, b) => (b.updated_at > a.updated_at ? 1 : -1));
 
-  console.log(`\n>>> PRESOS (sem lead no CRM): ${presos.length}. Últimos 15:\n`);
+  console.log(`\n>>> PRESOS (sem lead no CRM): ${presos.length}. Detalhe:\n`);
   for (const r of presos.slice(0, 15)) {
     const e = r.data?.extraido || {};
-    console.log(
-      `  ${String(r.id).padEnd(15)} status=${g(r.data,'statusIntake').padEnd(16)} perguntas=${g(r.data,'perguntasFeitas')||0}` +
-      ` ia=${r.data?.iaProcessado?'sim':'nao'} msgs=${Array.isArray(r.data?.mensagens)?r.data.mensagens.length:0}` +
-      ` | ${g(e,'nome')||g(r.data,'nome')} | ${g(e,'origem')} → ${g(e,'destino')} | ${g(e,'veiculo')}` +
-      ` | ${String(r.updated_at).slice(0,16)}`
-    );
+    console.log(`  ${String(r.id).padEnd(15)} status=${g(r.data,'statusIntake')} perguntas=${g(r.data,'perguntasFeitas')||0} ia=${r.data?.iaProcessado?'sim':'nao'} respostaEnviada=${g(r.data,'respostaEnviada')} decisao=${g(e,'decisao')} faltaInfo=${g(e,'faltaInfo')} | ${g(e,'nome')||g(r.data,'nome')} | ${g(e,'origem')}→${g(e,'destino')} | ${g(e,'veiculo')} | ${String(r.updated_at).slice(0,16)}`);
+  }
+
+  // Lookup de telefones passados como argumento (checa intake + crm_leads por últimos 8 díg)
+  const alvos = process.argv.slice(2).map((s) => s.replace(/\D/g, '')).filter(Boolean);
+  if (alvos.length) {
+    console.log('\n>>> BUSCA de telefones específicos:');
+    for (const tel of alvos) {
+      const ult8 = tel.slice(-8);
+      const { rows: ri } = await pool.query('SELECT id, data FROM crm_leads_intake WHERE id LIKE $1', ['%' + ult8]);
+      const { rows: rc } = await pool.query("SELECT id, data->>'nome' nome, data->>'status' status FROM crm_leads WHERE id LIKE $1", ['%' + ult8]);
+      console.log(`  ${tel} (…${ult8}): intake=${ri.length ? ri.map((x)=>x.id+'['+g(x.data,'statusIntake')+' leadCriado='+g(x.data,'leadCriado')+']').join(',') : 'NENHUM'} | crm_leads=${rc.length ? rc.map((x)=>x.id+'('+x.status+')').join(',') : 'NENHUM'}`);
+    }
   }
   await pool.end();
 }
