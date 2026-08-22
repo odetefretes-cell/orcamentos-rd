@@ -141,15 +141,39 @@ obsRouter.post('/venda/adotar', async (req, res, next) => {
   try {
     const lista = [].concat(req.body?.fretes || req.body?.frete || []).map((x) => String(x).trim()).filter(Boolean);
     if (!lista.length) return res.status(400).json({ ok: false, erro: 'Informe "fretes": ["1694", ...]' });
+    // vendas manuais antigas têm número PRÓPRIO do CA e "FRETE <n>" na DESCRIÇÃO →
+    // fallback: procurar nas contas a receber pela descrição e subir até o evento.
+    const acharNoCA = async (fr) => {
+      const v = await buscarVendaPorNumero(fr);
+      if (v?.id) return { caId: v.id, caNumero: v.numero, via: 'numero da venda' };
+      const iso = (d) => d.toISOString().slice(0, 10);
+      const hoje = new Date();
+      const de = new Date(hoje); de.setDate(de.getDate() - 240);
+      const ate = new Date(hoje); ate.setDate(ate.getDate() + 240);
+      const re = new RegExp('(^|\\D)' + fr + '(\\D|$)');
+      for (let pag = 1; pag <= 4; pag++) {
+        const { data } = await ca.get('/v1/financeiro/eventos-financeiros/contas-a-receber/buscar', { data_vencimento_de: iso(de), data_vencimento_ate: iso(ate), tamanho_pagina: 500, pagina: pag });
+        const arr = Array.isArray(data) ? data : (data?.items || data?.itens || []);
+        const hit = arr.find((x) => re.test(String(x.descricao || '')));
+        if (hit) {
+          const pid = hit.id || hit.uuid;
+          const pd = (await ca.get('/v1/financeiro/eventos-financeiros/parcelas/' + pid)).data;
+          const ev = pd?.evento?.id;
+          if (ev) return { caId: ev, caNumero: null, via: 'descrição: ' + String(hit.descricao || '').slice(0, 40) };
+        }
+        if (arr.length < 500) break;
+      }
+      return null;
+    };
     const resultados = [];
     for (const fr of lista) {
       try {
         if (acharVenda(fr)) { resultados.push({ frete: fr, ja: 'já monitorada' }); continue; }
-        const v = await buscarVendaPorNumero(fr);
-        if (v?.id) {
-          registrarVenda({ frete: fr, valor: Number(v.total || v.valor || 0) || 0, caId: v.id, caNumero: v.numero, status: 'adotada_manual', payload: { adotada: true } });
-          resultados.push({ frete: fr, adotada: true, caId: v.id });
-        } else resultados.push({ frete: fr, erro: 'venda não encontrada no Conta Azul' });
+        const achado = await acharNoCA(fr);
+        if (achado) {
+          registrarVenda({ frete: fr, valor: 0, caId: achado.caId, caNumero: achado.caNumero, status: 'adotada_manual', payload: { adotada: true, via: achado.via } });
+          resultados.push({ frete: fr, adotada: true, via: achado.via, caId: achado.caId });
+        } else resultados.push({ frete: fr, erro: 'não achei no Conta Azul (nem por número, nem por "FRETE ' + fr + '" na descrição)' });
       } catch (e) { resultados.push({ frete: fr, erro: e.message }); }
     }
     log.info('Vendas adotadas p/ monitoramento', { resultados });
