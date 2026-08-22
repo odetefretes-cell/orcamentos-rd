@@ -33,7 +33,7 @@ export async function buscarPessoaPorDocumento(documento) {
   // o documento de verdade (pegar o [0] às cegas devolvia a pessoa errada, e a
   // venda caía em "Cliente da venda não encontrado com o ID informado").
   const { data } = await ca.get('/v1/pessoas', { documento: doc, termo_busca: doc, tamanho_pagina: 100 });
-  return listaDe(data).find((x) => soDigitos(x.documento) === doc) || null;
+  return listaDe(data).find((x) => [x.documento, x.cpf, x.cnpj].some((v) => soDigitos(v) === doc)) || null;
 }
 
 /**
@@ -71,7 +71,9 @@ export async function garantirPessoa(p) {
     nome: p.nome,
     // tipo_pessoa é obrigatório na API: 'Jurídica' p/ CNPJ (14 díg), senão 'Física'.
     tipo_pessoa: (p.tipoPessoa) || (doc.length === 14 ? 'Jurídica' : 'Física'),
-    ...(doc ? { documento: doc } : {}),
+    // schema oficial CriarPessoa: os campos são `cpf` e `cnpj` (NÃO `documento` —
+    // a API ignorava em silêncio e a pessoa nascia sem CPF → cobrança INVALIDO).
+    ...(doc ? (doc.length === 14 ? { cnpj: doc } : { cpf: doc }) : {}),
     ...(p.email ? { email: p.email } : {}),
     // o campo REAL do telefone é telefone_celular (o "telefone" não persiste)
     ...(telefoneBR(p.telefone) ? { telefone_celular: telefoneBR(p.telefone) } : {}),
