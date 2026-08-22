@@ -3395,9 +3395,24 @@ async function caPixEnviar(id){
   const f=lerDB()[id]; if(!f) return;
   const okVenda = await caLancarVenda(id);
   if(okVenda===false) return;
-  const cob = await caGerarCobranca(id,'PIX');        // emite a cobrança PIX (link/QR) pelo CA
-  const links = cob?extrairLinks(cob):[];
-  const msg = msgPixDe(f)+(links.length?('\n\nLink de pagamento: '+links.join('\n')):'');
+  const tipo=String(f.pixTipo||'50/50');
+  // FINANCEIRO cobra SÓ a 1ª parte — a 2ª é emitida pelo OPERACIONAL na entrega (⚡ Cobrar saldo)
+  const cob = await caGerarCobranca(id,'PIX', tipo==='Integral'?undefined:{apenas:'primeira'});
+  const links=(cob&&cob.links&&cob.links.length)?cob.links:(cob?extrairLinks(cob):[]);
+  const vf=num(f.valorFrete), meia=vf/2;
+  let msg;
+  if(tipo==='Integral'){
+    msg=['*OBS Transportes — Pagamento via PIX* ⚡','','Frete Nº '+(f.numero||''),
+      'Valor: '+moeda(vf)+(f.pixVenc1?' (até '+dataBR(f.pixVenc1)+')':''),
+      (links.length?'Link para pagamento: '+links[0]:'Enviaremos o link para o pagamento em instantes.'),
+      '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
+  }else{
+    msg=['*OBS Transportes — Pagamento via PIX (50% + 50%)* ⚡','','Frete Nº '+(f.numero||''),
+      '1ª parte: '+moeda(meia)+(f.pixVenc1?' (até '+dataBR(f.pixVenc1)+')':''),
+      (links.length?'Link para pagamento da 1ª parte: '+links[0]:'Enviaremos o link para o pagamento em instantes.'),
+      '','A 2ª parte ('+moeda(meia)+') será cobrada na entrega do veículo.',
+      '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
+  }
   await chatguruEnviar(id, msg);
 }
 // ---- e-mail de faturamento pronto no Gmail ----
