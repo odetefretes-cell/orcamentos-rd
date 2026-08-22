@@ -153,7 +153,7 @@ obsRouter.post('/despesa', async (req, res, next) => {
 //  Emite 1 cobrança POR PARCELA em aberto da venda (PIX 50/50 → 2 cobranças).
 obsRouter.post('/cobranca', async (req, res, next) => {
   try {
-    const { frete, tipo, vencimento, descricao } = req.body || {};
+    const { frete, tipo, vencimento, descricao, apenas } = req.body || {};
     const TIPOS = { BOLETO: 'BOLETO', PIX: 'PIX_COBRANCA', LINK: 'LINK_PAGAMENTO' };
     const t = TIPOS[String(tipo || '').toUpperCase()];
     if (!frete || !t) return res.status(400).json({ ok: false, erro: 'Informe "frete" e "tipo" (BOLETO|PIX|LINK).' });
@@ -177,8 +177,17 @@ obsRouter.post('/cobranca', async (req, res, next) => {
     if (!parcelas.length) return res.status(502).json({ ok: false, erro: 'Não achei as parcelas da venda no Conta Azul.', tentativas });
 
     const hoje = new Date().toISOString().slice(0, 10);
+    // apenas:'ultima' → cobra SÓ a última parcela em aberto (2ª parte do PIX 50/50,
+    // cobrada pelo OPERACIONAL na entrega — a 1ª já foi cobrada pelo financeiro).
+    let alvo = parcelas;
+    if (String(apenas || '').toLowerCase() === 'ultima') {
+      const abertas = parcelas.filter((p) => !(/pag[oa]|liquid|recebid/i.test(String(p.status || '')) && !/nao|não|pend/i.test(String(p.status || ''))));
+      abertas.sort((a, b) => String(b.data_vencimento || '').localeCompare(String(a.data_vencimento || '')));
+      alvo = abertas.slice(0, 1);
+      if (!alvo.length) return res.status(200).json({ ok: false, erro: 'Nenhuma parcela em aberto — tudo já pago.', tentativas });
+    }
     const resultados = [];
-    for (const p of parcelas) {
+    for (const p of alvo) {
       const pid = p.id || p.uuid;
       if (!pid) continue;
       const jaPaga = /pag[oa]|liquid|recebid/i.test(String(p.status || '')) && !/nao|não|pend/i.test(String(p.status || ''));
