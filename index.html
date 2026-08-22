@@ -3299,14 +3299,31 @@ function programacaoDe(f){
   if(/boleto/i.test(fp)) return [{rotulo:'Boleto', valor:vf, venc:f.boletoVencimento||f.previsaoRecebimento||''}];
   return [];
 }
-// 1 clique: preenche Pago N + Data pagamento N com a data de HOJE (dinheiro caiu)
-function confirmarRecebimento(id,n,valor){
+// 1 clique: preenche Pago N + Data pagamento N com a data de HOJE (dinheiro caiu).
+// CARTÃO (Rede → cai no ITAU): também dá a BAIXA na parcela do Conta Azul (conta ITAU).
+async function confirmarRecebimento(id,n,valor){
   const db=lerDB(); const f=db[id]; if(!f) return;
+  const fp=String(f.formaPgto||'');
+  const ehCartaoPuro=/cart/i.test(fp)&&!/pix/i.test(fp);
+  const ehMistoCartao=/cart/i.test(fp)&&/pix/i.test(fp)&&n===2;   // no misto, só a 2ª parte é cartão
+  const baixarNoCA=ehCartaoPuro||ehMistoCartao;
+  if(baixarNoCA){
+    const ok=await uiConfirm('Confirmar recebimento de '+moeda(valor)+' (cartão)?\n\n• Preenche Pago '+n+' + data de hoje no sistema\n• Dá a BAIXA na parcela do Conta Azul (conta ITAU)',
+      {titulo:'✔ Recebimento (cartão)', ok:'Confirmar', perigo:false});
+    if(!ok) return;
+  }
   f['pago'+n]=String(valor.toFixed(2)).replace('.',',');
   f['dataPago'+n]=hojeISO();
   f._salvoEm=new Date().toISOString(); gravarDB(db);
   flash('Pago '+n+' preenchido: '+moeda(valor)+' em '+dataBR(hojeISO())+' ✔','ok');
   setTimeout(()=>renderFinanceiro(),0);
+  if(baixarNoCA){
+    const t=flash('Dando baixa no Conta Azul (conta ITAU)…','load');
+    const r=await caReq('/api/ca/baixa',{frete:String(f.numero||''), valor, data:hojeISO()});
+    t.fechar&&t.fechar();
+    if(r.ok && r.data && r.data.ok) flash('Baixa no Conta Azul (ITAU) ✔','ok');
+    else flash('Baixa automática no CA falhou ('+((r.data&&r.data.erro)||('HTTP '+r.status))+') — dê a baixa manual no Conta Azul','erro');
+  }
 }
 function copiarTexto(t){
   try{ navigator.clipboard.writeText(t); return true; }
