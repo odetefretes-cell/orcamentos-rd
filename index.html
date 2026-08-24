@@ -3195,7 +3195,9 @@ async function caLancarVenda(id){
       placa: (f.veiculos&&f.veiculos[0]&&f.veiculos[0].placa) || f.placa || ''
     };
     const ok = await uiConfirm(
-      'Registrar VENDA no Conta Azul?\n\nFrete #'+f.numero+'\nCliente: '+(f.clienteEmpresa||'—')+'\nValor: '+moeda(valor)+'\nForma: '+formaPagamento+'\nModal: '+modal,
+      'Registrar VENDA no Conta Azul?\n\nFrete #'+f.numero+'\nCliente: '+(f.clienteEmpresa||'—')+'\nValor: '+moeda(valor)+'\nForma: '+formaPagamento+'\nModal: '+modal+
+      '\n\n📱 A mensagem de cobrança vai para: '+(f.telefone?telBonito(f.telefone):'⚠ SEM TELEFONE NA FICHA')+
+      '\n(confira se é o WhatsApp onde a conversa está acontecendo)',
       {titulo:'Conta Azul — Venda', ok:'Registrar', perigo:false});
     if(!ok) return false;
     const t = flash('Registrando venda no Conta Azul…','load');
@@ -3463,14 +3465,20 @@ function msgCobrancaCopiar(id){
   copiarTexto(t) ? flash('Mensagem copiada ✔ — cole na conversa do ChatGuru','ok') : flash('Não consegui copiar — copie manual','erro');
 }
 // ---- envio DIRETO no ChatGuru (o obs-api injeta o segredo; nada fica no navegador) ----
+function telBonito(v){
+  const d=String(v||'').replace(/\D/g,'').replace(/^55/,'');
+  if(d.length===11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if(d.length===10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return v||'';
+}
 async function chatguruEnviar(id, texto){
   const f=lerDB()[id]; if(!f) return false;
   const tel=String(f.telefone||'').trim();
   if(!tel){ flash('Frete sem telefone do cliente — copiei a mensagem, cole manual no ChatGuru','erro'); copiarTexto(texto); return false; }
-  const t=flash('Enviando no ChatGuru…','load');
+  const t=flash('Enviando no ChatGuru para '+telBonito(tel)+'…','load');
   const r=await caReq('/api/chatguru/enviar',{telefone:tel, texto});
   t.fechar&&t.fechar();
-  if(r.ok && r.data && r.data.ok){ flash('Mensagem enviada ao cliente no ChatGuru ✔','ok'); return true; }
+  if(r.ok && r.data && r.data.ok){ flash('Mensagem enviada no ChatGuru para '+telBonito(tel)+' ✔ — confira se é a conversa certa do cliente','ok'); return true; }
   copiarTexto(texto);
   flash('Envio automático falhou ('+((r.data&&r.data.erro)||('HTTP '+r.status))+') — mensagem COPIADA, cole no ChatGuru','erro');
   return false;
