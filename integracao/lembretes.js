@@ -54,9 +54,21 @@ async function processarLembretes() {
   if (!alvos.length) return { avisados: 0 };
 
   const dialogId = process.env.CHATGURU_DIALOG_LEMBRETE || '';
+  // telefone do CHAT: prioriza o do LEAD de origem (veio do ChatGuru = número real
+  // da conversa); a ficha pode ter outro número digitado.
+  const telDoChat = async (f) => {
+    try {
+      if (f.leadId) {
+        const l = await db.collection('crm_leads').doc(String(f.leadId)).get();
+        const t = String((l.exists && l.data() && l.data().telefone) || '').trim();
+        if (t.replace(/\D/g, '').length >= 10) return t;
+      }
+    } catch (_) {}
+    return String(f.telefone || '').trim();
+  };
   let avisados = 0;
   for (const { id, f } of alvos) {
-    const tel = String(f.telefone || '').trim();
+    const tel = await telDoChat(f);
     if (!tel) { console.warn(`[lembretes] frete ${f.numero || id}: sem telefone — pulado.`); continue; }
     const ultima = ultimaAtualizacaoInterna(f);
     const texto = [

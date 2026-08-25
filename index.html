@@ -3201,7 +3201,7 @@ async function caLancarVenda(id){
     };
     const ok = await uiConfirm(
       'Registrar VENDA no Conta Azul?\n\nFrete #'+f.numero+'\nCliente: '+(f.clienteEmpresa||'—')+'\nValor: '+moeda(valor)+'\nForma: '+formaPagamento+'\nModal: '+modal+
-      '\n\n📱 A mensagem de cobrança vai para: '+(f.telefone?telBonito(f.telefone):'⚠ SEM TELEFONE NA FICHA')+
+      '\n\n📱 A mensagem de cobrança vai para: '+(telefoneChatDe(f)?telBonito(telefoneChatDe(f)):'⚠ SEM TELEFONE')+
       '\n(confira se é o WhatsApp onde a conversa está acontecendo)',
       {titulo:'Conta Azul — Venda', ok:'Registrar', perigo:false});
     if(!ok) return false;
@@ -3476,9 +3476,25 @@ function telBonito(v){
   if(d.length===10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
   return v||'';
 }
+// Número do CHAT no ChatGuru: prioriza o telefone do LEAD de origem (esse veio do
+// próprio ChatGuru, é o número real da conversa). A ficha pode ter outro número
+// (fixo, contato do financeiro, digitado errado) — foi o caso do frete 1703.
+function telefoneChatDe(f){
+  try{
+    if(f && f.leadId && typeof CRM_LEADS==='object' && CRM_LEADS[f.leadId]){
+      const t=String(CRM_LEADS[f.leadId].telefone||'').trim();
+      if(t.replace(/\D/g,'').length>=10) return t;
+    }
+  }catch(_){}
+  return String((f&&f.telefone)||'').trim();
+}
 async function chatguruEnviar(id, texto){
   const f=lerDB()[id]; if(!f) return false;
-  const tel=String(f.telefone||'').trim();
+  const tel=telefoneChatDe(f);
+  const telFicha=String(f.telefone||'').trim();
+  if(tel && telFicha && tel.replace(/\D/g,'').slice(-8)!==telFicha.replace(/\D/g,'').slice(-8)){
+    console.warn('chatguru: usando o telefone do LEAD ('+tel+') — a ficha tem outro ('+telFicha+')');
+  }
   if(!tel){ flash('Frete sem telefone do cliente — copiei a mensagem, cole manual no ChatGuru','erro'); copiarTexto(texto); return false; }
   const t=flash('Enviando no ChatGuru para '+telBonito(tel)+'…','load');
   const r=await caReq('/api/chatguru/enviar',{telefone:tel, texto});
