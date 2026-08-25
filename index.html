@@ -2679,6 +2679,11 @@ function cardFrete(f){
           ${marcoHTML(id,f,{label:'Embarque',prev:'embarquePrev',feito:'embarqueFeito'})}
           ${marcoHTML(id,f,{label:'Chegada',prev:'chegadaPrev',feito:'chegadaFeito'})}
           ${marcoHTML(id,f,{label:'Liberação',prev:'liberacaoPrev'})}
+          <div class="mc" style="border-color:rgba(230,161,0,.45);background:rgba(230,161,0,.08)">
+            <span class="mc-l" style="color:#fbbf24">🔔 Lembrete para dia</span>
+            <input type="date" value="${escA(f.lembreteEm)}" onchange="setMarco('${id}','lembreteEm',this.value,'Lembrete agendado')" title="No dia marcado, o robô lança a ÚLTIMA ATUALIZAÇÃO INTERNA como anotação no ChatGuru e deixa o contato em AGUARDANDO + não lido para o atendente retomar">
+            ${f.lembreteEnviadoEm?`<span class="mc-ok" style="font-size:11px">✅ enviado ${dataBR(f.lembreteEnviadoEm)}</span>`:(f.lembreteEm?'<span class="mc-l" style="font-size:10.5px">robô avisa nesse dia</span>':'')}
+          </div>
         </div>
         ${/boleto/i.test(f.formaPgto||'') && !String(f.dataFaturamento||'').trim() ? `
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;background:rgba(34,115,196,.10);border:1px solid rgba(34,115,196,.4);border-radius:8px;padding:8px 10px">
