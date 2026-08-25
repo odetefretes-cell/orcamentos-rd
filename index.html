@@ -3543,6 +3543,17 @@ async function caCartaoPixEnviar(id){
     '','Qualquer dúvida é só chamar! 😊'].filter(Boolean).join('\n');
   if(await chatguruEnviar(id, msg)) setPag(id,'cobrancaEnviada',hojeISO());
 }
+// Boleto emitido FORA do sistema (direto no Conta Azul): só registra e tira da fila.
+async function marcarFaturadoPorFora(id){
+  const f=lerDB()[id]; if(!f) return;
+  if(!String(f.boletoVencimento||'').trim()){ flash('Preencha o VENCIMENTO do boleto antes de registrar','erro'); return; }
+  const ok=await uiConfirm('Registrar como JÁ FATURADO (emitido fora do sistema)?\n\nFrete Nº '+(f.numero||'')+'\nValor: '+moeda(f.valorFrete)+'\nVencimento: '+dataBR(f.boletoVencimento)+'\n\nNão emite nada no Conta Azul nem envia mensagem — só marca e tira da fila.',
+    {titulo:'📄 Faturado por fora', ok:'Registrar', perigo:false});
+  if(!ok) return;
+  setPag(id,'dataFaturamento',hojeISO());
+  setPag(id,'obsPagamento',((f.obsPagamento?f.obsPagamento+' | ':'')+'boleto faturado fora do sistema, venc '+dataBR(f.boletoVencimento)).slice(0,300));
+  flash('Registrado ✔ — frete fora da fila de faturamento','ok');
+}
 // FILA DE FATURAMENTO: emite o boleto no CA + envia no ChatGuru + marca FATURADO
 async function caBoletoFaturar(id){
   const f=lerDB()[id]; if(!f) return;
@@ -3744,6 +3755,7 @@ function renderFinanceiro(){
         <button class="btn-ok" style="padding:7px 14px;font-size:13px" onclick="caBoletoFaturar('${f._id}')" title="Emite o boleto no Conta Azul, envia ao cliente no ChatGuru e marca faturado">☁ Faturar (CA + 📱 ChatGuru)</button>
         <button class="btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="gmailFaturamento('${f._id}')" title="E-mail de faturamento pronto (com o link do boleto após faturar)">✉️ Gmail</button>
         <button class="btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
+        <button class="btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="marcarFaturadoPorFora('${f._id}')" title="Boleto já emitido fora do sistema (direto no Conta Azul) — só registra e tira da fila">✔ já faturei por fora</button>
       </div>
     </div>`;
   }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum boleto aguardando faturamento.</p>';
