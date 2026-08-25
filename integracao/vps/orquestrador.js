@@ -158,4 +158,21 @@ cron.schedule('* * * * *', async () => {
 
 console.log('[orquestrador] cron agendado: * * * * * (America/Sao_Paulo).');
 
+/* ---- 7) LEMBRETES do operacional (1x por hora, horário comercial) ---------
+   Frete com "🔔 Lembrete para dia" vencendo hoje → anotação no ChatGuru com a
+   última atualização interna + diálogo que põe AGUARDANDO/não lido. */
+const { processarLembretes } = require('../lembretes');
+let rodandoLembretes = false;
+cron.schedule('5 8-19 * * *', async () => {
+  if (rodandoLembretes) return;
+  rodandoLembretes = true;
+  try {
+    const r = await processarLembretes();
+    if (r && r.avisados) console.log('[lembretes] ciclo:', JSON.stringify(r));
+  } catch (e) {
+    console.error('[lembretes] erro no ciclo:', (e && e.stack) || e);
+  } finally { rodandoLembretes = false; }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[orquestrador] lembretes agendados: 5 8-19 * * * (America/Sao_Paulo).');
+
 module.exports = { app, driver, pipeline };

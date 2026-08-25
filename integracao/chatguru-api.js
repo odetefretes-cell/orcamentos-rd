@@ -139,4 +139,61 @@ async function criarChat({ chatNumber, nome, text }){
   return json;
 }
 
-module.exports = { enviarMensagem, atualizarContexto, criarChat, normalizarNumeroBR };
+/* Adiciona uma ANOTAÇÃO interna no chat (action=note_add). Não é mensagem ao
+   cliente — só fica registrada na conversa para o atendente ler. */
+async function adicionarAnotacao({ chatNumber, texto }){
+  const key       = process.env.CHATGURU_API_KEY || '';
+  const accountId = process.env.CHATGURU_ACCOUNT_ID || '';
+  const phoneId   = process.env.CHATGURU_PHONE_ID || '';
+  if(!key || !accountId || !phoneId) throw new Error('Credenciais do ChatGuru não configuradas.');
+  if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
+  if(!texto)      throw new Error('texto da anotação ausente.');
+  const numero = normalizarNumeroBR(chatNumber);
+  const body = new URLSearchParams({
+    action: 'note_add', note_text: texto, text: texto,
+    chat_number: numero, key, account_id: accountId, phone_id: phoneId,
+  });
+  const resp = await fetch(CHATGURU_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
+  });
+  const json = await resp.json().catch(() => ({}));
+  if(!resp.ok || (json.result && json.result !== 'success')){
+    throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+  }
+  console.log(`[chatguru-api] anotação adicionada em ${numero}.`);
+  return json;
+}
+
+/* Executa um DIÁLOGO do chatbot no chat (é o diálogo que muda status p/ AGUARDANDO
+   e marca não lido — a API não faz isso direto). O nome exato da action não está
+   na doc pública: tentamos as variantes conhecidas e logamos a que funcionar. */
+async function executarDialogo({ chatNumber, dialogId }){
+  const key       = process.env.CHATGURU_API_KEY || '';
+  const accountId = process.env.CHATGURU_ACCOUNT_ID || '';
+  const phoneId   = process.env.CHATGURU_PHONE_ID || '';
+  if(!key || !accountId || !phoneId) throw new Error('Credenciais do ChatGuru não configuradas.');
+  if(!chatNumber || !dialogId) throw new Error('chat_number e dialog_id são obrigatórios.');
+  const numero = normalizarNumeroBR(chatNumber);
+  const variantes = ['dialog_execute','execute_dialog','chat_dialog_execute','dialog_send'];
+  const erros = {};
+  for(const action of variantes){
+    try{
+      const body = new URLSearchParams({
+        action, dialog_id: dialogId, chat_number: numero,
+        key, account_id: accountId, phone_id: phoneId,
+      });
+      const resp = await fetch(CHATGURU_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if(resp.ok && (!json.result || json.result === 'success')){
+        console.log(`[chatguru-api] diálogo ${dialogId} executado em ${numero} (action=${action}).`);
+        return { ...json, _action: action };
+      }
+      erros[action] = (json && json.description) || ('HTTP ' + resp.status);
+    }catch(e){ erros[action] = e.message; }
+  }
+  throw new Error('Nenhuma variante de execução de diálogo funcionou: ' + JSON.stringify(erros));
+}
+
+module.exports = { enviarMensagem, atualizarContexto, criarChat, adicionarAnotacao, executarDialogo, normalizarNumeroBR };
