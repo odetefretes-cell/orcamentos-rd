@@ -139,6 +139,15 @@ async function criarChat({ chatNumber, nome, text }){
   return json;
 }
 
+/* Variante do número com/sem o 9º dígito (chats antigos do WhatsApp ficaram sem o
+   9). Usada como 2ª tentativa quando o ChatGuru diz "Chat não encontrado". */
+function variante9(tel){
+  const d = String(tel || '').replace(/\D/g, '').replace(/^55/, '');
+  if(d.length === 11 && d[2] === '9') return '55' + d.slice(0,2) + d.slice(3);   // tira o 9
+  if(d.length === 10) return '55' + d.slice(0,2) + '9' + d.slice(2);             // põe o 9
+  return null;
+}
+
 /* Adiciona uma ANOTAÇÃO interna no chat (action=note_add). Não é mensagem ao
    cliente — só fica registrada na conversa para o atendente ler. */
 async function adicionarAnotacao({ chatNumber, texto }){
@@ -148,20 +157,28 @@ async function adicionarAnotacao({ chatNumber, texto }){
   if(!key || !accountId || !phoneId) throw new Error('Credenciais do ChatGuru não configuradas.');
   if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
   if(!texto)      throw new Error('texto da anotação ausente.');
-  const numero = normalizarNumeroBR(chatNumber);
-  const body = new URLSearchParams({
-    action: 'note_add', note_text: texto, text: texto,
-    chat_number: numero, key, account_id: accountId, phone_id: phoneId,
-  });
-  const resp = await fetch(CHATGURU_URL, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
-  });
-  const json = await resp.json().catch(() => ({}));
-  if(!resp.ok || (json.result && json.result !== 'success')){
-    throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+  const numeros = [normalizarNumeroBR(chatNumber)];
+  const alt = variante9(chatNumber);
+  if(alt && alt !== numeros[0]) numeros.push(alt);
+  let ultimoErro = null;
+  for(const numero of numeros){
+    const body = new URLSearchParams({
+      action: 'note_add', note_text: texto, text: texto,
+      chat_number: numero, key, account_id: accountId, phone_id: phoneId,
+    });
+    const resp = await fetch(CHATGURU_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString(),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if(resp.ok && (!json.result || json.result === 'success')){
+      console.log(`[chatguru-api] anotação adicionada em ${numero}.`);
+      return { ...json, _numero: numero };
+    }
+    ultimoErro = new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+    if(!/encontrad|not found/i.test(ultimoErro.message)) throw ultimoErro;   // erro real: não insiste
+    if(numeros.length > 1) console.log(`[chatguru-api] chat não encontrado em ${numero} — tentando variante.`);
   }
-  console.log(`[chatguru-api] anotação adicionada em ${numero}.`);
-  return json;
+  throw ultimoErro;
 }
 
 /* Executa um DIÁLOGO do chatbot no chat (é o diálogo que muda status p/ AGUARDANDO
@@ -173,9 +190,12 @@ async function executarDialogo({ chatNumber, dialogId }){
   const phoneId   = process.env.CHATGURU_PHONE_ID || '';
   if(!key || !accountId || !phoneId) throw new Error('Credenciais do ChatGuru não configuradas.');
   if(!chatNumber || !dialogId) throw new Error('chat_number e dialog_id são obrigatórios.');
-  const numero = normalizarNumeroBR(chatNumber);
+  const numeros = [normalizarNumeroBR(chatNumber)];
+  const alt = variante9(chatNumber);
+  if(alt && alt !== numeros[0]) numeros.push(alt);
   const variantes = ['dialog_execute','execute_dialog','chat_dialog_execute','dialog_send'];
   const erros = {};
+  for(const numero of numeros)
   for(const action of variantes){
     try{
       const body = new URLSearchParams({
@@ -190,10 +210,10 @@ async function executarDialogo({ chatNumber, dialogId }){
         console.log(`[chatguru-api] diálogo ${dialogId} executado em ${numero} (action=${action}).`);
         return { ...json, _action: action };
       }
-      erros[action] = (json && json.description) || ('HTTP ' + resp.status);
-    }catch(e){ erros[action] = e.message; }
+      erros[action + '@' + numero] = (json && json.description) || ('HTTP ' + resp.status);
+    }catch(e){ erros[action + '@' + numero] = e.message; }
   }
   throw new Error('Nenhuma variante de execução de diálogo funcionou: ' + JSON.stringify(erros));
 }
 
-module.exports = { enviarMensagem, atualizarContexto, criarChat, adicionarAnotacao, executarDialogo, normalizarNumeroBR };
+module.exports = { enviarMensagem, atualizarContexto, criarChat, adicionarAnotacao, executarDialogo, normalizarNumeroBR, variante9 };

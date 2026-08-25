@@ -78,9 +78,10 @@ async function processarLembretes() {
     ].join('\n');
 
     try {
-      await adicionarAnotacao({ chatNumber: tel, texto });
+      const r = await adicionarAnotacao({ chatNumber: tel, texto });
+      const numeroOk = (r && r._numero) || tel;   // usa o MESMO número que a anotação achou
       if (dialogId) {
-        try { await executarDialogo({ chatNumber: tel, dialogId }); }
+        try { await executarDialogo({ chatNumber: numeroOk, dialogId }); }
         catch (e) { console.warn(`[lembretes] frete ${f.numero}: anotação ok, diálogo falhou: ${e.message}`); }
       } else {
         console.warn('[lembretes] CHATGURU_DIALOG_LEMBRETE não configurado — só anotação (sem AGUARDANDO/não lido).');
