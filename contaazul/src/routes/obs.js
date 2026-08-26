@@ -268,6 +268,34 @@ obsRouter.post('/cobranca', async (req, res, next) => {
         if (fid) { parcelas = await listarParcelas(fid); tentativas[`parcelas via evento (volta ${volta})`] = parcelas.length; }
       } catch (e) { tentativas[`venda detalhe (volta ${volta})`] = (e.status || '?') + ' ' + e.message; }
     }
+    // FALLBACK CONFIÁVEL: procurar as parcelas nas CONTAS A RECEBER pela descrição
+    // ("1/2 - Venda 1627"). O evento financeiro da venda demora/às vezes não vem no
+    // detalhe, mas a parcela já aparece aqui — é o mesmo caminho da adoção de vendas.
+    if (!parcelas.length) {
+      try {
+        const iso = (d) => d.toISOString().slice(0, 10);
+        const hoje2 = new Date();
+        const de = new Date(hoje2); de.setDate(de.getDate() - 60);
+        const ate = new Date(hoje2); ate.setDate(ate.getDate() + 400);
+        const re = new RegExp('(^|\\D)' + String(frete).trim() + '(\\D|$)');
+        for (let pag = 1; pag <= 4 && !parcelas.length; pag++) {
+          const { data } = await ca.get('/v1/financeiro/eventos-financeiros/contas-a-receber/buscar', { data_vencimento_de: iso(de), data_vencimento_ate: iso(ate), tamanho_pagina: 500, pagina: pag });
+          const arr = Array.isArray(data) ? data : (data?.items || data?.itens || []);
+          const achadas = arr.filter((x) => re.test(String(x.descricao || '')) || re.test(String(x.codigo_referencia || '')));
+          if (achadas.length) {
+            // pega o detalhe de cada parcela (traz status/valores/vencimento)
+            parcelas = [];
+            for (const a of achadas) {
+              const pid = a.id || a.uuid;
+              try { parcelas.push((await ca.get('/v1/financeiro/eventos-financeiros/parcelas/' + pid)).data); }
+              catch (_) { parcelas.push({ id: pid, status: a.status, data_vencimento: a.data_vencimento, valor: a.valor }); }
+            }
+            tentativas['parcelas via contas a receber (descrição)'] = parcelas.length;
+          }
+          if (arr.length < 500) break;
+        }
+      } catch (e) { tentativas['contas a receber'] = (e.status || '?') + ' ' + e.message; }
+    }
     if (!parcelas.length) return res.status(502).json({ ok: false, erro: 'Não achei as parcelas da venda no Conta Azul (o financeiro da venda pode ainda estar processando lá). Espere ~30s e clique em Faturar de novo.', tentativas });
 
     const hoje = new Date().toISOString().slice(0, 10);
