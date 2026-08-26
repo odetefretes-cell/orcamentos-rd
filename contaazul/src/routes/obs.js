@@ -99,6 +99,7 @@ obsRouter.post('/venda', async (req, res, next) => {
       idCentroCusto: idCentroPara(input.modal),
       idVendedor: config.contaAzul.idVendedor,
       idNatureza: config.contaAzul.idNaturezaVenda,
+      idContaFinanceira: config.contaAzul.idContaFinanceira,
     });
 
     // Cliente recém-criado leva ~1-2s pra ficar consultável no CA → a venda pode

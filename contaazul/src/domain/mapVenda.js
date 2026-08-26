@@ -85,9 +85,16 @@ export function mapVenda(input, refs) {
     descricao: `Venda ${input.frete}`,
   }));
 
-  // PIX usa tipo_pagamento PIX_PAGAMENTO_INSTANTANEO; cartão/faturamento PJ omitem
-  // (valor exato do env não confirmado na conta — ver suposições no relatório).
-  const isPix = input.formaPagamento === 'PIX_50_50' || input.formaPagamento === 'PIX_100';
+  // tipo_pagamento (enum oficial FormaPagamento). SEM ele o Conta Azul cria a venda
+  // mas NÃO gera as parcelas/financeiro — era por isso que o boleto não emitia.
+  const TIPO_PGTO = {
+    PIX_50_50: 'PIX_PAGAMENTO_INSTANTANEO',
+    PIX_100: 'PIX_PAGAMENTO_INSTANTANEO',
+    CARTAO: 'LINK_PAGAMENTO',          // link da Rede
+    CARTAO_PIX: 'PIX_PAGAMENTO_INSTANTANEO',
+    FATURAMENTO_PJ: 'BOLETO_BANCARIO',
+  };
+  const tipoPagamento = TIPO_PGTO[input.formaPagamento];
 
   return {
     id_cliente: refs.idCliente,
@@ -100,7 +107,8 @@ export function mapVenda(input, refs) {
     condicao_pagamento: {
       // Enum REAL: "1x" / "2x" (nº de parcelas), NÃO A_VISTA/A_PRAZO.
       opcao_condicao_pagamento: refs.opcaoCondicao || `${parcelas.length}x`,
-      ...(isPix ? { tipo_pagamento: 'PIX_PAGAMENTO_INSTANTANEO' } : {}),
+      ...(tipoPagamento ? { tipo_pagamento: tipoPagamento } : {}),
+      ...(refs.idContaFinanceira ? { id_conta_financeira: refs.idContaFinanceira } : {}),
       parcelas,
     },
     ...(refs.idVendedor ? { id_vendedor: refs.idVendedor } : {}),
