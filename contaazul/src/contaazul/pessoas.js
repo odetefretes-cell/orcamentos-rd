@@ -55,6 +55,51 @@ export async function buscarPessoaPorDocumento(documento) {
   return null;
 }
 
+/** Valida CPF (11) / CNPJ (14) pelos dígitos verificadores. */
+export function documentoValido(v) {
+  const d = soDigitos(v);
+  if (d.length === 11) {
+    if (/^(\d)\1{10}$/.test(d)) return false;
+    const dv = (base, pesoIni) => {
+      let s = 0; for (let i = 0; i < base.length; i++) s += Number(base[i]) * (pesoIni - i);
+      const r = (s * 10) % 11; return r === 10 ? 0 : r;
+    };
+    return dv(d.slice(0, 9), 10) === Number(d[9]) && dv(d.slice(0, 10), 11) === Number(d[10]);
+  }
+  if (d.length === 14) {
+    if (/^(\d)\1{13}$/.test(d)) return false;
+    const calc = (base) => {
+      const pesos = base.length === 12 ? [5,4,3,2,9,8,7,6,5,4,3,2] : [6,5,4,3,2,9,8,7,6,5,4,3,2];
+      let s = 0; for (let i = 0; i < base.length; i++) s += Number(base[i]) * pesos[i];
+      const r = s % 11; return r < 2 ? 0 : 11 - r;
+    };
+    return calc(d.slice(0, 12)) === Number(d[12]) && calc(d.slice(0, 13)) === Number(d[13]);
+  }
+  return false;
+}
+
+/** Acha pessoa pelo NOME (clientes de faturamento são recorrentes e já existem no CA). */
+export async function buscarPessoaPorNome(nome) {
+  const alvo = String(nome || '').trim().toUpperCase();
+  if (alvo.length < 4) return null;
+  const igual = (x) => String(x.nome || '').trim().toUpperCase() === alvo;
+  const contem = (x) => String(x.nome || '').trim().toUpperCase().startsWith(alvo.slice(0, 18));
+  try {
+    const { data } = await ca.get('/v1/pessoas', { termo_busca: alvo, tamanho_pagina: 100 });
+    const lista = listaDe(data);
+    const exato = lista.find(igual); if (exato) return exato;
+    const parecido = lista.find(contem); if (parecido) return parecido;
+  } catch (_) { /* segue pra varredura */ }
+  for (let pagina = 1; pagina <= 30; pagina++) {
+    let lista = [];
+    try { const { data } = await ca.get('/v1/pessoas', { tamanho_pagina: 100, pagina }); lista = listaDe(data); }
+    catch (_) { break; }
+    const exato = lista.find(igual); if (exato) return exato;
+    if (lista.length < 100) break;
+  }
+  return null;
+}
+
 /**
  * Garante que a pessoa existe (cria se preciso) e devolve o id.
  * @param {{nome:string, documento?:string, email?:string, telefone?:string, perfis?:string[]}} p
@@ -79,6 +124,20 @@ export async function garantirPessoa(p) {
         } catch (e) { log.warn('CA pessoa: não consegui adicionar perfil (segue com o id achado)', { id: achado.id, erro: e.message }); }
       }
       return achado.id;
+    }
+  }
+  // Documento ausente ou INVÁLIDO (ficha com CNPJ incompleto): tenta pelo NOME —
+  // cliente de faturamento é recorrente e quase sempre já existe no Conta Azul.
+  if (!doc || !documentoValido(doc)) {
+    const porNome = await buscarPessoaPorNome(p.nome);
+    if (porNome?.id) {
+      log.info('CA pessoa achada pelo NOME (documento ausente/inválido)', { nome: p.nome, id: porNome.id });
+      return porNome.id;
+    }
+    if (doc && !documentoValido(doc)) {
+      const err = new Error(`O CPF/CNPJ da ficha ("${p.documento}") é inválido e não achei "${p.nome}" no Conta Azul pelo nome. Corrija o documento na ficha do frete (ou cadastre o cliente no Conta Azul) e tente de novo.`);
+      err.status = 409;
+      throw err;
     }
   }
   // Cria. Sem documento, cria só pelo nome (a OBS aceita prestador sem CPF).
