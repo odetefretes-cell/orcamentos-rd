@@ -32,8 +32,27 @@ export async function buscarPessoaPorDocumento(documento) {
   // ⚠️ A API pode IGNORAR o filtro e devolver a lista geral — por isso conferimos
   // o documento de verdade (pegar o [0] às cegas devolvia a pessoa errada, e a
   // venda caía em "Cliente da venda não encontrado com o ID informado").
-  const { data } = await ca.get('/v1/pessoas', { documento: doc, termo_busca: doc, tamanho_pagina: 100 });
-  return listaDe(data).find((x) => [x.documento, x.cpf, x.cnpj].some((v) => soDigitos(v) === doc)) || null;
+  const bate = (x) => [x.documento, x.cpf, x.cnpj].some((v) => soDigitos(v) === doc);
+  // 1ª tentativa: com filtro/termo (rápida, resolve a maioria)
+  try {
+    const { data } = await ca.get('/v1/pessoas', { documento: doc, termo_busca: doc, tamanho_pagina: 100 });
+    const achado = listaDe(data).find(bate);
+    if (achado) return achado;
+  } catch (_) { /* cai pra varredura */ }
+  // 2ª: VARREDURA PAGINADA — a API ignora o filtro de documento, então um cadastro
+  // que não esteja na 1ª página não era encontrado e o POST falhava com
+  // "Já existe uma pessoa cadastrada com o CNPJ informado" (caso TUCURUVI/frete 1539).
+  for (let pagina = 1; pagina <= 30; pagina++) {
+    let lista = [];
+    try {
+      const { data } = await ca.get('/v1/pessoas', { tamanho_pagina: 100, pagina });
+      lista = listaDe(data);
+    } catch (_) { break; }
+    const achado = lista.find(bate);
+    if (achado) return achado;
+    if (lista.length < 100) break;   // última página
+  }
+  return null;
 }
 
 /**
@@ -92,7 +111,26 @@ export async function garantirPessoa(p) {
     // perfis no formato REAL: [{ tipo_perfil: 'Cliente' }] / [{ tipo_perfil: 'Fornecedor' }]
     ...(p.perfis ? { perfis: p.perfis.map((x) => ({ tipo_perfil: PERFIL_LABEL[String(x).toUpperCase()] || x })) } : {}),
   };
-  const { data } = await ca.post('/v1/pessoas', body);
+  let data;
+  try {
+    ({ data } = await ca.post('/v1/pessoas', body));
+  } catch (e) {
+    // "Já existe uma pessoa cadastrada com o CPF/CNPJ informado" → o cadastro existe,
+    // a busca é que não achou. Procura de novo (varredura) e usa o que já existe —
+    // é NORMAL o mesmo cliente ter vários fretes/faturamentos.
+    const jaExiste = e.status === 400 && /j[aá]\s+existe/i.test(JSON.stringify(e.data || {}));
+    if (jaExiste && doc) {
+      const achado = await buscarPessoaPorDocumento(doc);
+      if (achado?.id) {
+        log.info('CA pessoa já existia — reaproveitada', { nome: p.nome, doc: mask(doc), id: achado.id });
+        return achado.id;
+      }
+      const err = new Error('O Conta Azul diz que já existe um cadastro com esse CPF/CNPJ, mas não consegui localizá-lo pela API. Verifique o cadastro do cliente no Conta Azul (pode estar inativo ou com o documento diferente).');
+      err.status = 409;
+      throw err;
+    }
+    throw e;
+  }
   const id = data?.id || data?.uuid;
   if (!id) throw new Error('Conta Azul não devolveu id da pessoa criada');
   log.info('CA pessoa criada', { nome: p.nome, doc: mask(doc) });
