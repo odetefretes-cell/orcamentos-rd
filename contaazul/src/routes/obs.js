@@ -313,7 +313,9 @@ obsRouter.post('/cobranca', async (req, res, next) => {
       if (!pid) continue;
       const jaPaga = /pag[oa]|liquid|recebid/i.test(String(p.status || '')) && !/nao|não|pend/i.test(String(p.status || ''));
       if (jaPaga) { resultados.push({ parcela: pid, pulada: 'já paga' }); continue; }
-      const venc = String(p.data_vencimento || vencimento || hoje).slice(0, 10);
+      // o vencimento INFORMADO manda (é o que o operador digitou na fila); só cai no
+      // da parcela quando não veio nada — antes a fatura saía com a data da parcela.
+      const venc = String(vencimento || p.data_vencimento || hoje).slice(0, 10);
       try {
         const r = await gerarCobranca({ idParcela: pid, tipo: t, vencimento: venc, descricao: descricao || `Frete #${frete} — OBS Transportes` });
         resultados.push({ parcela: pid, status: r.status, data: r.data });
