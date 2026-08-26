@@ -3628,9 +3628,12 @@ function gmailFaturamento(id){
   const para=encodeURIComponent(f.email||'');
   const ass=encodeURIComponent('OBS Transportes — Faturamento do frete Nº '+(f.numero||''));
   const corpo=encodeURIComponent(msgBoletoDe(f).replace(/\*/g,''));
-  window.open('https://mail.google.com/mail/?view=cm&fs=1&to='+para+'&su='+ass+'&body='+corpo,'_blank');
+  // SEMPRE pela conta do financeiro (authuser força a conta certa quando há várias
+  // logadas no navegador; se não estiver logada, o Google pede o login dela).
+  const REMETENTE='financeiro@obstransportes.com.br';
+  window.open('https://mail.google.com/mail/u/?authuser='+encodeURIComponent(REMETENTE)+'&view=cm&fs=1&to='+para+'&su='+ass+'&body='+corpo,'_blank');
   if(String(f.dataFaturamento||'').trim() && !String(f.faturamentoEmailEm||'').trim()){
-    flash('Gmail aberto — depois de enviar, clique em "✔ e-mail enviado" para tirar da fila','info');
+    flash('Gmail aberto na conta financeiro@obstransportes.com.br — depois de enviar, clique em "✔ e-mail enviado"','info');
   }
 }
 function liberarOperacional(id){
