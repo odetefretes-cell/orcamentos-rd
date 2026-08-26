@@ -133,17 +133,33 @@ obsRouter.post('/venda', async (req, res, next) => {
         throw e;
       }
     }
-    // O CA pode DEVOLVER uma venda cancelada quando o número já foi usado (excluída
-    // lá). Venda cancelada não gera financeiro → boleto/cobrança nunca sairiam.
-    try {
-      const det = (await ca.get('/v1/venda/' + venda.id)).data;
-      const st = String(det?.venda?.status || det?.status || '');
-      if (/cancel/i.test(st)) {
-        const err = new Error(`O Conta Azul devolveu a venda ${input.frete} com status CANCELADO (esse número já foi usado e a venda foi excluída lá). Venda cancelada não gera boleto. Use outro número de frete ou reative a venda no Conta Azul.`);
+    // O CA DEVOLVE a venda cancelada quando o número já foi usado (venda excluída lá).
+    // Venda cancelada não gera financeiro → nunca sairia boleto. Nesse caso criamos
+    // com um NÚMERO DERIVADO (16271, 16272…), mantendo "#1627" na descrição — o frete
+    // segue rastreável e o faturamento acontece pelo fluxo normal.
+    const estaCancelada = async (id) => {
+      try {
+        const det = (await ca.get('/v1/venda/' + id)).data;
+        return /cancel/i.test(String(det?.venda?.status || det?.status || ''));
+      } catch (_) { return false; }
+    };
+    if (await estaCancelada(venda.id)) {
+      let ok = false;
+      for (let suf = 1; suf <= 9 && !ok; suf++) {
+        const numeroAlt = Number(String(input.frete).replace(/\D/g, '') + String(suf));
+        try {
+          const v2 = await criarVenda({ ...payload, numero: numeroAlt });
+          if (await estaCancelada(v2.id)) continue;   // esse também está queimado
+          venda = v2; ok = true;
+          log.info('Venda criada com número derivado (o original estava cancelado no CA)', { frete: input.frete, numeroCA: numeroAlt });
+        } catch (_) { /* tenta o próximo sufixo */ }
+      }
+      if (!ok) {
+        const err = new Error(`O número ${input.frete} está preso numa venda CANCELADA no Conta Azul e não consegui criar com número derivado. Reative a venda no CA ou lance manualmente e use "já faturei por fora".`);
         err.status = 409;
         throw err;
       }
-    } catch (e) { if (e.status === 409) throw e; /* falha ao conferir: segue */ }
+    }
 
     registrarVenda({
       frete: input.frete, valor: input.valor,
