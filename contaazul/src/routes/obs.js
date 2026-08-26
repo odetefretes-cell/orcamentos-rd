@@ -115,6 +115,14 @@ obsRouter.post('/venda', async (req, res, next) => {
         const numeroJaUsado = e.status === 400 && /(j[aá]\s|duplicad|utilizad|existe)/i.test(corpoErro) && /n[uú]mero|venda/i.test(corpoErro);
         if (numeroJaUsado) {
           const existente = await buscarVendaPorNumero(input.frete);
+          // venda CANCELADA (excluída no CA) mantém o número ocupado, mas não tem
+          // financeiro/parcelas — adotá-la deixaria a cobrança impossível.
+          const cancelada = /cancel/i.test(String(existente?.status || existente?.situacao?.nome || ''));
+          if (existente?.id && cancelada) {
+            const err = new Error(`A venda ${input.frete} existe no Conta Azul mas está CANCELADA (foi excluída lá) — ela não gera boleto. No Conta Azul: reative/duplique essa venda, ou use outro número. O sistema não pode recriar com o mesmo número.`);
+            err.status = 409;
+            throw err;
+          }
           if (existente?.id) {
             registrarVenda({ frete: input.frete, valor: input.valor, caId: existente.id, caNumero: existente.numero, status: 'adotada_manual', payload: { adotada: true } });
             log.info('Venda já existia no CA — adotada', { frete: input.frete, caId: existente.id });
