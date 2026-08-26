@@ -133,6 +133,18 @@ obsRouter.post('/venda', async (req, res, next) => {
         throw e;
       }
     }
+    // O CA pode DEVOLVER uma venda cancelada quando o número já foi usado (excluída
+    // lá). Venda cancelada não gera financeiro → boleto/cobrança nunca sairiam.
+    try {
+      const det = (await ca.get('/v1/venda/' + venda.id)).data;
+      const st = String(det?.venda?.status || det?.status || '');
+      if (/cancel/i.test(st)) {
+        const err = new Error(`O Conta Azul devolveu a venda ${input.frete} com status CANCELADO (esse número já foi usado e a venda foi excluída lá). Venda cancelada não gera boleto. Use outro número de frete ou reative a venda no Conta Azul.`);
+        err.status = 409;
+        throw err;
+      }
+    } catch (e) { if (e.status === 409) throw e; /* falha ao conferir: segue */ }
+
     registrarVenda({
       frete: input.frete, valor: input.valor,
       caId: venda.id, caNumero: venda.numero, status: 'criado', payload,
