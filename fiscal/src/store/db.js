@@ -31,7 +31,8 @@ export async function garantirSchema() {
 /** Busca um frete pelo NÚMERO na coleção fretes. */
 export async function freteDoCrm(numero) {
   const { rows } = await getPool().query(
-    `SELECT id, data FROM fretes WHERE data->>'numero' = $1 LIMIT 1`, [String(numero).trim()]
+    // numeração reinicia por ciclo (o mesmo número existe em anos diferentes) → o mais recente
+    `SELECT id, data FROM fretes WHERE data->>'numero' = $1 ORDER BY updated_at DESC LIMIT 1`, [String(numero).trim()]
   );
   if (!rows.length) return null;
   return { id: rows[0].id, ...rows[0].data };

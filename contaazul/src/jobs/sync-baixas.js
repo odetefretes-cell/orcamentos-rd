@@ -60,7 +60,12 @@ export async function sincronizarBaixasUmaVez() {
   const porNumero = new Map();
   for (const f of (Array.isArray(fretes) ? fretes : [])) {
     const n = String(f.numero || '').trim();
-    if (n) porNumero.set(n, f);
+    if (!n) continue;
+    // ⚠️ a numeração REINICIA a cada ciclo (ex.: 1719 existe em 2025 e em 2026).
+    // Fica com o mais RECENTE — senão a baixa cairia no frete velho.
+    const atual = porNumero.get(n);
+    const chave = (x) => String(x.liberadoEm || x._salvoEm || x.dataFechamento || '');
+    if (!atual || chave(f) > chave(atual)) porNumero.set(n, f);
   }
 
   let baixadas = 0, liberados = 0, completas = 0;
