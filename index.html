@@ -3175,6 +3175,9 @@ async function caLancarVenda(id){
       formaPagamento,
       ...(formaPagamento==='CARTAO_PIX' ? { pixParte: numMoeda(f.pixParteValor)||undefined, vencimentoPix: f.pixVenc1||undefined, vencimento2: f.dataCompensacao||f.dataPagLink||undefined } : {}),
       previsaoChegada: f.previsaoRecebimento || undefined,
+      // boleto: a parcela da venda precisa nascer com o VENCIMENTO do boleto
+      // (sem isso ela vinha com a data de hoje e a fatura saía com vencimento errado)
+      vencimento: f.boletoVencimento || undefined,
       // cadastro COMPLETO do cliente (CPF + endereço + telefone). O que faltar na
       // FICHA é completado pelo CADASTRO de clientes do sistema (CLIENTES) — sem
       // isso o Conta Azul não emite a cobrança Pix/boleto.
