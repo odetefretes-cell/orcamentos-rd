@@ -246,17 +246,21 @@ obsRouter.post('/cobranca', async (req, res, next) => {
     // parcelas da venda — o id da venda pode não ser o do evento financeiro; descobre com fallback
     const tentativas = {};
     let parcelas = [];
-    try { parcelas = await listarParcelas(v.ca_id); tentativas['parcelas via id da venda'] = parcelas.length; }
-    catch (e) { tentativas['parcelas via id da venda'] = (e.status || '?') + ' ' + e.message; }
-    if (!parcelas.length) {
+    // A venda é criada na hora, mas o EVENTO FINANCEIRO/parcelas propagam depois
+    // (assíncrono no CA) — sem espera, a cobrança falhava com "não achei as parcelas".
+    for (let volta = 1; volta <= 5 && !parcelas.length; volta++) {
+      if (volta > 1) await new Promise((r) => setTimeout(r, 2500));
+      try { parcelas = await listarParcelas(v.ca_id); tentativas[`parcelas via venda (volta ${volta})`] = parcelas.length; }
+      catch (e) { tentativas[`parcelas via venda (volta ${volta})`] = (e.status || '?') + ' ' + e.message; }
+      if (parcelas.length) break;
       try {
         const vd = (await ca.get('/v1/venda/' + v.ca_id)).data;
         const fid = vd?.evento_financeiro?.id || vd?.id_evento_financeiro || vd?.financeiro?.id;
-        tentativas['venda detalhe → evento'] = fid || 'campo não achado (chaves: ' + Object.keys(vd || {}).slice(0, 15).join(',') + ')';
-        if (fid) { parcelas = await listarParcelas(fid); tentativas['parcelas via evento'] = parcelas.length; }
-      } catch (e) { tentativas['venda detalhe'] = (e.status || '?') + ' ' + e.message; }
+        tentativas[`evento (volta ${volta})`] = fid || 'sem evento ainda';
+        if (fid) { parcelas = await listarParcelas(fid); tentativas[`parcelas via evento (volta ${volta})`] = parcelas.length; }
+      } catch (e) { tentativas[`venda detalhe (volta ${volta})`] = (e.status || '?') + ' ' + e.message; }
     }
-    if (!parcelas.length) return res.status(502).json({ ok: false, erro: 'Não achei as parcelas da venda no Conta Azul.', tentativas });
+    if (!parcelas.length) return res.status(502).json({ ok: false, erro: 'Não achei as parcelas da venda no Conta Azul (o financeiro da venda pode ainda estar processando lá). Espere ~30s e clique em Faturar de novo.', tentativas });
 
     const hoje = new Date().toISOString().slice(0, 10);
 
