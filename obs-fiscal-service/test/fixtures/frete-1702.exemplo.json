@@ -1,0 +1,15 @@
+{
+  "_nota": "EXEMPLO montado a partir do §4 da arquitetura (viagem real 1702+1703, dados anonimizáveis). Substituir pelo dump real do Postgres quando chegar — os testes passam a usar o arquivo frete-1702.json se ele existir.",
+  "numeroFrete": 1702,
+  "valorConhecimento": 500.0,
+  "remetente": { "nome": "CLIENTE EXEMPLO LTDA", "cpfCnpj": "12.345.678/0001-90" },
+  "coleta": { "logradouro": "RUA DA COLETA", "numero": "", "bairro": "CENTRO", "municipio": "JABOATAO DOS GUARARAPES", "uf": "PE", "cep": "54000000", "baseABase": false },
+  "entrega": { "logradouro": "", "numero": "", "bairro": "", "municipio": "SAO PAULO", "uf": "SP", "cep": "", "baseABase": true },
+  "veiculo": { "marcaModelo": "FIAT UNO MILLE ", "chassi": "9BD15822586123456", "cor": "PRATA", "valor": 25000.0, "placa": "ABC1D23" },
+  "rota": "PE X AL X SE X BA X MG X SP",
+  "prestador": {
+    "cpfCnpj": "054.872.944-10", "nome": "DANILO BEZERRA", "rntrc": "054501855",
+    "tipo": "TAC_INDEPENDENTE", "cavalo": "FXY4661", "carreta": "EWL4J60",
+    "motorista": { "cpf": "041.014.426-65", "nome": "AURELIANO SALES DA SILVA" }
+  }
+}
