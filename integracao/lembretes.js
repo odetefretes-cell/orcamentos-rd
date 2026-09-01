@@ -47,7 +47,10 @@ async function processarLembretes() {
     const f = d.data() || {};
     const dia = String(f.lembreteEm || '').slice(0, 10);
     if (!dia || dia > hoje) return;                       // sem lembrete ou ainda no futuro
-    if (String(f.lembreteEnviadoEm || '').trim()) return; // já avisado
+    // Já avisado PARA ESTA DATA? Se o operador marcar uma data NOVA (maior que a do
+    // último envio), o lembrete dispara de novo — antes o envio antigo travava pra sempre.
+    const enviado = String(f.lembreteEnviadoEm || '').slice(0, 10);
+    if (enviado && enviado >= dia) return;
     if (String(f.status || '').toUpperCase() === 'CANCELADO') return;
     alvos.push({ id: d.id, f });
   });
