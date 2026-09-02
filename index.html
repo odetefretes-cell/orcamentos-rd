@@ -2685,10 +2685,10 @@ function cardFrete(f){
             ${(f.lembreteEnviadoEm && String(f.lembreteEnviadoEm).slice(0,10) >= String(f.lembreteEm||'').slice(0,10))?`<span class="mc-ok" style="font-size:11px">✅ enviado ${dataBR(f.lembreteEnviadoEm)}</span>`:(f.lembreteEm?'<span class="mc-l" style="font-size:10.5px">robô avisa nesse dia</span>':'')}
           </div>
         </div>
-        ${/boleto/i.test(f.formaPgto||'') && !String(f.dataFaturamento||'').trim() ? `
+        ${!String(f.dataFaturamento||'').trim() && abertoDe(f)>0.005 && statusDe(f)!=='CANCELADO' ? `
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;background:rgba(34,115,196,.10);border:1px solid rgba(34,115,196,.4);border-radius:8px;padding:8px 10px">
-          <span style="font-size:13px">📄 <b>Boleto ainda não faturado</b>${f.faturamentoSolicitado?` — <b style="color:#fbbf24">solicitado ao financeiro em ${dataBR(f.faturamentoSolicitado)}</b>`:''}</span>
-          ${f.faturamentoSolicitado?'':`<button class="btn-ok" style="padding:5px 12px;font-size:12.5px" onclick="solicitarFaturamento('${id}')" title="Avisa o financeiro ANTES do embarque: o frete acende na Fila de faturamento pra emitirem o boleto">📄 Enviar p/ faturamento (antes do embarque)</button>`}
+          <span style="font-size:13px">📄 <b>${/boleto/i.test(f.formaPgto||'')?'Boleto ainda não faturado':'Frete ainda não faturado'}</b>${f.faturamentoSolicitado?` — <b style="color:#fbbf24">solicitado ao financeiro em ${dataBR(f.faturamentoSolicitado)}</b>`:''}</span>
+          ${f.faturamentoSolicitado?'':`<button class="btn-ok" style="padding:5px 12px;font-size:12.5px" onclick="solicitarFaturamento('${id}')" title="Coloca o frete na Fila de faturamento do financeiro — vale antes OU depois do embarque">📄 Enviar p/ faturamento</button>`}
         </div>`:''}
       </div>
 
@@ -3769,7 +3769,8 @@ function renderFinanceiro(){
 
   // ---- FILA DE FATURAMENTO (boleto — fatura no embarque) ----
   // Fica na fila enquanto NÃO faturou OU faturou e ainda NÃO enviou o e-mail de faturamento.
-  const aFaturar=Object.values(lerDB()).filter(f=>/boleto/i.test(f.formaPgto||'') && num(f.valorFrete)>0 && statusDe(f)!=='CANCELADO' && abertoDe(f)>0.005
+  // Entra na fila: boleto, OU qualquer frete que o operacional mandou faturar (📄 Enviar p/ faturamento).
+  const aFaturar=Object.values(lerDB()).filter(f=>(/boleto/i.test(f.formaPgto||'') || String(f.faturamentoSolicitado||'').trim()) && num(f.valorFrete)>0 && statusDe(f)!=='CANCELADO' && abertoDe(f)>0.005
       && (!String(f.dataFaturamento||'').trim() || !String(f.faturamentoEmailEm||'').trim()))
     .sort((a,b)=>{ const pri=f=>(String(f.dataFaturamento||'').trim()?3:((f.embarqueFeito||f.faturamentoSolicitado)?2:1));
       return pri(b)-pri(a) || num(b.numero)-num(a.numero); });
@@ -3808,7 +3809,7 @@ function renderFinanceiro(){
         <button class="btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="abrirFicha('${f._id}')">Abrir ficha</button>
       </div>
     </div>`;
-  }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum boleto aguardando faturamento.</p>';
+  }).join('') : '<p class="hint" style="text-align:center;padding:10px">Nenhum frete aguardando faturamento.</p>';
 
   // ---- A RECEBER ----
   let totFrete=0,totRec=0,totAberto=0,totVenc=0,totFat=0,nQuit=0,nReceber=0,nFat=0;
