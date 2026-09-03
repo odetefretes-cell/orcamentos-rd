@@ -3531,8 +3531,19 @@ async function caPixCobrarSaldo(id){
   const ok=await uiConfirm('Cobrar o SALDO do PIX deste frete?\n\nFrete #'+(f.numero||'')+'\nCliente: '+(f.clienteEmpresa||'—')+'\nFalta: '+moeda(falta)+'\n\n• Emite a cobrança PIX no Conta Azul (só da parcela em aberto)\n• Envia o link direto na conversa do cliente no ChatGuru',
     {titulo:'⚡ Cobrar saldo (PIX)', ok:'Cobrar', perigo:false});
   if(!ok) return;
+  // A venda precisa EXISTIR no CA pra ter parcela pra cobrar. Fretes antigos (cobrados
+  // direto no CA) nunca tiveram venda pelo sistema → a cobrança falhava sem explicação.
+  // caLancarVenda adota a venda quando o número já existe, então é seguro chamar sempre.
+  const okVenda = await caLancarVenda(id);
+  if(okVenda===false) return;
   const cob=await caGerarCobranca(id,'PIX',{apenas:'ultima'});
-  const links=cob?extrairLinks(cob):[];
+  const links=(cob&&cob.links&&cob.links.length)?cob.links:(cob?extrairLinks(cob):[]);
+  // Sem link não manda mensagem "muda": o cliente recebia o valor sem forma de pagar.
+  if(!links.length){
+    const seguir=await uiConfirm('Não saiu o link de pagamento do Conta Azul.\n\nQuer avisar o cliente só com o VALOR restante ('+moeda(falta)+'), sem link?\n\n• Sim → manda o aviso e você envia o PIX/boleto por fora\n• Não → nada é enviado (emita a cobrança manual no CA e use este botão de novo)',
+      {titulo:'⚠ Cobrança sem link', ok:'Avisar sem link', perigo:false});
+    if(!seguir) return;
+  }
   const msg=['*OBS Transportes — Saldo do frete* ⚡','','Frete Nº '+(f.numero||''),
     'Valor restante: '+moeda(falta),
     (links.length?'Link de pagamento: '+links[0]:''),
