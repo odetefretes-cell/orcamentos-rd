@@ -371,6 +371,13 @@ function crmCustoAteDestino(db, cat, isDest){
   }
   return { custo, prox };
 }
+// Nome da rota = "Cidade (UF) - Cidade (UF)" -> e a VAGA daquele par especifico.
+// Devolve true quando o nome da rota casa exatamente com o par pedido (origem e destino).
+function rotaNomeadaPar(r, o, d){
+  const m = String(r.rota||'').match(/^\s*(.+?)\s*\(\s*([A-Za-z]{2})\s*\)\s*-\s*(.+?)\s*\(\s*([A-Za-z]{2})\s*\)\s*$/);
+  if(!m) return false;
+  return matchKey(nk(tabNorm(m[1]), m[2].toUpperCase()), o) && matchKey(nk(tabNorm(m[3]), m[4].toUpperCase()), d);
+}
 function crmGerarOpcoes(db, o, d, cat){
   const isDest = k => matchKey(k, d);
   const isO = k=> matchKey(k, o);
@@ -379,8 +386,9 @@ function crmGerarOpcoes(db, o, d, cat){
   const leg = (r,t)=>({ transportadora:r.transportadora, valor:preco(r), valores:r.valores, oNome:t.oNome,oUF:t.oUF,dNome:t.dNome,dUF:t.dUF, oN:nk(t.o,t.oUF),dN:nk(t.d,t.dUF), prazo:r.prazoDias, precoInv:!!(r._precoInv && r._precoInv[catInv]) });
   const diretas=[];
   for(const r of db.rotas){
+    const nomeada = rotaNomeadaPar(r, o, d);   // a rota que LEVA O NOME deste par = a vaga certa
     for(const t of (r.trajetos||[])){
-      if(matchKey(nk(t.o,t.oUF),o) && matchKey(nk(t.d,t.dUF),d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0 }); }
+      if(matchKey(nk(t.o,t.oUF),o) && matchKey(nk(t.d,t.dUF),d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0, _nomeada:nomeada && preco(r)!=null }); }
     }
   }
   for(const r of db.rotas){
@@ -388,6 +396,16 @@ function crmGerarOpcoes(db, o, d, cat){
     const p=precoCat(s.valores,cat); if(p==null) continue;
     diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, valores:s.valores, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo, precoInv:!!(r._precoInv && r._precoInv[catInv]) }], total:p, prazo:s.prazo||0 });
   }
+  // VAGA NOMEADA MANDA: a mesma transportadora costuma ter a rota especifica do par
+  // (ex.: "SBC - Foz do Iguacu", R$ 1.200) E uma rota guarda-chuva que lista a mesma cidade
+  // como destino de passagem (ex.: "SBC - Medianeira", R$ 1.100). As duas casam o par pedido
+  // e a mais barata vencia -> o frete saia abaixo do valor real da vaga. Havendo rota nomeada
+  // com preco na categoria, as guarda-chuva DA MESMA transportadora saem da disputa.
+  const _comNomeada = new Set(diretas.filter(x=>x._nomeada).map(x=>normTxt(x.legs[0].transportadora)));
+  const _diretas = _comNomeada.size
+    ? diretas.filter(x=>x._nomeada || !_comNomeada.has(normTxt(x.legs[0].transportadora)))
+    : diretas;
+  diretas.length=0; diretas.push(..._diretas);
   const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
   const adj = crmAdjacencia(db);
   const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
