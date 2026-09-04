@@ -77,6 +77,37 @@ const idCentroPara = (modal) =>
   ehGuincho(modal) ? config.contaAzul.idCentroGuincho : config.contaAzul.idCentroFretes;
 
 // ---------- VENDA ----------
+/* Acha a venda de um frete no Conta Azul, mesmo quando ela foi lançada À MÃO lá.
+   Duas vias, nesta ordem:
+     1. número da venda = número do frete (venda criada pelo sistema);
+     2. "FRETE <n>" na DESCRIÇÃO das contas a receber → sobe até o evento financeiro.
+   A via 2 é indispensável para frete antigo: a venda manual tem número PRÓPRIO do CA
+   (85131319…), e a busca por número não acha nada — foi o que quebrava o botão
+   "⚡ Cobrar saldo" do operacional (o CA recusava criar outra venda com o mesmo número
+   e o sistema não sabia adotar a que já existia). */
+async function acharVendaNoCA(fr) {
+  const v = await buscarVendaPorNumero(fr);
+  if (v?.id) return { caId: v.id, caNumero: v.numero, via: 'numero da venda' };
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const hoje = new Date();
+  const de = new Date(hoje); de.setDate(de.getDate() - 240);
+  const ate = new Date(hoje); ate.setDate(ate.getDate() + 240);
+  const re = new RegExp('(^|\\D)' + fr + '(\\D|$)');
+  for (let pag = 1; pag <= 4; pag++) {
+    const { data } = await ca.get('/v1/financeiro/eventos-financeiros/contas-a-receber/buscar', { data_vencimento_de: iso(de), data_vencimento_ate: iso(ate), tamanho_pagina: 500, pagina: pag });
+    const arr = Array.isArray(data) ? data : (data?.items || data?.itens || []);
+    const hit = arr.find((x) => re.test(String(x.descricao || '')));
+    if (hit) {
+      const pid = hit.id || hit.uuid;
+      const pd = (await ca.get('/v1/financeiro/eventos-financeiros/parcelas/' + pid)).data;
+      const ev = pd?.evento?.id;
+      if (ev) return { caId: ev, caNumero: null, via: 'descrição: ' + String(hit.descricao || '').slice(0, 40) };
+    }
+    if (arr.length < 500) break;
+  }
+  return null;
+}
+
 obsRouter.post('/venda', async (req, res, next) => {
   try {
     const input = vendaSchema.parse(req.body);
@@ -116,6 +147,16 @@ obsRouter.post('/venda', async (req, res, next) => {
         const numeroJaUsado = e.status === 400 && /(j[aá]\s|duplicad|utilizad|existe)/i.test(corpoErro) && /n[uú]mero|venda/i.test(corpoErro);
         if (numeroJaUsado) {
           const existente = await buscarVendaPorNumero(input.frete);
+          // não achou pelo número: frete antigo com venda lançada à mão no CA (número
+          // próprio do CA + "FRETE <n>" na descrição) → acha pela descrição e adota.
+          if (!existente?.id) {
+            const achado = await acharVendaNoCA(input.frete);
+            if (achado?.caId) {
+              registrarVenda({ frete: input.frete, valor: input.valor, caId: achado.caId, caNumero: achado.caNumero, status: 'adotada_manual', payload: { adotada: true, via: achado.via } });
+              log.info('Venda manual antiga adotada pela descrição', { frete: input.frete, caId: achado.caId, via: achado.via });
+              return res.status(200).json({ ok: true, duplicado: true, adotada: true, mensagem: `A venda do frete ${input.frete} já estava no Conta Azul (lançada à mão) — usei a existente.`, ca: { id: achado.caId, numero: achado.caNumero } });
+            }
+          }
           // venda CANCELADA (excluída no CA) mantém o número ocupado, mas não tem
           // financeiro/parcelas — adotá-la deixaria a cobrança impossível.
           const cancelada = /cancel/i.test(String(existente?.status || existente?.situacao?.nome || ''));
@@ -178,35 +219,11 @@ obsRouter.post('/venda/adotar', async (req, res, next) => {
   try {
     const lista = [].concat(req.body?.fretes || req.body?.frete || []).map((x) => String(x).trim()).filter(Boolean);
     if (!lista.length) return res.status(400).json({ ok: false, erro: 'Informe "fretes": ["1694", ...]' });
-    // vendas manuais antigas têm número PRÓPRIO do CA e "FRETE <n>" na DESCRIÇÃO →
-    // fallback: procurar nas contas a receber pela descrição e subir até o evento.
-    const acharNoCA = async (fr) => {
-      const v = await buscarVendaPorNumero(fr);
-      if (v?.id) return { caId: v.id, caNumero: v.numero, via: 'numero da venda' };
-      const iso = (d) => d.toISOString().slice(0, 10);
-      const hoje = new Date();
-      const de = new Date(hoje); de.setDate(de.getDate() - 240);
-      const ate = new Date(hoje); ate.setDate(ate.getDate() + 240);
-      const re = new RegExp('(^|\\D)' + fr + '(\\D|$)');
-      for (let pag = 1; pag <= 4; pag++) {
-        const { data } = await ca.get('/v1/financeiro/eventos-financeiros/contas-a-receber/buscar', { data_vencimento_de: iso(de), data_vencimento_ate: iso(ate), tamanho_pagina: 500, pagina: pag });
-        const arr = Array.isArray(data) ? data : (data?.items || data?.itens || []);
-        const hit = arr.find((x) => re.test(String(x.descricao || '')));
-        if (hit) {
-          const pid = hit.id || hit.uuid;
-          const pd = (await ca.get('/v1/financeiro/eventos-financeiros/parcelas/' + pid)).data;
-          const ev = pd?.evento?.id;
-          if (ev) return { caId: ev, caNumero: null, via: 'descrição: ' + String(hit.descricao || '').slice(0, 40) };
-        }
-        if (arr.length < 500) break;
-      }
-      return null;
-    };
     const resultados = [];
     for (const fr of lista) {
       try {
         if (acharVenda(fr)) { resultados.push({ frete: fr, ja: 'já monitorada' }); continue; }
-        const achado = await acharNoCA(fr);
+        const achado = await acharVendaNoCA(fr);
         if (achado) {
           registrarVenda({ frete: fr, valor: 0, caId: achado.caId, caNumero: achado.caNumero, status: 'adotada_manual', payload: { adotada: true, via: achado.via } });
           resultados.push({ frete: fr, adotada: true, via: achado.via, caId: achado.caId });
