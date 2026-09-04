@@ -27,6 +27,10 @@ const d = await import('dotenv');
 d.config({ path: '/etc/obs-db/.env', quiet: true });
 
 const APLICAR = process.argv.includes('--aplicar');
+// Reduzir preco de venda quase nunca e a intencao de um "reajuste": o PDF traz um
+// RETORNO unico por regiao, mas algumas cidades tem retorno mais caro cadastrado de
+// proposito. Por padrao essas quedas ficam de fora e sao listadas a parte.
+const PERMITIR_REDUCAO = process.argv.includes('--permitir-reducao');
 const RESTAURAR = process.argv.includes('--restaurar') ? process.argv[process.argv.indexOf('--restaurar') + 1] : null;
 
 /* --------------------------------------------------------------------------
@@ -136,6 +140,7 @@ const { tabela, meta } = await lerTabela();
 console.log(`Tabela atual: ${tabela.rotas.length} rotas · publicada em ${meta.em}\n`);
 
 const mudancas = [];
+const reducoes = [];
 const naoAchadas = [];
 
 for(const grupo of REAJUSTES){
@@ -152,8 +157,10 @@ for(const grupo of REAJUSTES){
         const catReal = Object.keys(rota.valores||{}).find(k => norm(k) === norm(nomeCat));
         const atual = catReal != null ? rota.valores[catReal] : undefined;
         if(Number(atual) === Number(valor)) continue;                 // já está certo
-        mudancas.push({ rota, cat: catReal || nomeCat, de: atual, para: valor,
-                        txt: `${rota.rota} · ${nomeCat}: ${atual==null?'(sem valor)':'R$ '+atual} → R$ ${valor}` });
+        const item = { rota, cat: catReal || nomeCat, de: atual, para: valor,
+                       txt: `${rota.rota} · ${nomeCat}: ${atual==null?'(sem valor)':'R$ '+atual} → R$ ${valor}` };
+        if(atual != null && Number(valor) < Number(atual) && !PERMITIR_REDUCAO) reducoes.push(item);
+        else mudancas.push(item);
       }
     }
   }
@@ -162,6 +169,12 @@ for(const grupo of REAJUSTES){
 if(naoAchadas.length){
   console.log(`\n⚠️  ${naoAchadas.length} rota(s) do reajuste NÃO existem na tabela (nada foi feito nelas):`);
   naoAchadas.forEach(t => console.log('   ·', t));
+}
+
+if(reducoes.length){
+  console.log(`\n⛔ ${reducoes.length} valor(es) DIMINUIRIAM e foram deixados de fora:`);
+  reducoes.forEach(m => console.log('   ·', m.txt));
+  console.log('   (confirme com a transportadora; para aplicar mesmo assim: --permitir-reducao)');
 }
 
 if(!mudancas.length){
