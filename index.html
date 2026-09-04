@@ -3520,7 +3520,8 @@ async function caGerarCobranca(id, tipo, opts){
   const r=await caReq('/api/ca/cobranca',{frete:String(f.numero||''), tipo, vencimento:(f.boletoVencimento||f.pixVenc1||'')||undefined, ...(opts&&opts.apenas?{apenas:opts.apenas}:{})});
   t.fechar&&t.fechar();
   if(r.ok && r.data && r.data.ok){ flash('Cobrança emitida no Conta Azul ✔','ok'); return r.data; }
-  flash('Cobrança falhou: '+((r.data&&r.data.erro)||('HTTP '+r.status))+' — dá pra emitir manual no CA','erro');
+  // silencioso: 1ª tentativa de um fluxo que tem plano B — o aviso sairia à toa
+  if(!(opts&&opts.silencioso)) flash('Cobrança falhou: '+((r.data&&r.data.erro)||('HTTP '+r.status))+' — dá pra emitir manual no CA','erro');
   console.warn('cobranca CA', r);
   return null;
 }
@@ -3531,12 +3532,17 @@ async function caPixCobrarSaldo(id){
   const ok=await uiConfirm('Cobrar o SALDO do PIX deste frete?\n\nFrete #'+(f.numero||'')+'\nCliente: '+(f.clienteEmpresa||'—')+'\nFalta: '+moeda(falta)+'\n\n• Emite a cobrança PIX no Conta Azul (só da parcela em aberto)\n• Envia o link direto na conversa do cliente no ChatGuru',
     {titulo:'⚡ Cobrar saldo (PIX)', ok:'Cobrar', perigo:false});
   if(!ok) return;
-  // A venda precisa EXISTIR no CA pra ter parcela pra cobrar. Fretes antigos (cobrados
-  // direto no CA) nunca tiveram venda pelo sistema → a cobrança falhava sem explicação.
-  // caLancarVenda adota a venda quando o número já existe, então é seguro chamar sempre.
-  const okVenda = await caLancarVenda(id);
-  if(okVenda===false) return;
-  const cob=await caGerarCobranca(id,'PIX',{apenas:'ultima'});
+  // A venda do frete JÁ FOI criada no faturamento inicial, com as duas parcelas — então
+  // o normal é ela existir e bastar emitir a cobrança da 2ª. Tentar lançar a venda antes
+  // (como era feito) só fazia o CA recusar: "o número da venda já foi utilizado".
+  // Por isso: cobra primeiro (silencioso) e só mexe na venda se realmente faltar — caso
+  // do frete ANTIGO, cobrado direto no CA, que nunca teve venda pelo sistema.
+  let cob = await caGerarCobranca(id,'PIX',{apenas:'ultima', silencioso:true});
+  if(!cob){
+    const okVenda = await caLancarVenda(id);   // cria ou adota a venda existente
+    if(okVenda===false) return;
+    cob = await caGerarCobranca(id,'PIX',{apenas:'ultima'});
+  }
   const links=(cob&&cob.links&&cob.links.length)?cob.links:(cob?extrairLinks(cob):[]);
   // Sem link não manda mensagem "muda": o cliente recebia o valor sem forma de pagar.
   if(!links.length){
