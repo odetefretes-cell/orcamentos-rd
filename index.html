@@ -2767,55 +2767,110 @@ function puxarFrete(id,op){
 
 // ---- marcos do transporte (coleta/embarque/chegada/liberação) + lembretes ----
 function addDiasISO(iso,d){ const dt=new Date(iso+'T12:00:00'); dt.setDate(dt.getDate()+(+d||0)); return dt.toISOString().slice(0,10); }
-// tarefas pendentes de marco: previstas p/ HOJE, atrasadas, e próximos dias (não concluídas)
-function marcosPendentes(fretes, diasFrente){
+// TAREFAS DO OPERACIONAL — vêm do 🔔 Lembrete (a data que a operadora agenda, a mesma
+// que dispara a anotação + AGUARDANDO no ChatGuru). Os marcos do transporte (Coleta,
+// Embarque, Chegada, Liberação) NÃO geram mais tarefa: eram previsões que ninguém dava
+// baixa e entupiam o painel de "atrasadas".
+//   vencida  → passou do dia e ninguém reagendou (a operadora tinha que ter tratado)
+//   hoje     → agendada para hoje
+//   proxima  → agendada para os próximos dias
+//   sem      → frete SEM data agendada (falta de informação — a operadora precisa olhar)
+function tarefasOperacional(fretes, diasFrente){
   const hoje=hojeISO(), lim=addDiasISO(hoje, diasFrente||7), tarefas=[];
-  (fretes||[]).forEach(f=>{ const st=statusDe(f); if(st==='CONCLUÍDO'||st==='CANCELADO') return;
-    [ {k:'Coleta',ic:'📥',prev:f.coletaPrev,feito:f.coletaFeito},
-      {k:'Embarque',ic:'📦',prev:f.embarquePrev,feito:f.embarqueFeito},
-      {k:'Chegada',ic:'📍',prev:f.chegadaPrev,feito:f.chegadaFeito},
-      {k:'Liberação',ic:'🔓',prev:f.liberacaoPrev,feito:f.liberacaoFeito} ].forEach(m=>{
-      if(!m.prev || m.feito || m.prev>lim) return;
-      tarefas.push({ id:f._id, numero:f.numero||'', cliente:up(f.clienteEmpresa||''), operadora:opDe(f)||'(sem operadora)',
-        rota:(up(f.origem)||'?')+' → '+(up(f.destino)||'?'), marco:m.k, ic:m.ic, data:m.prev,
-        urg: m.prev<hoje?'atrasada' : (m.prev===hoje?'hoje':'proxima') });
-    });
+  (fretes||[]).forEach(f=>{
+    const st=statusDe(f); if(st==='CONCLUÍDO'||st==='CANCELADO') return;
+    const base={ id:f._id, numero:f.numero||'', cliente:up(f.clienteEmpresa||''), operadora:opDe(f)||'(sem operadora)',
+      rota:(up(f.origem)||'?')+' → '+(up(f.destino)||'?'), nota:ultimaAtualizacaoTexto(f) };
+    const dia=String(f.lembreteEm||'').slice(0,10);
+    if(!dia){ tarefas.push({ ...base, data:'', urg:'sem' }); return; }
+    if(dia>lim) return;                                   // agendada longe: ainda não é tarefa
+    tarefas.push({ ...base, data:dia, urg: dia<hoje?'vencida' : (dia===hoje?'hoje':'proxima'),
+                   avisado: String(f.lembreteEnviadoEm||'').slice(0,10) });
   });
-  return tarefas.sort((a,b)=>a.data.localeCompare(b.data));
+  const ordem={vencida:0,hoje:1,proxima:2,sem:3};
+  return tarefas.sort((a,b)=> (ordem[a.urg]-ordem[b.urg]) || String(a.data).localeCompare(String(b.data)) || num(b.numero)-num(a.numero));
+}
+// última atualização interna do frete (mostrada na tarefa p/ a operadora saber onde parou)
+function ultimaAtualizacaoTexto(f){
+  const h=Array.isArray(f.histInterno)?f.histInterno:[];
+  const t=h.length ? String((h[h.length-1]||{}).texto||'') : String(f.atualizacao||'');
+  return t.trim().slice(0,90);
 }
 let _marcoFiltroOp='';   // operadora selecionada no painel de tarefas ('' = todas)
+let _marcoFiltroUrg='';  // faixa selecionada nos KPIs ('' = todas as faixas)
+function marcoFiltrarUrg(v){
+  _marcoFiltroUrg = (_marcoFiltroUrg===v) ? '' : (v||'');   // clicar de novo no mesmo KPI limpa
+  const emk=$('#opMarcos'); if(emk) emk.innerHTML = marcosPanelHTML(Object.values(lerDB()).filter(emOperacional));
+}
 function marcoFiltrarOp(v){
   _marcoFiltroOp=v||'';
   const emk=$('#opMarcos'); if(emk) emk.innerHTML = marcosPanelHTML(Object.values(lerDB()).filter(emOperacional));
 }
 function marcosPanelHTML(fretes){
-  const ts=marcosPendentes(fretes,7); if(!ts.length){ _marcoFiltroOp=''; return ''; }
-  const cor={atrasada:'#ef4444',hoje:'#d97706',proxima:'#2563eb'}, rot={atrasada:'ATRASADA',hoje:'HOJE',proxima:''};
-  const item=t=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border-left:3px solid ${cor[t.urg]};background:rgba(255,255,255,.03);border-radius:6px;margin-bottom:4px;font-size:12.5px">
-    <span onclick="abrirMarcoFrete('${t.id}')" style="cursor:pointer;flex:1">${t.ic} <b>${esc(t.marco)}</b> · Frete <b>${esc(t.numero)||'s/nº'}</b> · ${esc(t.cliente)||'—'} <span class="hint">${esc(t.rota)}</span></span>
-    <span style="white-space:nowrap;color:${cor[t.urg]};font-weight:700">${dataBR(t.data)}${rot[t.urg]?(' · '+rot[t.urg]):''}</span>
-    <button class="btn-ghost" style="padding:2px 8px;font-size:11.5px;white-space:nowrap" onclick="abrirMarcoFrete('${t.id}')" title="Abrir a ficha do frete para editar/dar baixa nos marcos">✏️ Editar marcos</button></div>`;
-  // separa por OPERADORA
+  const ts=tarefasOperacional(fretes,7); if(!ts.length){ _marcoFiltroOp=''; _marcoFiltroUrg=''; return ''; }
   const grupos={}; ts.forEach(t=>{ (grupos[t.operadora]||(grupos[t.operadora]=[])).push(t); });
-  let nomes=Object.keys(grupos).sort((a,b)=>{ if(a==='(sem operadora)')return 1; if(b==='(sem operadora)')return -1; return a.localeCompare(b); });
-  // filtro por operadora — se a selecionada não tem mais tarefas, volta a mostrar todas
+  const nomes=Object.keys(grupos).sort((a,b)=>{ if(a==='(sem operadora)')return 1; if(b==='(sem operadora)')return -1; return a.localeCompare(b); });
   if(_marcoFiltroOp && !grupos[_marcoFiltroOp]) _marcoFiltroOp='';
-  const mostradas = _marcoFiltroOp ? [_marcoFiltroOp] : nomes;
-  const bloco=nome=>{ const g=grupos[nome]; const at=g.filter(t=>t.urg==='atrasada').length, hj=g.filter(t=>t.urg==='hoje').length;
-    return `<div style="margin-bottom:10px">
-      <div style="font-size:12.5px;font-weight:800;color:#e4e4f0;margin:0 0 5px;padding:3px 0;border-bottom:1px solid var(--card-border)">👷 ${esc(nome)}
-        <span class="hint" style="font-weight:400">· ${g.length} tarefa(s)${at?(' · '+at+' atrasada(s)'):''}${hj?(' · '+hj+' hoje'):''}</span></div>
+  const visiveis = _marcoFiltroOp ? grupos[_marcoFiltroOp] : ts;
+
+  // ---- faixas: o que a operadora precisa decidir, na ordem da urgência ----
+  const FAIXAS=[
+    {k:'vencida', ic:'⏰', tit:'Atrasadas',            sub:'passou do dia combinado — retomar e reagendar', cor:'#ef4444'},
+    {k:'hoje',    ic:'🔔', tit:'Para hoje',            sub:'o robô avisa no ChatGuru e deixa a conversa em AGUARDANDO', cor:'#d97706'},
+    {k:'proxima', ic:'🗓️', tit:'Próximos dias',        sub:'já agendadas — nada a fazer agora', cor:'#2563eb'},
+    {k:'sem',     ic:'❓', tit:'Sem tarefa agendada',  sub:'frete andando sem próximo passo — falta informação', cor:'#8b5cf6'},
+  ];
+  const cont = k => visiveis.filter(t=>t.urg===k).length;
+
+  // KPI clicável = filtro por urgência
+  const kpi = f => { const n=cont(f.k), on=_marcoFiltroUrg===f.k;
+    return `<button onclick="marcoFiltrarUrg('${f.k}')" title="${esc(f.sub)}"
+      style="flex:1 1 130px;min-width:120px;text-align:left;cursor:pointer;border:1px solid ${on?f.cor:'var(--card-border)'};
+      background:${on?f.cor+'22':'rgba(255,255,255,.03)'};border-radius:9px;padding:8px 11px;color:inherit;font:inherit">
+      <div style="font-size:11px;letter-spacing:.03em;color:${f.cor};font-weight:800">${f.ic} ${esc(f.tit.toUpperCase())}</div>
+      <div style="font-size:21px;font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums">${n}</div></button>`; };
+
+  const item=t=>{ const f=FAIXAS.find(x=>x.k===t.urg)||FAIXAS[0];
+    const quando = t.urg==='sem' ? 'sem data'
+      : (t.urg==='vencida' ? dataBR(t.data)+' · '+Math.abs(diasEntre(t.data,hojeISO()))+'d atrás'
+      : (t.urg==='hoje' ? 'hoje' : dataBR(t.data)));
+    return `<div onclick="abrirMarcoFrete('${t.id}')" title="Abrir a ficha do frete"
+      style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 11px;cursor:pointer;
+      border-left:3px solid ${f.cor};background:rgba(255,255,255,.03);border-radius:7px;margin-bottom:5px">
+      <div style="min-width:0;flex:1">
+        <div style="font-size:12.5px"><b>Nº ${esc(t.numero)||'s/nº'}</b> · ${esc(t.cliente)||'—'}
+          ${_marcoFiltroOp?'':`<span class="hint" style="font-size:11px">· 👷 ${esc(t.operadora)}</span>`}</div>
+        <div class="hint" style="font-size:11.5px;margin-top:1px">${esc(t.rota)}</div>
+        ${t.nota?`<div class="hint" style="font-size:11px;margin-top:2px;font-style:italic">↳ ${esc(t.nota)}</div>`:''}
+      </div>
+      <div style="text-align:right;white-space:nowrap">
+        <div style="color:${f.cor};font-weight:800;font-size:12.5px">${esc(quando)}</div>
+        <div class="hint" style="font-size:10.5px">${t.urg==='sem'?'🔔 agendar':'clique p/ abrir'}</div>
+      </div></div>`; };
+
+  const faixa=f=>{ const g=visiveis.filter(t=>t.urg===f.k); if(!g.length) return '';
+    if(_marcoFiltroUrg && _marcoFiltroUrg!==f.k) return '';
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px">
+        <span style="font-size:13px;font-weight:800;color:${f.cor}">${f.ic} ${esc(f.tit)}</span>
+        <span class="hint" style="font-size:11.5px">${g.length} · ${esc(f.sub)}</span>
+      </div>
       ${g.map(item).join('')}</div>`; };
+
   const opts=`<option value="">Todas as operadoras (${nomes.length})</option>`+
     nomes.map(n=>`<option value="${esc(n)}"${n===_marcoFiltroOp?' selected':''}>${esc(n)} (${grupos[n].length})</option>`).join('');
-  const nAtr=ts.filter(t=>t.urg==='atrasada').length, nHoje=ts.filter(t=>t.urg==='hoje').length;
+  const limpar = _marcoFiltroUrg?`<button class="btn-ghost" style="padding:3px 10px;font-size:11.5px" onclick="marcoFiltrarUrg('')">✕ ver todas</button>`:'';
+
   return `<div class="card" style="margin-bottom:12px"><div class="body">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px">
-      <h3 style="margin:0;font-size:14px">🗓️ Tarefas do transporte — por operadora (hoje e próximos dias)
-        <span class="hint" style="font-weight:400">(${nAtr} atrasada(s) · ${nHoje} para hoje · ${ts.length} no total)</span></h3>
-      <select onchange="marcoFiltrarOp(this.value)" title="Mostrar só as tarefas de uma operadora" style="max-width:230px">${opts}</select>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 9px">
+      <h3 style="margin:0;font-size:14px">🔔 Tarefas do operacional
+        <span class="hint" style="font-weight:400">— agendadas pelo lembrete (avisa no ChatGuru no dia)</span></h3>
+      <div style="display:flex;gap:8px;align-items:center">${limpar}
+        <select onchange="marcoFiltrarOp(this.value)" title="Mostrar só as tarefas de uma operadora" style="max-width:230px">${opts}</select></div>
     </div>
-    ${mostradas.map(bloco).join('')}</div></div>`;
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">${FAIXAS.map(kpi).join('')}</div>
+    ${FAIXAS.map(faixa).join('') || '<p class="hint" style="text-align:center;padding:8px">Nada nesse filtro.</p>'}
+  </div></div>`;
 }
 function abrirMarcoFrete(id){
   if(typeof fretesAbertos!=='undefined'){ fretesAbertos.add(id); }
