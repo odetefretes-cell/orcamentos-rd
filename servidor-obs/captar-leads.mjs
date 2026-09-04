@@ -125,11 +125,37 @@ async function delegarChatGuru(chatId, userId) {
   }, { chatId, userId });
 }
 
+
+/* Recorte das mensagens antes de mandar para a IA.
+   `mensagensCliente` devolve a PÁGINA INTEIRA do chat, e o prompt levava tudo: conversas
+   longas viravam chamadas gigantes (24 mi de tokens de entrada/mês, 4x o extrator, para
+   uma tarefa mais simples). O pedido de transporte fica nas PRIMEIRAS mensagens (quando o
+   cliente abre a conversa) ou nas ÚLTIMAS (quando volta a pedir), nunca no meio de uma
+   conversa longa — então mandamos as duas pontas e cortamos o miolo.
+   Conversa curta (o caso normal) passa inteira, sem mudança de comportamento. */
+const IA_MAX_CHARS = 6000;   // ~1.700 tokens de conteúdo
+const IA_MSG_CHARS = 500;    // textão de uma mensagem só não ajuda a extrair
+const IA_INICIO = 3, IA_FIM = 20;
+function recortarParaIA(mensagens) {
+  const msgs = (mensagens || []).map(m => String(m || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const total = msgs.reduce((n, m) => n + m.length, 0);
+  if (total <= IA_MAX_CHARS && msgs.length <= IA_INICIO + IA_FIM) return { msgs, cortou: false, total };
+  const corta = m => (m.length > IA_MSG_CHARS ? m.slice(0, IA_MSG_CHARS) + '…' : m);
+  let out;
+  if (msgs.length <= IA_INICIO + IA_FIM) out = msgs.map(corta);
+  else out = [...msgs.slice(0, IA_INICIO).map(corta), '[…conversa longa: ' + (msgs.length - IA_INICIO - IA_FIM) + ' mensagens do meio omitidas…]', ...msgs.slice(-IA_FIM).map(corta)];
+  // ainda grande (mensagens enormes): corta pelo fim, preservando o começo do pedido
+  while (out.reduce((n, m) => n + m.length, 0) > IA_MAX_CHARS && out.length > IA_INICIO + 2) out.splice(IA_INICIO + 1, 1);
+  return { msgs: out, cortou: true, total };
+}
+
 // ---------- Extração por IA (Claude) p/ mensagens livres (sem formulário) ----------
 async function extrairIA(mensagens) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return { erro: 'sem ANTHROPIC_API_KEY' };
   const modelo = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+  const _rec = recortarParaIA(mensagens);
+  if (_rec.cortou) log(`  ✂️  conversa longa: ${mensagens.length} msgs / ${_rec.total} chars → enviados ${_rec.msgs.length} trechos`);
   const tool = {
     name: 'registrar_lead',
     description: 'Registra os dados de transporte de veículo informados pelo cliente na conversa.',
@@ -152,7 +178,7 @@ async function extrairIA(mensagens) {
     model: modelo, max_tokens: 1000,
     system: 'Você extrai dados de transporte de veículo de conversas de WhatsApp da OBS Transportes (transporte de carros e motos por cegonha/guincho). NUNCA invente: o que o cliente não informou fica vazio (0 para valor). Se a conversa NÃO for um pedido de transporte com dados (só dúvida, "ok", saudação, retorno), marque ehLead=false.',
     tools: [tool], tool_choice: { type: 'tool', name: 'registrar_lead' },
-    messages: [{ role: 'user', content: 'Mensagens do cliente (em ordem):\n' + mensagens.join('\n') }],
+    messages: [{ role: 'user', content: 'Mensagens do cliente (em ordem):\n' + _rec.msgs.join('\n') }],
   };
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
