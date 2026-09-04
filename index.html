@@ -1163,6 +1163,24 @@
   </div>
 </div>
 
+
+<!-- MOTIVO DA PERDA: lista fixa (o operador escolhe, não digita). Texto livre gerava 25
+     grafias do mesmo motivo em um mês ("duplicad", "duplucado", "sem retormo") e tornava
+     impossível comparar meses. Serve tanto para marcar a perda quanto para CORRIGIR o
+     motivo depois — é assim que o "sem contato" vira o motivo real após a ligação. -->
+<div id="motivoPerdaModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9991;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)motivoPerdaResolve(null)">
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:22px;width:520px;max-width:96vw">
+    <h2 id="motivoPerdaTitulo" style="font-size:17px;margin:0 0 4px">Por que perdemos este lead?</h2>
+    <p id="motivoPerdaLead" style="margin:0 0 14px;font-size:13px;color:var(--muted,#c7cdd8)"></p>
+    <div id="motivoPerdaOpcoes" style="display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow:auto;margin-bottom:12px"></div>
+    <input id="motivoPerdaOutro" placeholder="Descreva o motivo…" style="display:none;width:100%;margin-bottom:12px">
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-ghost" style="padding:9px 18px" onclick="motivoPerdaResolve(null)">Cancelar</button>
+      <button id="motivoPerdaOk" class="btn-danger" style="padding:9px 20px;font-weight:700" onclick="motivoPerdaConfirmar()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
 <div id="fipeModal" class="modal no-print" style="display:none;z-index:9600">
   <div class="sheet">
     <h3>🔎 Tabela FIPE — valor do veículo</h3>
@@ -5598,7 +5616,8 @@ function renderCRM(){
         <button onclick="event.stopPropagation();crmWhatsApp('${l.id}')" title="Mensagem de WhatsApp">📱</button>
         <button onclick="event.stopPropagation();crmEmailLead('${l.id}')" title="Enviar orçamento por e-mail (Gmail)">✉️</button>
         <button onclick="event.stopPropagation();crmEnviarOrcamento('${l.id}')" title="Orçamento em PDF">📄</button>
-        ${(l.etapa!=='perdido'&&l.etapa!=='arquivado')?`<button onclick="event.stopPropagation();crmMarcarPerda('${l.id}')" title="Marcar como perdido">❌</button>`:''}
+        ${(l.etapa!=='perdido'&&l.etapa!=='arquivado')?`<button onclick="event.stopPropagation();crmMarcarPerda('${l.id}')" title="Marcar como perdido">❌</button>`
+          :`<button onclick="event.stopPropagation();crmAlterarMotivoPerda('${l.id}')" title="Alterar o motivo da perda — use depois de ligar para o cliente e descobrir o motivo real">✏️❌</button>`}
         ${l.etapa==='arquivado'?`<button onclick="event.stopPropagation();crmRestaurarLead('${l.id}')" title="Restaurar (voltar para Perdido)">↩️</button>`:''}
         <button onclick="event.stopPropagation();crmExcluirLead('${l.id}')" title="Excluir">🗑️</button>
       </div>
@@ -5815,6 +5834,72 @@ function crmRelatorioPerdasApurar(dias){
   const w = window.open('', '_blank');
   if(!w){ flash('O navegador bloqueou a janela — libere os pop-ups para este site.','erro'); return; }
   w.document.write(html); w.document.close();
+}
+
+
+/* ===== MOTIVO DA PERDA — lista fixa ============================================
+   Os motivos saem desta lista; o operador escolhe, não digita. "Não conseguimos
+   contato" é o estado provisório: cai no relatório diário de apuração até alguém
+   ligar e trocar pelo motivo verdadeiro. */
+const CRM_MOTIVOS_PERDA = [
+  { g:'O cliente decidiu', itens:[
+    { v:'Achou caro',                 ic:'💰', d:'preço acima do que esperava' },
+    { v:'Fechou com concorrente',     ic:'🏁', d:'outra transportadora levou' },
+    { v:'Somente pesquisa de preço',  ic:'🔍', d:'não tinha transporte para fazer' },
+    { v:'Desistiu do transporte',     ic:'🚫', d:'mudou de ideia / não vai mais' },
+    { v:'Não comprou o veículo',      ic:'🚗', d:'a compra não se concretizou' },
+    { v:'Prazo não atendeu',          ic:'⏱️', d:'precisava mais rápido' },
+  ]},
+  { g:'Não atendemos', itens:[
+    { v:'Rota que não atendemos',     ic:'🗺️', d:'sem prestador para o trecho' },
+    { v:'Veículo que não transportamos', ic:'🛵', d:'tipo de veículo fora do escopo' },
+  ]},
+  { g:'Não houve conversa', itens:[
+    { v:'Não conseguimos contato',    ic:'📵', d:'a apurar — entra no relatório diário de ligação', prov:true },
+    { v:'Contato inválido',           ic:'☎️', d:'telefone/e-mail falso ou errado' },
+    { v:'Lead duplicado',             ic:'👥', d:'já existe outro registro do mesmo cliente' },
+  ]},
+  { g:'', itens:[ { v:'Outro',        ic:'✍️', d:'descrever ao lado', outro:true } ]},
+];
+let _motivoPerdaCb=null, _motivoPerdaSel='';
+function motivoPerdaSelecionar(v, ehOutro){
+  _motivoPerdaSel=v;
+  const box=$('#motivoPerdaOpcoes'); if(box) [...box.querySelectorAll('[data-mp]')].forEach(b=>{
+    const on = b.getAttribute('data-mp')===v;
+    b.style.borderColor = on ? '#da3633' : 'var(--linha)';
+    b.style.background  = on ? 'rgba(218,54,51,.12)' : 'transparent';
+  });
+  const inp=$('#motivoPerdaOutro'); if(inp){ inp.style.display = ehOutro?'':'none'; if(ehOutro) setTimeout(()=>inp.focus(),40); }
+}
+function motivoPerdaConfirmar(){
+  let v=_motivoPerdaSel;
+  if(!v){ flash('Escolha um motivo.','erro'); return; }
+  if(v==='Outro'){ const t=($('#motivoPerdaOutro')?.value||'').trim(); if(!t){ flash('Descreva o motivo.','erro'); return; } v=t; }
+  const m=$('#motivoPerdaModal'); if(m) m.style.display='none';
+  const cb=_motivoPerdaCb; _motivoPerdaCb=null; if(cb) cb(v);
+}
+function motivoPerdaResolve(v){ const m=$('#motivoPerdaModal'); if(m) m.style.display='none'; const cb=_motivoPerdaCb; _motivoPerdaCb=null; if(cb) cb(v); }
+// abre o seletor; devolve o motivo escolhido (ou null se cancelar)
+function crmPedirMotivoPerda(lead, atual){
+  return new Promise(res=>{
+    const m=$('#motivoPerdaModal'); if(!m){ res(prompt('Motivo da perda:', atual||'')); return; }
+    _motivoPerdaCb=res; _motivoPerdaSel='';
+    const t=$('#motivoPerdaTitulo'); if(t) t.textContent = atual ? 'Alterar o motivo da perda' : 'Por que perdemos este lead?';
+    const p=$('#motivoPerdaLead');
+    if(p) p.textContent = [ (lead&&lead.nome)||'(sem nome)', lead&&lead.telefone, atual?('motivo atual: '+atual):'' ].filter(Boolean).join(' · ');
+    const ok=$('#motivoPerdaOk'); if(ok) ok.textContent = atual ? 'Salvar motivo' : 'Marcar como perdido';
+    const inp=$('#motivoPerdaOutro'); if(inp){ inp.value=''; inp.style.display='none'; }
+    const box=$('#motivoPerdaOpcoes');
+    if(box) box.innerHTML = CRM_MOTIVOS_PERDA.map(gr=>
+      (gr.g?`<div style="font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#8b96a3);margin:8px 0 2px">${esc(gr.g)}</div>`:'')
+      + gr.itens.map(o=>`<button type="button" data-mp="${escA(o.v)}" onclick="motivoPerdaSelecionar('${jsArg(o.v)}',${o.outro?'true':'false'})"
+          style="text-align:left;display:flex;gap:9px;align-items:baseline;padding:8px 11px;border:1px solid var(--linha);border-radius:9px;background:transparent;color:inherit;font:inherit;cursor:pointer">
+          <span style="font-size:15px">${o.ic}</span>
+          <span style="min-width:0"><b style="font-size:13.5px">${esc(o.v)}</b>${o.prov?' <span style="font-size:10px;font-weight:700;color:#b45309">PROVISÓRIO</span>':''}
+          <br><span style="font-size:11.5px;color:var(--muted,#8b96a3)">${esc(o.d)}</span></span></button>`).join('')
+    ).join('');
+    m.style.display='flex';
+  });
 }
 
 // ---- Render por partes / Arquivado (ações) ----
@@ -6146,10 +6231,10 @@ function crmAdminRotinas(){
   if(mudou){ saveCRM(); const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM(); }
 }
 
-function crmMarcarPerda(id){
+async function crmMarcarPerda(id){
   const l=CRM_LEADS[id]; if(!l || l.etapa==='perdido') return;
-  const motivo = prompt('Motivo da perda deste lead:');
-  if(motivo===null) return;   // cancelou
+  const motivo = await crmPedirMotivoPerda(l);      // lista fixa — não é mais texto livre
+  if(motivo===null || motivo===undefined) return;   // cancelou
   l.motivoPerda = motivo;
   l.etapa = 'perdido';
   l.ultimaInteracao = new Date().toISOString();
@@ -6157,6 +6242,25 @@ function crmMarcarPerda(id){
   saveCRM();
   const m=$('#crmModal'); if(m && m.style.display!=='none') fecharCrmModal(); else renderCRM();
   flash('Lead movido para Perdido ✔');
+}
+
+
+// ALTERAR O MOTIVO de uma perda já registrada — o operador liga, descobre o motivo real
+// e troca aqui. É o que transforma o "não conseguimos contato" (provisório) em informação
+// de verdade para a estratégia comercial.
+async function crmAlterarMotivoPerda(id){
+  const l=CRM_LEADS[id]; if(!l) return;
+  if(l.etapa!=='perdido' && l.etapa!=='arquivado'){ flash('Este lead não está marcado como perdido.','erro'); return; }
+  const antes = l.motivoPerda||'';
+  const motivo = await crmPedirMotivoPerda(l, antes||'(sem motivo)');
+  if(motivo===null || motivo===undefined) return;
+  if(motivo===antes){ flash('O motivo continua o mesmo.','ok'); return; }
+  l.motivoPerda = motivo;
+  l.ultimaInteracao = new Date().toISOString();
+  crmAddTimeline(id, 'perda', `Motivo da perda corrigido: ${antes||'(sem motivo)'} → ${motivo}`);
+  saveCRM();
+  const m=$('#crmModal'); if(m && m.style.display!=='none') crmAbrirLead(id); else renderCRM();
+  flash('Motivo atualizado ✔','ok');
 }
 
 // ===== Marcar perdas em LOTE (admin) — cola a lista da auditoria e marca vários leads como PERDIDO =====
@@ -6421,8 +6525,11 @@ function crmAbrirLead(id){
   if(!l._avulso){   // calculadora avulsa: só calcula e emite PDF, não cria lead
     actionsHTML += `<button class="btn-ghost" onclick="crmLinkFormulario('${id}')" style="color:#7c3aed;border-color:#7c3aed">🔗 Link do cliente</button>`;
     actionsHTML += `<button class="btn-ghost" onclick="crmForcarAutomatico('${id}')" style="color:#0891b2;border-color:#0891b2">🤖 Enviar automático</button>`;
-    if(l.etapa !== 'perdido'){
+    if(l.etapa !== 'perdido' && l.etapa !== 'arquivado'){
       actionsHTML += `<button class="btn-ghost" onclick="crmMarcarPerda('${id}')" style="color:#c0392b;border-color:#c0392b">❌ Perda</button>`;
+    } else {
+      // já perdido: corrigir o motivo (é o passo final do relatório diário de apuração)
+      actionsHTML += `<button class="btn-ghost" onclick="crmAlterarMotivoPerda('${id}')" style="color:#b45309;border-color:#b45309" title="Trocar o motivo da perda — use depois de ligar para o cliente">✏️ Alterar motivo da perda</button>`;
     }
     if(l.etapa === 'fechado'){
       actionsHTML += `<button class="btn-ok" onclick="crmConverterEmFrete('${id}')">🚚 Converter em Frete</button>`;
