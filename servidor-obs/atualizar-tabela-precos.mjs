@@ -100,6 +100,23 @@ const PRECOS_ROTA = [
     valores:{ p:3600, g:3600 }, fonte:'reajuste confirmado pela Luana/Transmartins 31/08/2026' },
 ];
 
+
+/* --------------------------------------------------------------------------
+ *  NOVAS_ROTAS — vaga que existe na operação mas não estava na tabela.
+ *  Sem ela o motor monta o trecho a partir de uma rota que só PASSA pela
+ *  cidade e cobra o preço daquela rota (o caso Uberlândia→Betim: saía R$ 400,
+ *  o preço da rota Goiânia→Betim, em vez dos R$ 500 da vaga real).
+ *  Informe só as categorias que a transportadora realmente atende: categoria
+ *  sem preço aqui continua sendo cotada como antes.
+ * ------------------------------------------------------------------------ */
+const NOVAS_ROTAS = [
+  { transportadora:/milit/i, nomeSeNova:'Militão Transportes',
+    rota:'Uberlândia (MG) - Betim (MG)',
+    valores:{ m300:500 },
+    trechos:[['Uberlândia','MG','Betim','MG']],
+    fonte:'reporte do comercial 25/08/2026 (Rubens = Militão)' },
+];
+
 /* --------------------------------------------------------------------------
  *  BASES — taxa de recebimento por cidade (cobrada na base de origem E na de
  *  destino). Vem da aba Configurações da planilha.
@@ -225,6 +242,35 @@ for(const item of PRECOS_ROTA){
   }
 }
 
+
+/* ---- NOVAS_ROTAS: cria a vaga que faltava ---- */
+const rotasNovas = [];
+for(const n of NOVAS_ROTAS){
+  const jaExiste = tabela.rotas.find(r => n.transportadora.test(r.transportadora||'') && norm(r.rota)===norm(n.rota));
+  if(jaExiste){
+    // já existe: vira ajuste de preço normal
+    for(const [chave, valor] of Object.entries(n.valores)){
+      const nomeCat = CATS[chave]; if(!nomeCat) continue;
+      const catReal = Object.keys(jaExiste.valores||{}).find(k => norm(k) === norm(nomeCat));
+      const atual = catReal != null ? jaExiste.valores[catReal] : undefined;
+      if(Number(atual) === Number(valor)) continue;
+      const it = { rota:jaExiste, cat: catReal || nomeCat, de: atual, para: valor,
+                   txt: `${jaExiste.transportadora} · ${jaExiste.rota} · ${nomeCat}: ${atual==null?'(sem valor)':'R$ '+atual} → R$ ${valor}` };
+      if(atual != null && Number(valor) < Number(atual) && !PERMITIR_REDUCAO) reducoes.push(it); else mudancas.push(it);
+    }
+    continue;
+  }
+  // nome da transportadora como ela já está escrita na tabela (evita duplicar por grafia)
+  const existente = tabela.rotas.find(r => n.transportadora.test(r.transportadora||''));
+  const transp = existente ? existente.transportadora : n.nomeSeNova;
+  if(!transp){ naoAchadas.push(`${n.rota} — transportadora não encontrada e sem nomeSeNova`); continue; }
+  const valores = {};
+  for(const [chave, valor] of Object.entries(n.valores)){ const c = CATS[chave]; if(c) valores[c] = valor; }
+  const trajetos = (n.trechos||[]).map(([oc,ou,dc,du]) => ({ o:tabNorm(oc), oUF:ou, d:tabNorm(dc), dUF:du, oNome:oc, dNome:dc }));
+  const nova = { transportadora:transp, rota:n.rota, prazoDias:n.prazoDias!=null?n.prazoDias:null, valores, trajetos };
+  rotasNovas.push({ nova, txt: `${transp} · ${n.rota} · ${Object.entries(valores).map(([k,v])=>k+' R$ '+v).join(' · ')} · ${trajetos.length} trecho(s)` });
+}
+
 /* ---- BASES: taxa de recebimento por cidade ---- */
 const basesMud = [];
 for(const b of BASES){
@@ -276,12 +322,16 @@ if(basesMud.length){
   console.log(`\n${basesMud.length} taxa(s) de base a alterar:`);
   basesMud.forEach(m => console.log('   ·', m.txt));
 }
+if(rotasNovas.length){
+  console.log(`\n${rotasNovas.length} rota(s) NOVA(s) a criar:`);
+  rotasNovas.forEach(m => console.log('   ·', m.txt));
+}
 if(trechosMud.length){
   console.log(`\n${trechosMud.length} trecho(s) a incluir (cidades que a rota atende):`);
   trechosMud.forEach(m => console.log('   ·', m.txt));
 }
 
-if(!mudancas.length && !basesMud.length && !trechosMud.length){
+if(!mudancas.length && !basesMud.length && !trechosMud.length && !rotasNovas.length){
   console.log('\n✔ Nada a mudar — a tabela já está com os valores do reajuste.');
   await pool.end(); process.exit(0);
 }
@@ -303,8 +353,9 @@ console.log(`\nBackup salvo em ${arqBackup}`);
 for(const m of mudancas){ m.rota.valores[m.cat] = m.para; }
 for(const m of basesMud){ m.base[m.campo] = m.para; }
 for(const m of trechosMud){ m.rota.trajetos.push(m.trecho); }
+for(const m of rotasNovas){ tabela.rotas.push(m.nova); }
 const doc = await gravarTabela(tabela);
-console.log(`✔ Tabela atualizada: ${mudancas.length} valores, ${basesMud.length} bases e ${trechosMud.length} trechos em ${doc.rotas} rotas. Publicada em ${doc.em}.`);
+console.log(`✔ Tabela atualizada: ${mudancas.length} valores, ${basesMud.length} bases, ${trechosMud.length} trechos e ${rotasNovas.length} rota(s) nova(s) — ${doc.rotas} rotas no total. Publicada em ${doc.em}.`);
 console.log('   Os operadores pegam a tabela nova ao recarregar a página (Ctrl+Shift+R).');
 console.log(`   Reverter: node atualizar-tabela-precos.mjs --restaurar ${arqBackup} --aplicar`);
 await pool.end();
