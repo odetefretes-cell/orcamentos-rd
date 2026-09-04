@@ -988,6 +988,7 @@
       <button id="crmBtnPerdaLote" class="btn-ghost" onclick="crmAbrirPerdasLote()" title="Marcar vários leads como PERDIDO de uma vez — cole a lista da auditoria (telefone | motivo, nome ou id)" style="display:none;color:#da3633;border-color:#da3633">❌ Marcar perdas (lote)</button>
       <button id="crmBtnArquivar" class="btn-ghost" onclick="crmArquivarPerdidosAntigos(false)" title="Arquivar os leads PERDIDOS parados há 10+ dias (vão para a coluna Arquivado, sem sumir)" style="display:none;color:#6b7280;border-color:#6b7280">🗄️ Arquivar antigos</button>
       <button id="crmBtnRecupPerda" class="btn-ghost" onclick="crmRecuperarPerdidosMalMovidos()" title="Devolve para a coluna Perdido os leads com histórico de perda que foram movidos por engano (quando a coluna Perdido sumiu)" style="display:none;color:#da3633;border-color:#da3633">♻️ Recuperar perdidos</button>
+      <button class="btn-ghost" onclick="crmRelatorioPerdasApurar()" title="Lista as perdas de ONTEM que ficaram sem um motivo real (sem contato / sem retorno / sem motivo) para o operador ligar e descobrir o motivo verdadeiro" style="color:#b45309;border-color:#b45309">📞 Perdas para apurar (ontem)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -5725,6 +5726,95 @@ function renderCRM(){
     } else resumo.innerHTML='';
   }
   crmAutoArquivar();   // 1x/dia (admin, após a nuvem confirmar) arquiva perdidos antigos
+}
+
+
+/* ===== RELATÓRIO DIÁRIO: PERDAS PARA APURAR =====================================
+   Em agosto/2026, 78% das perdas do mês saíram como "sem contato (fora do WhatsApp)":
+   o lead foi dado como perdido sem ninguém saber POR QUE ele não fechou. Este relatório
+   junta as perdas do dia anterior que ficaram sem motivo real (sem motivo, sem contato,
+   sem retorno, sem resposta) com telefone e dados do orçamento, para o operador ligar,
+   descobrir o motivo verdadeiro e registrar no CRM.
+   Sai numa janela pronta para imprimir; cada telefone é clicável (ligação e WhatsApp). */
+function crmDataPerda(l){
+  const tl = Array.isArray(l && l.timeline) ? l.timeline : [];
+  for(let i=tl.length-1;i>=0;i--){ const t=tl[i]; if(t && t.tipo==='perda' && t.data) return String(t.data).slice(0,10); }
+  return '';
+}
+// motivo que NÃO explica a perda: ninguém falou com o cliente, então o motivo real é desconhecido
+function crmMotivoInconclusivo(m){
+  const t=normTxt(m||'');
+  if(!t) return true;
+  return /sem contato|sem retorno|sem retormo|sem resposta|sem motivo|nao respondeu|não respondeu/.test(t);
+}
+function crmRelatorioPerdasApurar(dias){
+  const d = new Date(); d.setDate(d.getDate() - (dias==null?1:dias));
+  const alvo = d.toISOString().slice(0,10);
+  const todos = Object.values(CRM_LEADS||{});
+  // perdido E arquivado: o sistema arquiva sozinho quem fica 10 dias na coluna Perdido,
+  // e essas perdas somem do radar — são a maioria (717 de 896 em agosto).
+  const lista = todos.filter(l=>{
+    if(!l || (l.etapa!=='perdido' && l.etapa!=='arquivado')) return false;
+    if(crmDataPerda(l)!==alvo) return false;
+    return crmMotivoInconclusivo(l.motivoPerda);
+  }).sort((a,b)=> String(a.vendedor||'').localeCompare(String(b.vendedor||'')) || String(a.nome||'').localeCompare(String(b.nome||'')));
+
+  const dBR = alvo.slice(8,10)+'/'+alvo.slice(5,7)+'/'+alvo.slice(0,4);
+  if(!lista.length){ flash('Nenhuma perda sem motivo apurado em '+dBR+' ✔','ok'); return; }
+
+  const M = v => { const n=numMoeda(v); return n?n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'—'; };
+  const tel = t => String(t||'').replace(/\D/g,'');
+  const linhas = lista.map((l,i)=>{
+    const t = tel(l.telefone), wa = t ? (t.length>11?t:('55'+t)) : '';
+    const veic = [l.veiculoDesc, l.categoria].filter(Boolean).join(' · ') || '—';
+    const rota = [up(l.origem)||'?', up(l.destino)||'?'].join(' → ');
+    return `<tr>
+      <td class="c">${i+1}</td>
+      <td><b>${esc(l.nome||'(sem nome)')}</b>${l.empresa?`<br><span class="s">${esc(l.empresa)}</span>`:''}
+          <br><span class="s">${esc(l.origemLead||'—')} · entrou ${esc(l.dataEntrada||'—')}</span></td>
+      <td>${t?`<a href="tel:+${wa}">${esc(l.telefone)}</a><br><a class="s" href="https://wa.me/${wa}" target="_blank" rel="noopener">abrir no WhatsApp</a>`:'<span class="s">sem telefone</span>'}
+          ${l.email?`<br><span class="s">${esc(l.email)}</span>`:''}</td>
+      <td>${esc(rota)}<br><span class="s">${esc(veic)}</span></td>
+      <td class="r">${M(l.valorEstimado)}</td>
+      <td>${esc(l.vendedor||'—')}<br><span class="s">${esc(l.motivoPerda||'(sem motivo)')}</span></td>
+      <td class="mot"></td>
+    </tr>`;
+  }).join('');
+
+  const porVend = {}; lista.forEach(l=>{ const v=l.vendedor||'(sem vendedor)'; porVend[v]=(porVend[v]||0)+1; });
+  const resumo = Object.entries(porVend).sort((a,b)=>b[1]-a[1]).map(([v,n])=>`${esc(v)}: <b>${n}</b>`).join(' · ');
+  const total = lista.reduce((s,l)=>s+(numMoeda(l.valorEstimado)||0),0);
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+  <title>Perdas para apurar — ${dBR}</title>
+  <style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:24px 26px;font-size:12.5px}
+    h1{font-size:19px;margin:0 0 3px;color:#0a3d91} .sub{color:#555;margin:0 0 14px;font-size:12.5px}
+    .box{background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:10px 13px;margin:0 0 14px;font-size:12.5px}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #cfd4dc;padding:6px 8px;vertical-align:top}
+    th{background:#eaf0fb;color:#0a3d91;font-size:11px;text-align:left;text-transform:uppercase;letter-spacing:.04em}
+    td.c{text-align:center;color:#666} td.r{text-align:right;white-space:nowrap}
+    td.mot{width:190px;background:#fafafa}
+    .s{color:#666;font-size:11px} a{color:#0a3d91}
+    tfoot td{background:#f2f4f8;font-weight:700}
+    .imp{margin:14px 0 0;text-align:center} button{padding:8px 18px;font-size:13px;cursor:pointer}
+    @media print{.imp{display:none} body{padding:0}}
+  </style></head><body>
+    <h1>📞 Perdas para apurar — ${dBR}</h1>
+    <p class="sub">${lista.length} lead(s) perdidos sem motivo real · ${resumo} · valor estimado ${total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</p>
+    <div class="box"><b>Como usar:</b> ligue para cada contato e pergunte por que não fechou. Anote o motivo na última coluna e depois registre no CRM (abrir o lead → ❌ marcar perda com o motivo certo).
+      Estes leads foram perdidos <b>sem que ninguém conversasse com eles</b> — parte pode ainda fechar.</div>
+    <table>
+      <thead><tr><th>#</th><th>Cliente</th><th>Contato</th><th>Frete cotado</th><th>Valor</th><th>Vendedor / motivo atual</th><th>Motivo REAL (anotar)</th></tr></thead>
+      <tbody>${linhas}</tbody>
+      <tfoot><tr><td colspan="4">Total</td><td class="r">${total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td colspan="2"></td></tr></tfoot>
+    </table>
+    <div class="imp"><button onclick="window.print()">🖨️ Imprimir</button></div>
+  </body></html>`;
+
+  const w = window.open('', '_blank');
+  if(!w){ flash('O navegador bloqueou a janela — libere os pop-ups para este site.','erro'); return; }
+  w.document.write(html); w.document.close();
 }
 
 // ---- Render por partes / Arquivado (ações) ----
