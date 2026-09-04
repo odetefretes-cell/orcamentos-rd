@@ -153,6 +153,11 @@ function montarMensagem(lead){
   linhas.push('');
   if(veic)             linhas.push(`📦 Veículo: ${veic}`);
   if(origem && destino) linhas.push(`📍 ${origem} → ${destino}`);
+  // BASE DE EMBARQUE/ENTREGA: a vaga mais barata nem sempre sai ou chega na cidade
+  // pedida (ex.: cliente pede Foz do Iguaçu e a vaga entrega em Santa Terezinha, a
+  // 25 km). Como o transporte é base a base, o cliente PRECISA saber onde deixar e
+  // onde retirar — sem isso o valor parece de uma vaga que não é a cotada.
+  for(const l of basesDiferentes(lead, origem, destino)) linhas.push(l);
   linhas.push(`💰 Valor médio: ${media}`);
   if(prazo)            linhas.push(`📅 Prazo estimado: ${prazo} dias após o embarque`);
   linhas.push('');
@@ -164,6 +169,21 @@ function montarMensagem(lead){
   linhas.push('🏆 OBS Transportes — 20 anos de história no transporte de veículos.');
   linhas.push(`📞 ${TELEFONE_OBS}`);
   return linhas.join('\n');
+}
+
+/* Linhas de aviso quando a base de embarque/entrega é diferente da cidade pedida.
+   Devolve [] quando embarque e entrega são na própria cidade do cliente. */
+function basesDiferentes(lead, origem, destino){
+  const trs = Array.isArray(lead && lead.trajetos) ? lead.trajetos : [];
+  if(!trs.length) return [];
+  const soCidade = s => String(s||'').split('/')[0].trim();
+  const chave = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/\s+[a-z]{2}\s*$/,'').replace(/\s+/g,' ').trim();
+  const out = [];
+  const emb = soCidade(trs[0].de), ent = soCidade(trs[trs.length-1].para);
+  if(emb && chave(emb) !== chave(origem))  out.push(`🚚 Embarque na nossa base de ${emb}`);
+  if(ent && chave(ent) !== chave(destino)) out.push(`🏁 Entrega na nossa base de ${ent}`);
+  return out;
 }
 
 /* Mensagem para quando NÃO há rota automática: avisa que um atendente humano
