@@ -6,7 +6,10 @@
  *  as outras rotas). Aqui a alteração é cirúrgica: só as rotas listadas em
  *  REAJUSTES mudam; todo o resto fica intacto.
  *
- *  Uso (rodar de /opt/obs-api, que tem os módulos pg/dotenv):
+ *  Uso — COPIE para /opt/obs-api antes de rodar: o Node procura os módulos
+ *  (pg, dotenv) na pasta do ARQUIVO, não na pasta em que você está.
+ *     cp ~/obs-repo/servidor-obs/atualizar-tabela-precos.mjs /opt/obs-api/
+ *     cd /opt/obs-api
  *     node atualizar-tabela-precos.mjs              # DRY-RUN: mostra "de → para", NÃO grava
  *     node atualizar-tabela-precos.mjs --aplicar    # grava (faz BACKUP antes)
  *
