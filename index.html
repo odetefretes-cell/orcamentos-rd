@@ -5597,12 +5597,23 @@ function renderCRM(){
       <button onclick="crmConcluirTarefasHoje()" title="Marcar como concluídas todas as tarefas de hoje e atrasadas" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap">✅ Concluir todas</button></div>`;
   })();
 
-  // atualizar select de vendedores
-  const vendedores = [...new Set(Object.values(CRM_LEADS).map(l=>l.vendedor).filter(Boolean))].sort();
+  // Select de vendedores do FILTRO. Antes listava todo nome que já apareceu em algum lead,
+  // trazendo quem não está mais no comercial (ex-funcionária) ou é de outro setor. Agora
+  // mostra a equipe atual — usuários com papel `comercial` + Luiz — e só acrescenta um nome
+  // de fora quando ele ainda tem lead no funil, num grupo "Antigos", para que esses leads
+  // não fiquem sem como filtrar.
   const selV = $('#crmFiltroVendedor');
   if(selV){
+    const equipe = crmComercial();
+    const _luiz = (USUARIOS||[]).find(u=>u && CRM_LUIZ_RE.test(u.nome||u.user||''));
+    if(_luiz){ const n=crmNomeCanon(_luiz.nome||_luiz.user); if(n && !equipe.includes(n)) equipe.push(n); }
+    equipe.sort();
+    const usados = [...new Set(Object.values(CRM_LEADS).map(l=>String(l.vendedor||'').trim()).filter(Boolean))];
+    const antigos = usados.filter(v=>!equipe.includes(v)).sort();
     const atual = selV.value || filtroVendedor;
-    selV.innerHTML = '<option value="">Todos vendedores</option>' + vendedores.map(v=>`<option value="${escA(v)}">${esc(v)}</option>`).join('');
+    selV.innerHTML = '<option value="">Todos vendedores</option>'
+      + equipe.map(v=>`<option value="${escA(v)}">${esc(v)}</option>`).join('')
+      + (antigos.length ? `<optgroup label="Antigos (não são mais do comercial)">${antigos.map(v=>`<option value="${escA(v)}">${esc(v)}</option>`).join('')}</optgroup>` : '');
     selV.value = atual;
   }
 
