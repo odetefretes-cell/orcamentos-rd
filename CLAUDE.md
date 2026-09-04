@@ -319,3 +319,37 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    - ⚠️ A API do ChatGuru **não busca chat por nome/número de frete** — toda ação exige `chat_number`. Por isso a origem confiável do número é o lead.
    - ⚠️ **Armadilha do ChatGuru (25/08):** todo **bloco de ação novo num diálogo nasce DESLIGADO** (toggle on_off). O diálogo executa e a API responde `{"result":"success","dialog_execution_return":"Diálogo Executado"}`, mas **nenhuma ação aplica** — foi o que aconteceu no "Lembrete OBS" (STATUS e LEITURA off). Ao criar/editar diálogo: **conferir o toggle verde de cada ação antes de salvar**. Confirmado também: blocos de ação são **imediatos** (delay 0), diálogo 100% silencioso aplica ações normalmente (não precisa de mensagem pra ancorar), `can_perform_manually=False` não bloqueia execução por API, e chat EM ATENDIMENTO **aceita** voltar pra AGUARDANDO por diálogo.
    - Anotação/diálogo tentam o número e a **variante com/sem o 9º dígito**; o diálogo usa o mesmo número que a anotação encontrou.
+
+13. **Cálculo de rota e tabela de preços — auditoria a partir do relatório do comercial (04/09/2026):**
+
+   **Como a tabela de preços vive hoje.** `fretes/_tabela` (Postgres, gzip+base64) é publicada pelo app (Configurações → planilha `.xlsx`, só admin) e **a importação SUBSTITUI a tabela inteira**. Em 04/09 a tabela em produção ainda era a de **14/08** — três semanas de reajustes (FMartins, Transmartins, bases TRANSPADRE, Rubens) nunca tinham entrado. Boa parte dos "bugs de valor" reportados era **dado não publicado**, não código.
+   - Como a transportadora manda reajuste em **PDF/print** e o app só importa `.xlsx`, criamos **`servidor-obs/atualizar-tabela-precos.mjs`**: altera só as rotas/bases listadas, com **dry-run por padrão**, backup em `/root/` e `--restaurar`. Quedas de preço ficam **fora por padrão** (`--permitir-reducao` para forçar) — o PDF traz um "RETORNO" único por região, mas Natal/Fortaleza/Petrolina têm retorno mais caro cadastrado de propósito.
+   - Cobre: preços por transportadora (`REAJUSTES`), preço avulso por rota (`PRECOS_ROTA`), **taxa de base por cidade** (`BASES` → `cidades[].recebimento`, cobrada na base de origem **e** na de destino), **inclusão de trechos** numa rota existente (`TRECHOS`) e **criação de rota** (`NOVAS_ROTAS`).
+   - ⚠️ **Rodar de `/opt/obs-api`** (copiar o arquivo pra lá): o Node resolve `pg`/`dotenv` pela pasta do ARQUIVO, não pelo cwd.
+   - ⚠️ **Reimportar a planilha pelo app desfaz** o que o script gravou. Manter a planilha-mestre em dia ou publicar só por um caminho.
+
+   **Modelagem da tabela (importante pra entender os "valores errados").** Cada linha da planilha vira `{transportadora, rota:"Cidade (UF) - Cidade (UF)", valores:{categoria:preço}, trajetos:[pares o→d atendidos]}`. O **preço é da ROTA**, e os `trajetos` costumam repetir a mesma lista de cidades em várias linhas da transportadora. Consequência: um par (ex.: SBC→Foz) pode ser atendido pela rota nomeada "SBC - Foz do Iguaçu" (R$ 1.200) **e** pela guarda-chuva "SBC - Medianeira" (R$ 1.100), que lista Foz nos trajetos. Sem desempate, a mais barata vence e o frete sai abaixo da vaga.
+   - `crmGerarOpcoes` (idêntica em `index.html` e `integracao/calc-fretes.js` — **manter as duas em sincronia**) ganhou `rotaNomeadaPar()`: havendo rota **nomeada** para o par com preço na categoria, as guarda-chuva **da mesma transportadora** saem da disputa. ⚠️ **Pendente de confirmação com o comercial/Proauto:** se a vaga de R$ 1.100 para Foz existe de verdade (aí a regra atrapalha, porque a regra do Luiz é "sempre o mais barato") ou é cadastro errado da planilha.
+
+   **🐞 Bug crítico introduzido e corrigido no mesmo dia (registrar pra não repetir):** o filtro acima fazia `const _diretas = size ? diretas.filter(...) : diretas;` seguido de `diretas.length=0`. Sem rota nomeada, `_diretas` era **a mesma referência** → o `length=0` esvaziava os dois e **TODAS as rotas diretas sumiam**, sobrando só combinações com transbordo (Rio→Betim virou Rio→SBC→Betim). Passou pela validação porque a amostra tinha só pares **com** rota nomeada — o único conjunto onde o bug não aparecia. **Lição: ao filtrar uma lista, testar também o caminho em que o filtro não se aplica.**
+
+   **Regras de negócio confirmadas pelo Luiz (04/09):**
+   - **Preço: sempre o mais barato**, mesmo que a vaga embarque/entregue numa **cidade vizinha** (o sistema aceita vizinha até 42 km, 2 candidatas).
+   - **Transbordo** (ex.: RJ→SBC→Betim) é legítimo, mas prestador **direto** é preferível quando a condição é melhor — já existe `CRM_TETO_DIRETA = 300` (aceita pagar até R$ 300 a mais por um embarque a menos).
+   - Como o preço mais barato pode ser de outra cidade, **a mensagem ao cliente passou a informar a base**: `basesDiferentes()` em `integracao/orcamento-resposta.js` acrescenta "🚚 Embarque na nossa base de X" / "🏁 Entrega na nossa base de Y" quando diferente do pedido. Era a causa real do reporte "SBC x Foz puxa 1.100, porém é 1.200" — o valor estava certo (vaga de Santa Terezinha), faltava dizer onde era a entrega. Também resolve o caso do cliente de Santo André que não sabia que precisava levar o carro até SBC.
+   - **Prestador em rota que não atende** (Selma RJ→Betim, Transmartins Cuiabá→Uberlândia, Beatriz Maceió→Sobral): **não reproduz mais** em produção (04/09) — não houve mudança de motor por isso.
+
+   **Ferramentas de diagnóstico úteis (rodam na VPS, sem tocar em produção):**
+   ```
+   # tabela de produção em JSON legível
+   su - postgres -c "psql -d obs -At -c \"SELECT data->>'data' FROM fretes WHERE id='_tabela';\"" > /tmp/tab.b64
+   # rodar o cálculo REAL com ela (mostra prestador, trecho e valor escolhidos)
+   cd /opt/obs-automacao/integracao && node -e "
+     const fs=require('fs'),zlib=require('zlib'),M=require('module');
+     process.env.NODE_PATH='vps/stubs'; M._initPaths();
+     const db=JSON.parse(zlib.gunzipSync(Buffer.from(fs.readFileSync('/tmp/tab.b64','utf8').trim(),'base64')).toString());
+     const {_internos:I}=require('./calc-fretes.js');
+     (async()=>{ const c=await I.carregarCoords();
+       const l={origem:'Rio de Janeiro RJ',destino:'Betim MG',categoria:'Carro Passeio',veiculoDesc:'Onix',valorVeiculo:'50000'};
+       I.calcularFreteLead(l,db,c); (l.trajetos||[]).forEach(t=>console.log(t.transportadora,t.de,'>',t.para,t.valor)); })();"
+   ```
