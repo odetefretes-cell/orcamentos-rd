@@ -377,15 +377,6 @@ sobre cache: 1.353 tokens × 45 chamadas/dia é ruído perto dos 24 mi do captar
 
 ## 8. Backlog
 
-### P2 — Plugin `mainwp-child` no `teste/` — de quem é o painel?
-
-O `mainwp-child` permite que um painel MainWP **externo** controle esse
-WordPress remotamente: instalar plugins, editar arquivos, criar usuários.
-
-Se o painel é da OBS, tudo bem. Se ficou de uma agência antiga, é acesso
-administrativo total nas mãos de terceiro, sem ninguém monitorando.
-**Confirmar a origem antes de qualquer outra coisa.**
-
 ### P2 — Decidir destino das pastas legado
 
 - `temporario/` — **vazia**, remoção sem risco
@@ -423,6 +414,10 @@ sustentados, ou se o `SISTEMA` for grande o suficiente para justificar cache de
 - **`obs-api` estabilizado** (request aborted + token Firebase — §7.4)
 - **PM2 persiste após reboot** — verificado, `enabled`
 - **`obs-contaazul` não usa Claude API** · **`SYSTEM` é local ao extrator, linha 89**
+- **`mainwp-child` no `teste/`** — o painel MainWP é **da OBS** (confirmado pelo Luiz em
+  2026-09-05). Não é acesso de terceiro. Como esse plugin dá controle total do WordPress
+  a quem tiver o painel, o cuidado que permanece é com a conta do próprio painel: senha
+  forte e 2FA. Se um dia o painel for descontinuado, desativar o `mainwp-child` junto.
 
 ---
 
