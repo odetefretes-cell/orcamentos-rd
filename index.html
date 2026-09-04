@@ -7151,13 +7151,13 @@ function crmGerarOpcoes(db, o, d, cat){
   for(const r of db.rotas){
     const nomeada = rotaNomeadaPar(r, o, d);   // a rota que LEVA O NOME deste par = a vaga certa
     for(const t of (r.trajetos||[])){
-      if(matchKey(nk(t.o,t.oUF),o) && matchKey(nk(t.d,t.dUF),d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0, _nomeada:nomeada && preco(r)!=null }); }
+      if(matchKey(nk(t.o,t.oUF),o) && matchKey(nk(t.d,t.dUF),d)){ diretas.push({ tipo:'direta', legs:[leg(r,t)], total:preco(r), prazo:r.prazoDias||0, _nomeada:nomeada && preco(r)!=null, _rotaNome:r.rota }); }
     }
   }
   for(const r of db.rotas){
     const s=crmSubTrecho(r,isO,isDest); if(!s) continue;
     const p=precoCat(s.valores,cat); if(p==null) continue;
-    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, valores:s.valores, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo, precoInv:!!(r._precoInv && r._precoInv[catInv]) }], total:p, prazo:s.prazo||0 });
+    diretas.push({ tipo:'direta', legs:[{ transportadora:s.transportadora, valor:p, valores:s.valores, oNome:s.oNome,oUF:s.oUF,dNome:s.dNome,dUF:s.dUF, oN:s.oN,dN:s.dN, prazo:s.prazo, precoInv:!!(r._precoInv && r._precoInv[catInv]) }], total:p, prazo:s.prazo||0, _rotaNome:r.rota });
   }
   // VAGA NOMEADA MANDA: a mesma transportadora costuma ter a rota especifica do par
   // (ex.: "SBC - Foz do Iguacu", R$ 1.200) E uma rota guarda-chuva que lista a mesma cidade
@@ -7260,6 +7260,26 @@ async function crmColetarOpcoes(db, oR, dR, cat){
       }}
     }
   }catch(_){}
+  // VAGA NOMEADA MANDA (par REALMENTE pedido): o desempate feito ao gerar as opções só
+  // vale para o par exato; as tentativas por cidade VIZINHA escapavam dele. Era assim que
+  // a vaga de Foz do Iguaçu (R$ 1.200) perdia para a mesma rota guarda-chuva entregando em
+  // Santa Terezinha (R$ 1.100), e a de Marabá (R$ 2.900) para a de Marituba (R$ 2.600).
+  // Havendo rota com o nome do par pedido, só ela vale PARA AQUELA transportadora — as
+  // outras transportadoras e as combinações seguem disputando pelo mais barato.
+  const _nomeadas = new Map();
+  { const _oK = nk(oR.norm,oR.uf), _dK = nk(dR.norm,dR.uf);
+    for(const r of db.rotas){
+      if(!rotaNomeadaPar(r,_oK,_dK) || precoCat(r.valores,cat)==null) continue;
+      const k = normTxt(r.transportadora);
+      if(!_nomeadas.has(k)) _nomeadas.set(k,new Set());
+      _nomeadas.get(k).add(String(r.rota||''));
+    } }
+  const _all = _nomeadas.size ? all.filter(x=>{
+    if(x.legs.length !== 1) return true;                       // combinação não entra no desempate
+    const _s = _nomeadas.get(normTxt(x.legs[0].transportadora));
+    return !_s || _s.has(String(x._rotaNome||''));
+  }) : all;
+
   // GARANTIA GEOGRÁFICA (igual ao backend calc-fretes.js): a retirada (1º trecho) tem que
   // ficar perto da ORIGEM REAL e a entrega (último trecho) perto do DESTINO REAL pedidos —
   // usando a cidade ORIGINAL (antes do "encaixe" da resolverCidade). Sem isto, uma cidade
@@ -7278,7 +7298,7 @@ async function crmColetarOpcoes(db, oR, dR, cat){
     if(!a) return true; return haversine(a,refCo)<=RAIO; };
   const coDe=(nome,uf)=> (CIDADES_COORDS && CIDADES_COORDS[normTxt(nome)+'|'+String(uf||'').toUpperCase()]) || null;
   const distA=(co,refCo)=> (co&&refCo)?haversine(co,refCo):9999;
-  const bons = all.filter(x=>{ const f=x.legs[0], u=x.legs[x.legs.length-1];
+  const bons = _all.filter(x=>{ const f=x.legs[0], u=x.legs[x.legs.length-1];
     return perto(f.oNome,f.oUF,oRefCo) && perto(u.dNome,u.dUF,dRefCo); });
   // diretas primeiro; depois preço; EMPATE → embarque mais perto da origem real (prefere
   // embarcar na própria cidade, ex.: Uberlândia, não num hub vizinho como Araguari).
