@@ -402,10 +402,10 @@ function crmGerarOpcoes(db, o, d, cat){
   // e a mais barata vencia -> o frete saia abaixo do valor real da vaga. Havendo rota nomeada
   // com preco na categoria, as guarda-chuva DA MESMA transportadora saem da disputa.
   const _comNomeada = new Set(diretas.filter(x=>x._nomeada).map(x=>normTxt(x.legs[0].transportadora)));
-  const _diretas = _comNomeada.size
-    ? diretas.filter(x=>x._nomeada || !_comNomeada.has(normTxt(x.legs[0].transportadora)))
-    : diretas;
-  diretas.length=0; diretas.push(..._diretas);
+  if(_comNomeada.size){   // sem rota nomeada nao ha o que desempatar — nao mexe na lista
+    const _filtradas = diretas.filter(x=>x._nomeada || !_comNomeada.has(normTxt(x.legs[0].transportadora)));
+    diretas.length=0; diretas.push(..._filtradas);
+  }
   const { custo, prox } = crmCustoAteDestino(db, cat, isDest);
   const adj = crmAdjacencia(db);
   const recon = (m)=>{ const path=[]; let cur=m, g=0; while(prox[cur] && g++<15){ path.push(prox[cur].leg); cur=prox[cur].to; if(isDest(cur)) break; } return path; };
