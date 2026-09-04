@@ -143,9 +143,24 @@ try {
   console.error('[api] AVISO: não consegui iniciar o Firebase Admin —', e && e.message || e);
 }
 
+/* ID token do Firebase SEMPRE traz "kid" no cabeçalho (RS256, chave publicada pelo
+   Google). O token do nosso login próprio é HS256 e não tem "kid" — mandá-lo para o
+   verifyIdToken só produzia o warn `Firebase ID token has no "kid" claim`, uma vez por
+   REQUISIÇÃO. Como o app faz polling de sincronia, uma única aba com sessão vencida
+   despejava centenas de linhas por minuto no log e chamava o Firebase à toa. */
+function pareceTokenFirebase(t) {
+  const p = String(t || '').split('.');
+  if (p.length !== 3) return false;
+  try {
+    const h = JSON.parse(Buffer.from(p[0], 'base64url').toString('utf8'));
+    return !!h.kid && /^RS/i.test(String(h.alg || ''));
+  } catch { return false; }
+}
+
 // Verifica o ID token do Firebase e devolve o e-mail se for da equipe.
 async function usuarioDeFirebase(idToken) {
   if (!firebaseAuth || !idToken || idToken.length < 100) return null; // token estático é curto; ID token do Firebase é longo (JWT)
+  if (!pareceTokenFirebase(idToken)) return null;                     // token do login próprio: nem tenta
   try {
     const dec = await firebaseAuth.verifyIdToken(idToken);
     const email = String(dec.email || '').toLowerCase();
@@ -460,6 +475,25 @@ async function garantirSchema() {
   }
   console.log('[api] schema garantido (tabelas, índices updated_at, triggers, usuarios, deletions).');
 }
+
+/* Tratador de erro do Express. Sem ele, um cliente que fecha a aba no meio do POST
+   virava `BadRequestError: request aborted` sem dono → exceção não tratada → o PM2
+   reiniciava o obs-api (20 restarts em 6 dias). Requisição abortada não é falha do
+   servidor: o outro lado desistiu, não há a quem responder. */
+app.use((err, req, res, next) => {
+  const tipo = String(err && (err.type || err.code) || '');
+  const abortou = tipo === 'request.aborted' || tipo === 'ECONNABORTED' || tipo === 'ECONNRESET'
+    || /request aborted/i.test(String(err && err.message || ''));
+  if (abortou) { if (!res.headersSent) { try { res.status(400).end(); } catch (_) {} } return; }
+  console.error('[api] erro não tratado:', err && err.stack || err);
+  if (!res.headersSent) res.status(500).json({ ok: false, erro: 'erro interno' });
+});
+
+/* Última rede de proteção: qualquer exceção solta derrubava o processo e levava junto as
+   requisições em andamento. Registrar o erro e seguir vivo é melhor que reiniciar — a
+   memória é reciclada pelo PM2 quando passa do limite, não a cada tropeço. */
+process.on('unhandledRejection', (e) => console.error('[api] promessa rejeitada sem catch:', e && e.stack || e));
+process.on('uncaughtException', (e) => console.error('[api] exceção não capturada:', e && e.stack || e));
 
 const PORT = Number(process.env.API_PORT || 3000);
 garantirSchema()
