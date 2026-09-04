@@ -1,6 +1,6 @@
 # OBS Transportes — Sistema de Orçamentos + Automação de Leads
 
-Contexto do projeto para o Claude Code. Última atualização: **22/08/2026**.
+Contexto do projeto para o Claude Code. Última atualização: **04/09/2026**.
 
 > **Resumo em uma frase:** app single-file (`index.html`) de CRM/orçamentos + backend de
 > automação (pasta `integracao/`) que recebe leads pelo ChatGuru, calcula a média do frete
@@ -329,9 +329,15 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    - ⚠️ **Reimportar a planilha pelo app desfaz** o que o script gravou. Manter a planilha-mestre em dia ou publicar só por um caminho.
 
    **Modelagem da tabela (importante pra entender os "valores errados").** Cada linha da planilha vira `{transportadora, rota:"Cidade (UF) - Cidade (UF)", valores:{categoria:preço}, trajetos:[pares o→d atendidos]}`. O **preço é da ROTA**, e os `trajetos` costumam repetir a mesma lista de cidades em várias linhas da transportadora. Consequência: um par (ex.: SBC→Foz) pode ser atendido pela rota nomeada "SBC - Foz do Iguaçu" (R$ 1.200) **e** pela guarda-chuva "SBC - Medianeira" (R$ 1.100), que lista Foz nos trajetos. Sem desempate, a mais barata vence e o frete sai abaixo da vaga.
-   - `crmGerarOpcoes` (idêntica em `index.html` e `integracao/calc-fretes.js` — **manter as duas em sincronia**) ganhou `rotaNomeadaPar()`: havendo rota **nomeada** para o par com preço na categoria, as guarda-chuva **da mesma transportadora** saem da disputa. ⚠️ **Pendente de confirmação com o comercial/Proauto:** se a vaga de R$ 1.100 para Foz existe de verdade (aí a regra atrapalha, porque a regra do Luiz é "sempre o mais barato") ou é cadastro errado da planilha.
+   - **Confirmado pelo Luiz (04/09):** a linha guarda-chuva está certa para a cidade que dá nome a ela (Medianeira = R$ 1.100), mas **Foz é R$ 1.200** — a região de Foz aparece nos trajetos da linha de Medianeira por repetição de cadastro. Mesmo padrão no Pará: a linha "SBC - Marituba" (R$ 2.600) lista Marabá, cuja vaga é R$ 2.900.
+   - **A regra final (em produção 04/09):** `rotaNomeadaPar()` marca de qual rota veio cada opção (`_rotaNome`) e o desempate roda em **`crmColetarOpcoes`, sobre o par REALMENTE pedido** — não dentro de `crmGerarOpcoes`. Havendo rota com o nome do par pedido, só ela vale **para aquela transportadora**; outras transportadoras e combinações seguem disputando pelo mais barato. ⚠️ Fazer o desempate só no par exato **não basta**: as tentativas por cidade vizinha (42 km) escapam dele — era assim que Foz saía por R$ 1.100 entregando em Santa Terezinha de Itaipu, a 25 km. `crmGerarOpcoes`/`crmColetarOpcoes` são **idênticas em `index.html` e `integracao/calc-fretes.js` — manter as duas em sincronia**.
+   - **Ganho medido:** 6 rotas cotavam abaixo da vaga e só uma tinha sido reportada — Foz (−R$ 100), **Marabá (−R$ 300)** e quatro da Transcarro no RS: Três Passos (−R$ 200), Santa Rosa e Horizontina (−R$ 100), Santo Ângelo (−R$ 50). Regressão final: **180 pares, 176 iguais, 4 corrigidos para cima, 0 para baixo**.
 
-   **🐞 Bug crítico introduzido e corrigido no mesmo dia (registrar pra não repetir):** o filtro acima fazia `const _diretas = size ? diretas.filter(...) : diretas;` seguido de `diretas.length=0`. Sem rota nomeada, `_diretas` era **a mesma referência** → o `length=0` esvaziava os dois e **TODAS as rotas diretas sumiam**, sobrando só combinações com transbordo (Rio→Betim virou Rio→SBC→Betim). Passou pela validação porque a amostra tinha só pares **com** rota nomeada — o único conjunto onde o bug não aparecia. **Lição: ao filtrar uma lista, testar também o caminho em que o filtro não se aplica.**
+   **🐞 Bug crítico introduzido e corrigido no mesmo dia (registrar pra não repetir):** a primeira versão do filtro fazia `const _diretas = size ? diretas.filter(...) : diretas;` seguido de `diretas.length=0`. Sem rota nomeada, `_diretas` era **a mesma referência** → o `length=0` esvaziava os dois e **TODAS as rotas diretas sumiam**, sobrando só combinações com transbordo (Rio→Betim virou Rio→SBC→Betim). Chegou a produção e só apareceu porque o Luiz estranhou o desvio por SP.
+   - **Duas lições, ambas custaram retrabalho no mesmo dia:**
+     1. **Nunca reatribuir/esvaziar o array que se está filtrando** — `filter` devolve novo array, mas o ramo "sem filtro" devolve a própria referência. Montar a lista nova numa variável e não mutar a original.
+     2. **Testar o caminho em que o filtro NÃO se aplica.** A validação usou 103 pares, todos **com** rota nomeada — justamente o único conjunto onde o bug não aparecia. A regressão que valeu foi a que incluiu 120 pares **sem** rota nomeada.
+   - ⚠️ Um "ganho" medido com o bug presente **não vale**: o teste que mostrou "Marabá 2.600 → 2.900" rodou com a lista de diretas vazia. Ao validar mudança no motor, conferir antes que o baseline está são.
 
    **Regras de negócio confirmadas pelo Luiz (04/09):**
    - **Preço: sempre o mais barato**, mesmo que a vaga embarque/entregue numa **cidade vizinha** (o sistema aceita vizinha até 42 km, 2 candidatas).
