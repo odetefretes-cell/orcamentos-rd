@@ -2872,10 +2872,27 @@ function marcosPanelHTML(fretes){
     ${FAIXAS.map(faixa).join('') || '<p class="hint" style="text-align:center;padding:8px">Nada nesse filtro.</p>'}
   </div></div>`;
 }
+// Abre o frete para edição a partir do painel de tarefas.
+// O clique parecia "morto" quando o frete estava escondido pelos filtros do relatório
+// (o padrão é FILA = só quem não tem operadora, então tarefa de operadora nunca aparecia)
+// ou pela busca digitada. Aqui limpamos o que esconde e abrimos o card; se mesmo assim o
+// frete não estiver na lista (ex.: CONCLUÍDO com o status filtrado), abre a ficha dele.
 function abrirMarcoFrete(id){
-  if(typeof fretesAbertos!=='undefined'){ fretesAbertos.add(id); }
+  const f = lerDB()[id]; if(!f) return;
+  try{
+    const bu=$('#relBusca'); if(bu) bu.value='';                 // busca escondia o frete
+    relStatusF='TODOS';
+    const op=opDe(f); relFiltro = op ? String(op).toUpperCase() : 'FILA';
+  }catch(_){ }
+  if(typeof fretesAbertos!=='undefined'){ fretesAbertos.clear(); fretesAbertos.add(id); }
+  // o painel de tarefas também aparece fora da aba do operacional — garante a aba certa
+  try{ const vr=$('#viewRelatorio'); if(vr && vr.style.display==='none') switchView('rel'); }catch(_){ }
   renderRelatorio();
-  setTimeout(()=>{ const c=document.querySelector('.fitem[data-fid="'+id+'"]'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); }, 80);
+  setTimeout(()=>{
+    const c=document.querySelector('.fitem[data-fid="'+id+'"]');
+    if(c){ c.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    abrirFicha(id);                                              // plano B: ficha do frete
+  }, 90);
 }
 function diasEntre(a,b){ return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000); }
 function maxDiasPrazo(txt){ const ns=(txt||'').match(/\d+/g); if(!ns) return 0; return Math.max(...ns.map(Number)); }
