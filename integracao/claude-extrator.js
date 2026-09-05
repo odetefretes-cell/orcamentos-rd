@@ -171,6 +171,17 @@ function temAtendenteHumano(nome){
   return true;
 }
 
+// Status do chat indica que um HUMANO já está tratando (AGUARDANDO/EM ATENDIMENTO/
+// resolvido/fechado)? Só BLOQUEIA em status claramente "atendido". ABERTO (bot no
+// controle), vazio ou desconhecido → NÃO bloqueia (o robô segue no fluxo normal).
+// Belt-and-suspenders: reforça a trava do responsável sem arriscar travar contato novo.
+function chatEmAtendimentoPorStatus(status){
+  const s = String(status || '').trim().toLowerCase();
+  if(!s) return false;
+  if(/aberto/.test(s)) return false;                 // bot no controle → segue
+  return /aguardando|em\s*atendimento|atendendo|resolvid|finalizad|fechad|encerrad/.test(s);
+}
+
 exports.processarLeadCompleto = onDocumentUpdated(
   {
     document: 'crm_leads_intake/{telefone}',
@@ -192,14 +203,21 @@ exports.processarLeadCompleto = onDocumentUpdated(
     // contato espontâneo) repassa até conversa em atendimento; sem isto, o robô
     // perguntava "me confirma origem/destino/veículo" por cima do atendente (Brendon,
     // Ruy, Rodrigo...). Contato novo entra "Ninguém Delegado" → responsável vazio → segue.
-    if (temAtendenteHumano(depois.responsavelChatguru)) {
+    // Trava 1: responsável humano assinalado. Trava 2 (reforço): status do chat
+    // já "atendido" (AGUARDANDO/EM ATENDIMENTO/…) — EXCETO quando o atendente
+    // acionou o botão "Gerar Orçamento" (fechadoManual), que é pedido explícito.
+    const atendidoPorHumano  = temAtendenteHumano(depois.responsavelChatguru);
+    const atendidoPorStatus  = !depois.fechadoManual && chatEmAtendimentoPorStatus(depois.statusChatguru);
+    if (atendidoPorHumano || atendidoPorStatus) {
       await event.data.after.ref.update({
         iaProcessado: true,
         statusIntake: 'em_atendimento_humano',
         iaProcessadoEm: FieldValue.serverTimestamp(),
-        motivoPulo: 'chat em atendimento humano (' + String(depois.responsavelChatguru).trim() + ')',
+        motivoPulo: atendidoPorHumano
+          ? 'chat em atendimento humano (' + String(depois.responsavelChatguru).trim() + ')'
+          : 'chat com status ' + String(depois.statusChatguru).trim() + ' (não é ABERTO)',
       });
-      console.log(`[processarLeadCompleto] ${event.params.telefone}: chat EM ATENDIMENTO (responsável ${depois.responsavelChatguru}) — pula (não pergunta nem cota).`);
+      console.log(`[processarLeadCompleto] ${event.params.telefone}: chat EM ATENDIMENTO (${atendidoPorHumano ? 'responsável ' + depois.responsavelChatguru : 'status ' + depois.statusChatguru}) — pula (não pergunta nem cota).`);
       return;
     }
 

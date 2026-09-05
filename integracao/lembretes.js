@@ -93,7 +93,23 @@ async function processarLembretes() {
       avisados++;
       console.log(`[lembretes] frete ${f.numero || id}: anotação lançada no ChatGuru (${tel}).`);
     } catch (e) {
-      console.error(`[lembretes] frete ${f.numero || id}: falhou — ${e.message}`);
+      const msg = e.message || String(e);
+      // "Chat não encontrado" = esse número NÃO tem conversa no ChatGuru (número
+      // errado/antigo, ou frete criado à mão). É PERMANENTE — não adianta repetir de
+      // hora em hora. Marca como tratado (pra parar o loop) + sinaliza o frete pra o
+      // operador retomar o cliente por outro caminho. Já erro TRANSITÓRIO (rede/HTTP)
+      // NÃO é marcado → tenta de novo no próximo ciclo.
+      const chatAusente = /encontrad|not\s*found/i.test(msg);
+      if (chatAusente) {
+        await db.collection('fretes').doc(id).set({
+          lembreteEnviadoEm: hoje,           // encerra o ciclo deste lembrete
+          lembreteChatAusente: true,         // flag p/ o CRM/operador (contato manual)
+          lembreteChatAusenteEm: hoje,
+        }, { merge: true });
+        console.warn(`[lembretes] frete ${f.numero || id}: chat ausente no ChatGuru (${tel}) — marcado p/ contato manual, não repete.`);
+      } else {
+        console.error(`[lembretes] frete ${f.numero || id}: falhou (transitório, tenta de novo) — ${msg}`);
+      }
     }
   }
   return { avisados, candidatos: alvos.length };
