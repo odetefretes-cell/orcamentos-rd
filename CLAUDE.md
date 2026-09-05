@@ -1,6 +1,6 @@
 # OBS Transportes — Sistema de Orçamentos + Automação de Leads
 
-Contexto do projeto para o Claude Code. Última atualização: **04/09/2026**.
+Contexto do projeto para o Claude Code. Última atualização: **05/09/2026**.
 
 > **Resumo em uma frase:** app single-file (`index.html`) de CRM/orçamentos + backend de
 > automação (pasta `integracao/`) que recebe leads pelo ChatGuru, calcula a média do frete
@@ -40,9 +40,16 @@ O sistema saiu **100% do Google/Firebase** no dia a dia. O que roda hoje:
 - `copiar-para-postgres.mjs` / `pg-para-firebase.mjs` — cópia Firestore↔Postgres (migração / rollback).
 - `VIRADA-HOSTINGER-RUNBOOK.md` — passo a passo da virada + rollback.
 
-**Deploy hoje:**
-- **App:** editar `index.html` (branch de dev) → na VPS `bash ~/obs-repo/servidor-obs/deploy-app.sh`.
-- **Automação:** editar `integracao/` (branch de dev) → na VPS `bash ~/obs-repo/servidor-obs/deploy-automacao.sh`.
+> ⚠️ **BRANCH DE DEPLOY = `claude/automate-transport-contract-form-tgvad2`.** É a branch
+> que a VPS publica de verdade (padrão do `deploy-automacao.sh`) e a **única** que tem o
+> `integracao/vps/` (orquestrador, lembretes, stubs). **É AQUI que se mexe na automação
+> e no app daqui pra frente.** A antiga `claude/obs-leads-automation-backend-kaga7q` ficou
+> paralela (não tem `integracao/vps/`, não deployaria) — não usar pra deploy.
+
+**Deploy hoje** (tudo a partir da branch **`…-tgvad2`**):
+- **App:** editar `index.html` → na VPS `bash ~/obs-repo/servidor-obs/deploy-app.sh`.
+- **Automação:** editar `integracao/` → na VPS `bash ~/obs-repo/servidor-obs/deploy-automacao.sh`
+  (publica a `…-tgvad2` por padrão; pra outra branch: `BRANCH=<nome> bash …/deploy-automacao.sh`).
 - **Formulário:** `integracao/obs-cotacao.js` é servido pelo **github.io a partir da `main`** — publicar exige atualizar esse arquivo na `main` (o github.io propaga em ~minutos).
 
 **Kill switch do envio:** `crm_config/config.envioAtivo` (linha no Postgres). Ligar:
@@ -79,7 +86,11 @@ para as Cloud Functions + o DNS de `sistema.*` para o Firebase. Detalhes no RUNB
   git fetch origin && git checkout <branch> && git reset --hard origin/<branch>
   firebase deploy --only functions
   ```
-- Branch de desenvolvimento desta automação: **`claude/obs-leads-automation-backend-kaga7q`** (PRs #3 e #4 já mesclados na main).
+- Branch de desenvolvimento desta automação: **`claude/automate-transport-contract-form-tgvad2`**
+  (é a branch de deploy — ver o aviso na §0). A antiga `claude/obs-leads-automation-backend-kaga7q`
+  (PRs #3 e #4 já mesclados na main) ficou paralela e **não** é usada pra deploy.
+  ⚠️ Este trecho `firebase deploy --only functions` é do fluxo **antigo (rollback Firebase)**;
+  o deploy atual é o `deploy-automacao.sh` na VPS (§0).
 
 ---
 
@@ -225,7 +236,9 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
   `[envioEstaAtivo]`. ⚠️ Os processos estão no **PM2 do `obsrobo`** (o do root vem vazio).
 - **Teste automático 24h:** dispare um lead pelo formulário → a média deve chegar em ~2-3 min
   (acúmulo 60s + cron + IA + envio). Use um número **sem responsável** no ChatGuru (contato já
-  em atendimento é pulado de propósito — trava anti-"falar por cima do atendente").
+  em atendimento é pulado de propósito — trava anti-"falar por cima do atendente"). Além do
+  responsável, o backend também pula quando o **status do chat não é `ABERTO`** (AGUARDANDO/
+  EM ATENDIMENTO/resolvido/fechado) — 3ª trava (05/09); no log: `chat EM ATENDIMENTO (status …) — pula`.
 - **Saúde dos serviços:** `curl -s https://api.obstransportes.com.br/api/health` (app) e
   `curl -s https://api.obstransportes.com.br/webhook/health` (automação).
 - Roteiro completo: `integracao/ROTEIRO-DE-TESTE.md` (fluxo) e `servidor-obs/VIRADA-HOSTINGER-RUNBOOK.md` (infra).
@@ -359,3 +372,9 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
        const l={origem:'Rio de Janeiro RJ',destino:'Betim MG',categoria:'Carro Passeio',veiculoDesc:'Onix',valorVeiculo:'50000'};
        I.calcularFreteLead(l,db,c); (l.trajetos||[]).forEach(t=>console.log(t.transportadora,t.de,'>',t.para,t.valor)); })();"
    ```
+
+14. **3ª trava de segurança + lembrete que não repete (05/09/2026):**
+   - **Branch de deploy esclarecida:** a automação/app rodam da **`claude/automate-transport-contract-form-tgvad2`** (padrão do `deploy-automacao.sh`, única com `integracao/vps/`). A `claude/obs-leads-automation-backend-kaga7q` ficou paralela e **não** deploya. Ver o aviso na §0.
+   - **3ª trava (status ABERTO)** — reforço da proteção anti-"mensagem por cima do atendente" no fluxo de contato direto: `chatguru-webhook` grava `statusChatguru` no intake; `processarLeadCompleto` pula (não pergunta/cota/envia) quando o status é claramente "atendido" (AGUARDANDO/EM ATENDIMENTO/resolvido/fechado), **além** da trava do responsável. Fail-open seguro: `ABERTO`/vazio/desconhecido **não** bloqueia (não trava contato novo). Botão "Gerar Orçamento" (`fechadoManual`) é **isento**. Log: `chat EM ATENDIMENTO (status …) — pula`.
+   - **Lembrete não repete quando o chat some** (`integracao/lembretes.js`): quando a anotação falha com "Chat não encontrado" (número sem conversa no ChatGuru — permanente), marca o frete como tratado + sinaliza **`lembreteChatAusente`** pro operador retomar por outro caminho, em vez de tentar de hora em hora pra sempre (caso frete 1535). Erro transitório (rede/HTTP) continua tentando no próximo ciclo.
+   - Selftest da automação (`integracao/vps/selftest.mjs`) passou; deploy confirmado na VPS (obs-automacao reiniciado).
