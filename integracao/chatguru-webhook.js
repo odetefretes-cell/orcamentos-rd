@@ -374,6 +374,7 @@ exports.chatguruWebhook = onRequest(
             chatId: info.chatId || antigo.chatId || '',          // id da conversa no ChatGuru (p/ Etapa 5)
             responsavelChatguru: info.responsavel || antigo.responsavelChatguru || '',
             responsavelEmailChatguru: info.responsavelEmail || antigo.responsavelEmailChatguru || '',
+            statusChatguru: info.status || antigo.statusChatguru || '',   // status do chat (ABERTO/AGUARDANDO/…) p/ trava de envio
             origemLead: 'chatguru',
             statusIntake: 'recebendo',   // Etapa 3 muda pra 'completo' após a janela
             janelaSegundos: JANELA_SEGUNDOS,
@@ -427,6 +428,7 @@ exports.chatguruWebhook = onRequest(
         // Responsável: sempre atualiza pro mais recente (pode mudar na conversa).
         if(info.responsavel)      patch.responsavelChatguru = info.responsavel;
         if(info.responsavelEmail) patch.responsavelEmailChatguru = info.responsavelEmail;
+        if(info.status)           patch.statusChatguru = info.status;   // status mais recente do chat
         tx.update(ref, patch);
       });
 
