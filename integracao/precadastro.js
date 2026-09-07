@@ -20,6 +20,26 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { getFirestore } = require('firebase-admin/firestore'); // no VPS → pg-compat (Postgres)
 const { criarChat, atualizarContexto } = require('./chatguru-api');
 
+/* RASTREAMENTO DE ORIGEM (Google Ads) — o formulário manda gclid/gbraid/wbraid + UTMs,
+   mas o lead era montado com uma lista fixa de campos e eles eram descartados aqui. Sem o
+   gclid guardado no lead é impossível importar "frete fechado" como conversão offline no
+   Ads: é ele que liga a venda ao anúncio que a gerou.
+
+   ⚠️ Devolve SÓ o que tem valor. O lead é salvo com `merge:true`, então gravar campo vazio
+   APAGARIA um gclid guardado antes — o caso real é o cliente que chega pelo anúncio, some,
+   e volta pelo orgânico de outro aparelho: o segundo envio não pode zerar o primeiro. */
+function adsDoLead(b) {
+  const out = {};
+  const par = [['gclid', 'gclid'], ['gbraid', 'gbraid'], ['wbraid', 'wbraid'],
+    ['utm_source', 'utmSource'], ['utm_medium', 'utmMedium'], ['utm_campaign', 'utmCampaign'],
+    ['utm_term', 'utmTerm'], ['utm_content', 'utmContent']];
+  for (const [de, para] of par) {
+    const v = String((b && b[de]) || '').trim();
+    if (v) out[para] = v;
+  }
+  return out;
+}
+
 exports.preCadastrarLead = onRequest(
   {
     cors: true,   // libera o fetch do site (obs-fretes.web.app / github.io)
@@ -90,6 +110,7 @@ exports.preCadastrarLead = onRequest(
           funciona: b.funciona || '', blindado: b.blindado || '', dataEnvio: iso,
           tipoCliente: b.tipoCliente || '', categoria: b.categoria || '',
           mensagem: b.mensagem || '', dataEntrada: iso.slice(0, 10), ultimaInteracao: iso,
+          ...adsDoLead(b),   // gclid/UTMs do Google Ads — só entram quando existem
           timeline: [{ data: iso, tipo: 'criacao', texto: 'Lead recebido pelo formulário do site' }],
           _origemSite: true,
         };
@@ -98,7 +119,8 @@ exports.preCadastrarLead = onRequest(
         leadCriado = true;
       } catch (e) { erroLead = e.message || String(e); console.warn('[preCadastrarLead] criar lead no CRM falhou:', erroLead); }
 
-      console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto} leadCriado=${leadCriado}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}${erroLead ? ' | erroLead: ' + erroLead : ''}`);
+      const _ads = b.gclid || b.gbraid || b.wbraid;
+      console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto} leadCriado=${leadCriado}${_ads ? ' | ADS ' + String(_ads).slice(0, 12) + '… (' + (b.utm_campaign || 's/ campanha') + ')' : ''}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}${erroLead ? ' | erroLead: ' + erroLead : ''}`);
       // sempre 200 (best-effort): o site segue pro WhatsApp de qualquer jeito
       res.json({ ok: true, criouChat, marcouContexto, leadCriado, erroChat: erroChat || undefined, erroContexto: erroContexto || undefined, erroLead: erroLead || undefined });
     } catch (e) {
