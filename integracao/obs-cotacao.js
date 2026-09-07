@@ -24,15 +24,24 @@
   var PRECADASTRO_URL = API_BASE + '/webhook/precadastro';
   function preCadastrarChatguru(lead) {
     try {
-      var ctrl = ('AbortController' in window) ? new AbortController() : null;
-      var to = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, 4000) : null;
+      var clique = obsClickData();
       return fetch(PRECADASTRO_URL, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefone: lead.telefone, nome: lead.nome, origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc, valor: lead.valorVeiculo }),
-        signal: ctrl ? ctrl.signal : undefined
-      }).then(function (r) { if (to) clearTimeout(to); if (!r.ok) console.warn('pré-cadastro status', r.status); })
-        .catch(function (e) { if (to) clearTimeout(to); console.warn('pré-cadastro ChatGuru falhou (segue pro WhatsApp):', e); });
-    } catch (e) { console.warn('pré-cadastro ChatGuru erro (segue):', e); return Promise.resolve(); }
+        keepalive: true,   // ESSENCIAL: a requisição sobrevive ao pulo pro WhatsApp (senão a gravação do lead morre aqui)
+        body: JSON.stringify({
+          telefone: lead.telefone, nome: lead.nome, email: lead.email,
+          origem: lead.origem, destino: lead.destino, veiculo: lead.veiculoDesc,
+          valor: lead.valorVeiculo, funciona: lead.funciona, blindado: lead.blindado,
+          tipoCliente: lead.tipoCliente, categoria: lead.categoria, mensagem: lead.mensagem,
+          // rastreamento de origem — o CRM precisa do gclid para importar a venda
+          // como conversão offline no Google Ads quando o frete fechar
+          gclid: clique.gclid, gbraid: clique.gbraid, wbraid: clique.wbraid,
+          utm_source: clique.utm_source, utm_campaign: clique.utm_campaign,
+          data_lead: new Date().toISOString()
+        })
+      }).then(function (r) { if (!r.ok) console.warn('pré-cadastro status', r.status); })
+        .catch(function (e) { console.warn('pré-cadastro/CRM falhou (segue pro WhatsApp):', e); });
+    } catch (e) { console.warn('pré-cadastro erro (segue):', e); return Promise.resolve(); }
   }
   // monta a mensagem que o cliente envia no WhatsApp (mesma estrutura da página #orc do app)
   function montarMsgWpp(lead) {
@@ -55,6 +64,74 @@
     return l.join('\n');
   }
   var RD_IDENTIFICADOR = 'Cotacao Site OBS';
+
+  /* ---------- captura do identificador de clique do Google Ads ----------
+     A tag do Google Ads grava o cookie _gcl_aw, mas quem envia o lead é este script —
+     e sem o gclid chegando ao CRM não dá para importar "frete fechado" como conversão
+     offline no Google Ads (é o gclid que liga a venda ao anúncio que a gerou).
+     Guardamos no localStorage porque o clique no anúncio e o envio do formulário podem
+     acontecer em visitas diferentes: a pessoa chega pelo anúncio, sai, volta pelo
+     orgânico e só então preenche. A janela de 90 dias é a mesma da importação do Ads. */
+  var OBS_CLICK_KEY = 'obs_click_id';
+  var OBS_CLICK_TTL = 90 * 24 * 60 * 60 * 1000;
+
+  function obsLerCookie(nome) {
+    try {
+      var m = document.cookie.match('(^|;)\\s*' + nome + '\\s*=\\s*([^;]+)');
+      return m ? decodeURIComponent(m[2]) : '';
+    } catch (e) { return ''; }
+  }
+
+  // Roda no carregamento: se a URL trouxe gclid/gbraid/wbraid, guarda com os UTMs.
+  function obsCapturarClique() {
+    try {
+      var qs = new URLSearchParams(window.location.search);
+      var campos = ['gclid', 'gbraid', 'wbraid'];
+      for (var i = 0; i < campos.length; i++) {
+        var v = qs.get(campos[i]);
+        if (v) {
+          localStorage.setItem(OBS_CLICK_KEY, JSON.stringify({
+            tipo: campos[i], valor: v, ts: Date.now(),
+            utm_source:   qs.get('utm_source')   || '',
+            utm_medium:   qs.get('utm_medium')   || '',
+            utm_campaign: qs.get('utm_campaign') || '',
+            utm_term:     qs.get('utm_term')     || '',
+            utm_content:  qs.get('utm_content')  || ''
+          }));
+          return;
+        }
+      }
+    } catch (e) { /* modo anônimo ou storage bloqueado: segue sem quebrar */ }
+  }
+
+  // Devolve o que temos. Prioriza o que foi salvo; se não houver, cai no cookie _gcl_aw.
+  function obsClickData() {
+    var out = { gclid: '', gbraid: '', wbraid: '',
+      utm_source: '', utm_medium: '', utm_campaign: '', utm_term: '', utm_content: '' };
+    try {
+      var raw = localStorage.getItem(OBS_CLICK_KEY);
+      if (raw) {
+        var d = JSON.parse(raw);
+        if (d && d.valor && (Date.now() - d.ts) < OBS_CLICK_TTL) {
+          out[d.tipo]      = d.valor;
+          out.utm_source   = d.utm_source   || '';
+          out.utm_medium   = d.utm_medium   || '';
+          out.utm_campaign = d.utm_campaign || '';
+          out.utm_term     = d.utm_term     || '';
+          out.utm_content  = d.utm_content  || '';
+        }
+      }
+    } catch (e) {}
+    if (!out.gclid && !out.gbraid && !out.wbraid) {
+      // cookie da própria tag do Google Ads. Formato: GCL.<timestamp>.<gclid>
+      var c = obsLerCookie('_gcl_aw');
+      if (c) { var pc = c.split('.'); if (pc.length > 2) out.gclid = pc.slice(2).join('.'); }
+    }
+    return out;
+  }
+
+  obsCapturarClique();
+  /* ---------------------------------------------------------------------- */
 
   var UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
@@ -152,12 +229,18 @@
 
     // envia o lead para a ponte Make (que entrega no RD Station pelo servidor) — em paralelo ao CRM
     function enviarRD(lead) {
+      var clique = obsClickData();
       var body = {
         identificador: RD_IDENTIFICADOR,
         email: lead.email, nome: lead.nome, telefone: lead.telefone,
         tipoCliente: lead.tipoCliente, veiculo: lead.veiculoDesc, tipoVeiculo: lead.categoria,
         funciona: lead.funciona, blindado: lead.blindado, valorVeiculo: lead.valorVeiculo,
-        origem: lead.origem, destino: lead.destino, observacao: lead.mensagem
+        origem: lead.origem, destino: lead.destino, observacao: lead.mensagem,
+        // rastreamento de origem — vazio quando o lead não veio de anúncio
+        gclid: clique.gclid, gbraid: clique.gbraid, wbraid: clique.wbraid,
+        utm_source: clique.utm_source, utm_medium: clique.utm_medium,
+        utm_campaign: clique.utm_campaign, utm_term: clique.utm_term, utm_content: clique.utm_content,
+        pagina: window.location.href, data_lead: new Date().toISOString()
       };
       return fetch(MAKE_WEBHOOK, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true
