@@ -991,6 +991,7 @@
       <button id="crmBtnArquivar" class="btn-ghost" onclick="crmArquivarPerdidosAntigos(false)" title="Arquivar os leads PERDIDOS parados há 10+ dias (vão para a coluna Arquivado, sem sumir)" style="display:none;color:#6b7280;border-color:#6b7280">🗄️ Arquivar antigos</button>
       <button id="crmBtnRecupPerda" class="btn-ghost" onclick="crmRecuperarPerdidosMalMovidos()" title="Devolve para a coluna Perdido os leads com histórico de perda que foram movidos por engano (quando a coluna Perdido sumiu)" style="display:none;color:#da3633;border-color:#da3633">♻️ Recuperar perdidos</button>
       <button class="btn-ghost" onclick="crmRelatorioPerdasApurar()" title="Lista as perdas de ONTEM que ficaram sem um motivo real (sem contato / sem retorno / sem motivo) para o operador ligar e descobrir o motivo verdadeiro" style="color:#b45309;border-color:#b45309">📞 Perdas para apurar (ontem)</button>
+      <button class="btn-ghost" onclick="crmAbrirExportAds()" title="Gera o arquivo dos leads FECHADOS que vieram de anúncio, para subir no Google Ads (Metas → Uploads). É assim que o Google descobre quais anúncios viraram venda de verdade." style="color:#1a73e8;border-color:#1a73e8">📤 Exportar conversões (Google Ads)</button>
       <input id="crmBusca" oninput="renderCRM()" placeholder="🔎 buscar por nome, veículo, rota…">
       <select id="crmFiltroPrio" onchange="renderCRM()" style="font-size:14px;padding:8px;border:1px solid var(--linha);border-radius:8px">
         <option value="">Todas prioridades</option>
@@ -1170,6 +1171,26 @@
      grafias do mesmo motivo em um mês ("duplicad", "duplucado", "sem retormo") e tornava
      impossível comparar meses. Serve tanto para marcar a perda quanto para CORRIGIR o
      motivo depois — é assim que o "sem contato" vira o motivo real após a ligação. -->
+<div id="exportAdsModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9991;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)crmFecharExportAds()">
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:22px;width:560px;max-width:96vw">
+    <h2 style="font-size:17px;margin:0 0 4px">📤 Exportar conversões para o Google Ads</h2>
+    <p style="margin:0 0 14px;font-size:13px;color:var(--muted,#c7cdd8)">Gera o arquivo dos leads <b>fechados</b> que vieram de anúncio. Você sobe à mão em <b>Metas → Uploads</b>; nada é enviado ao Google por aqui.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <div class="field" style="flex:1;min-width:150px"><label>Fechados de</label><input type="date" id="expAdsDe" onchange="crmPreviewExportAds()"></div>
+      <div class="field" style="flex:1;min-width:150px"><label>até</label><input type="date" id="expAdsAte" onchange="crmPreviewExportAds()"></div>
+    </div>
+    <label class="chk" style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:12px">
+      <input type="checkbox" id="expAdsRepetir" onchange="crmPreviewExportAds()" style="width:16px;height:16px">
+      Incluir leads que já foram exportados antes <span class="hint">(só para refazer um upload que falhou)</span>
+    </label>
+    <div id="expAdsPreview" style="font-size:13px;line-height:1.6;background:rgba(127,127,127,.08);border-radius:10px;padding:12px 14px;margin-bottom:14px;max-height:38vh;overflow:auto"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-ghost" style="padding:9px 18px" onclick="crmFecharExportAds()">Fechar</button>
+      <button id="expAdsBtn" class="btn-primary" style="padding:9px 20px;font-weight:700" onclick="crmBaixarExportAds()">⬇ Baixar CSV</button>
+    </div>
+  </div>
+</div>
+
 <div id="motivoPerdaModal" class="no-print" style="display:none;position:fixed;inset:0;z-index:9991;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)motivoPerdaResolve(null)">
   <div style="background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:22px;width:520px;max-width:96vw">
     <h2 id="motivoPerdaTitulo" style="font-size:17px;margin:0 0 4px">Por que perdemos este lead?</h2>
@@ -5779,6 +5800,156 @@ function crmMotivoInconclusivo(m){
   if(!t) return true;
   return /sem contato|sem retorno|sem retormo|sem resposta|sem motivo|nao respondeu|não respondeu/.test(t);
 }
+/* ===========================================================================
+   CONVERSÕES OFFLINE PARA O GOOGLE ADS
+
+   Fecha o ciclo do rastreamento. O clique no anúncio guarda o `gclid` no lead
+   (integracao/precadastro.js); quando a venda fecha, este arquivo conta ao Google
+   quanto aquele clique rendeu de verdade. Sem isso o Ads só sabe quantos
+   formulários foram enviados — não quais viraram frete — e otimiza no escuro.
+
+   O botão NÃO envia nada: só gera o arquivo. Quem sobe é o operador, em
+   Google Ads → Metas → Conversões → Uploads.
+   =========================================================================== */
+
+// Precisa bater LETRA POR LETRA com a ação de conversão criada no Google Ads,
+// senão a importação é recusada inteira sem dizer qual linha está errada.
+const ADS_NOME_CONVERSAO = 'OBS - Frete fechado';
+const ADS_JANELA_DIAS    = 90;   // o Ads recusa clique mais velho que isso
+
+function _adsClique(l){ return String((l && (l.gclid || l.gbraid || l.wbraid)) || '').trim(); }
+
+// Momento em que a venda foi fechada: a entrada 'convertido' da timeline é a
+// única fonte com HORA (dataEntrada e afins só têm o dia). Pega a mais recente.
+function _adsMomentoFechamento(l){
+  const t = (l && l.timeline) || [];
+  for(let i = t.length - 1; i >= 0; i--){
+    const e = t[i];
+    if(e && (e.tipo === 'convertido' || /venda fechada/i.test(String(e.texto || '')))){
+      const d = new Date(e.data);
+      if(!isNaN(d)) return d;
+    }
+  }
+  return null;
+}
+
+// Quando o lead nasceu — base da janela de 90 dias do Google.
+function _adsNascimento(l){
+  const cand = [l && l.data_lead, l && l.dataEnvio,
+                l && l.timeline && l.timeline[0] && l.timeline[0].data,
+                l && l.dataEntrada];
+  for(const c of cand){ if(c){ const d = new Date(c); if(!isNaN(d)) return d; } }
+  return null;
+}
+
+function _adsData(d){
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/* Varre os leads e separa o que entra do que fica de fora, com o motivo.
+   Só LÊ — quem grava é o crmBaixarExportAds. */
+function crmColetarConversoesAds(de, ate, incluirJaExportados){
+  const dentro = [], fora = [];
+  const ini = de  ? new Date(de  + 'T00:00:00') : null;
+  const fim = ate ? new Date(ate + 'T23:59:59') : null;
+  const agora = new Date();
+
+  for(const id in CRM_LEADS){
+    const l = CRM_LEADS[id];
+    if(!l || l.etapa !== 'fechado') continue;
+
+    const quando = _adsMomentoFechamento(l);
+    if(!quando){ fora.push({ l, motivo: 'sem data de fechamento no histórico' }); continue; }
+    if((ini && quando < ini) || (fim && quando > fim)) continue;   // fora do período: nem conta como descarte
+
+    const nome = l.nome || id;
+    if(!incluirJaExportados && String(l.conversao_exportada_em || '').trim()){
+      fora.push({ l, motivo: 'já exportado em ' + String(l.conversao_exportada_em).slice(0,10) }); continue;
+    }
+    const clique = _adsClique(l);
+    if(!clique){ fora.push({ l, motivo: 'não veio de anúncio (sem gclid)' }); continue; }
+
+    const valor = num(crmCompTotal(l));
+    if(!(valor > 0)){ fora.push({ l, motivo: 'total do frete não confirmado' }); continue; }
+
+    const nasc = _adsNascimento(l);
+    if(nasc){
+      if(quando < nasc){ fora.push({ l, motivo: 'fechamento anterior à criação do lead (dado inconsistente)' }); continue; }
+      const dias = (agora - nasc) / 86400000;
+      if(dias > ADS_JANELA_DIAS){ fora.push({ l, motivo: `clique tem ${Math.round(dias)} dias — passou da janela de ${ADS_JANELA_DIAS}` }); continue; }
+    }
+    dentro.push({ id, nome, clique, quando, valor });
+  }
+  dentro.sort((a, b) => a.quando - b.quando);
+  return { dentro, fora };
+}
+
+function crmAbrirExportAds(){
+  const m = $('#exportAdsModal'); if(!m) return;
+  const hoje = new Date(), trinta = new Date(Date.now() - 30 * 86400000);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  if($('#expAdsDe'))  $('#expAdsDe').value  = iso(trinta);
+  if($('#expAdsAte')) $('#expAdsAte').value = iso(hoje);
+  if($('#expAdsRepetir')) $('#expAdsRepetir').checked = false;
+  m.style.display = 'flex';
+  crmPreviewExportAds();
+}
+function crmFecharExportAds(){ const m = $('#exportAdsModal'); if(m) m.style.display = 'none'; }
+
+function crmPreviewExportAds(){
+  const alvo = $('#expAdsPreview'); if(!alvo) return;
+  const { dentro, fora } = crmColetarConversoesAds($('#expAdsDe')?.value, $('#expAdsAte')?.value, !!$('#expAdsRepetir')?.checked);
+  const btn = $('#expAdsBtn'); if(btn) btn.disabled = !dentro.length;
+
+  const total = dentro.reduce((t, c) => t + c.valor, 0);
+  let html = dentro.length
+    ? `<b style="color:#16a34a">${dentro.length} conversão(ões) — ${moeda(total)}</b>`
+    : `<b style="color:#b45309">Nenhuma conversão neste período.</b>`;
+
+  if(dentro.length){
+    html += '<div style="margin-top:8px">' + dentro.slice(0, 8).map(c =>
+      `• ${esc(c.nome)} — ${moeda(c.valor)} <span class="hint">${_adsData(c.quando).slice(0,16)}</span>`).join('<br>');
+    if(dentro.length > 8) html += `<br><span class="hint">… e mais ${dentro.length - 8}</span>`;
+    html += '</div>';
+  }
+  if(fora.length){
+    const porMotivo = {};
+    fora.forEach(f => { porMotivo[f.motivo] = (porMotivo[f.motivo] || 0) + 1; });
+    html += `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--linha)"><b>${fora.length} fora:</b><br>`
+      + Object.entries(porMotivo).sort((a,b) => b[1]-a[1]).map(([m, n]) => `• ${n} — ${esc(m)}`).join('<br>') + '</div>';
+  }
+  alvo.innerHTML = html;
+}
+
+function crmBaixarExportAds(){
+  const { dentro } = crmColetarConversoesAds($('#expAdsDe')?.value, $('#expAdsAte')?.value, !!$('#expAdsRepetir')?.checked);
+  if(!dentro.length){ flash('Nada para exportar neste período.', 'erro'); return; }
+
+  const esq = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  const csv = [
+    'Parameters:TimeZone=America/Sao_Paulo',
+    'Google Click ID,Conversion Name,Conversion Time,Conversion Value,Conversion Currency',
+    ...dentro.map(c => [c.clique, ADS_NOME_CONVERSAO, _adsData(c.quando), c.valor.toFixed(2), 'BRL'].map(esq).join(','))
+  ].join('\n');
+
+  // SEM BOM: o Google Ads lê o arquivo como texto puro e o BOM vira lixo na 1ª célula.
+  const nome = 'obs-frete-fechado-' + new Date().toISOString().slice(0, 10) + '.csv';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+
+  // Carimba os exportados para não subir a mesma venda duas vezes (o Google contaria
+  // duas). O checkbox "incluir já exportados" é a saída para refazer um upload falho.
+  const agora = new Date().toISOString();
+  dentro.forEach(c => { if(CRM_LEADS[c.id]) CRM_LEADS[c.id].conversao_exportada_em = agora; });
+  crmSalvarAuto();
+
+  flash(`${dentro.length} conversão(ões) exportada(s) ✔`);
+  crmPreviewExportAds();
+}
+
 function crmRelatorioPerdasApurar(dias){
   const d = new Date(); d.setDate(d.getDate() - (dias==null?1:dias));
   const alvo = d.toISOString().slice(0,10);
