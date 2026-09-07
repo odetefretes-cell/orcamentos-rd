@@ -113,7 +113,7 @@ exports.preCadastrarLead = onRequest(
       const MAX_TENTATIVAS = 6;
       await new Promise(r => setTimeout(r, 1500));   // deixa o chat propagar antes da 1ª tentativa
       for (let tentativa = 1; tentativa <= MAX_TENTATIVAS && !marcouContexto; tentativa++) {
-        try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; }
+        try { await atualizarContexto({ chatNumber: telefone, variaveis }); marcouContexto = true; erroContexto = ''; }
         catch (e) {
           erroContexto = e.message || String(e);
           const propagando = /encontrad|not found/i.test(erroContexto);
@@ -200,7 +200,7 @@ exports.openerDisparou = onRequest(
       // resposta do cliente — se falhar, o bloco preenchido não chega ao backend.
       let ok = false, erro = '';
       for (let tentativa = 1; tentativa <= 6 && !ok; tentativa++) {
-        try { await atualizarContexto({ chatNumber: telefone, variaveis: { Cotando: 'Sim' } }); ok = true; }
+        try { await atualizarContexto({ chatNumber: telefone, variaveis: { Cotando: 'Sim' } }); ok = true; erro = ''; }
         catch (e) {
           erro = e.message || String(e);
           if (tentativa < 6) { await new Promise(r => setTimeout(r, 1000 + tentativa * 500)); }
