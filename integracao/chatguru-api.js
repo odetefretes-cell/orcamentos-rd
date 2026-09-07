@@ -76,28 +76,44 @@ async function atualizarContexto({ chatNumber, variaveis }){
   }
   if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
 
-  const numero = normalizarNumeroBR(chatNumber);
-  const body = new URLSearchParams({
-    action: 'chat_update_context',
-    chat_number: numero,
-    key,
-    account_id: accountId,
-    phone_id: phoneId,
-  });
-  for(const [nome, valor] of Object.entries(variaveis || {})){
-    body.append('var__' + nome, String(valor));
+  async function tentar(numero){
+    const body = new URLSearchParams({
+      action: 'chat_update_context',
+      chat_number: numero,
+      key,
+      account_id: accountId,
+      phone_id: phoneId,
+    });
+    for(const [nome, valor] of Object.entries(variaveis || {})){
+      body.append('var__' + nome, String(valor));
+    }
+    const resp = await fetch(CHATGURU_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if(!resp.ok || (json.result && json.result !== 'success')){
+      throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+    }
+    return json;
   }
 
-  const resp = await fetch(CHATGURU_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-  const json = await resp.json().catch(() => ({}));
-  if(!resp.ok || (json.result && json.result !== 'success')){
-    throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+  // O WhatsApp guarda o número SEM o 9º dígito em boa parte dos DDDs do interior
+  // (45, 68, 31…), enquanto o formulário manda com o 9 — e vice-versa. Quando o
+  // número "oficial" não acha o chat, tentamos a variante, como a anotação e o
+  // diálogo já faziam. Sem isto, `Cotando=Sim` falhava em quase todo lead fora do
+  // eixo Rio/SP: o encaminhador não repassava a resposta do cliente e o robô não
+  // cotava (log: dezenas de "chat_update_context falhou: Chat não encontrado").
+  const numero = normalizarNumeroBR(chatNumber);
+  try {
+    return await tentar(numero);
+  } catch(e){
+    const alt = /encontrad|not found/i.test(e.message || '') ? variante9(numero) : null;
+    if(!alt) throw e;
+    console.log(`[chatguru-api] contexto: ${numero} não achou o chat — tentando ${alt}.`);
+    return await tentar(alt);
   }
-  return json;
 }
 
 /* Cria/registra um chat no ChatGuru (action=chat_add). Exige o módulo

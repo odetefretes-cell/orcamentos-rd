@@ -147,8 +147,12 @@ exports.preCadastrarLead = onRequest(
         leadCriado = true;
       } catch (e) { erroLead = e.message || String(e); console.warn('[preCadastrarLead] criar lead no CRM falhou:', erroLead); }
 
+      // o gclid vai junto com o Cotando na MESMA chamada — se ela falhou, ele não foi.
+      // Dizer "→ ChatGuru" sem isso já enganou uma vez na leitura do log.
+      const _destinoGclid = !variaveis.gclid ? ' — já atribuído antes'
+        : (marcouContexto ? ' → ChatGuru' : ' → ChatGuru FALHOU (chat não encontrado)');
       const _ads = cliqueNovo
-        ? ` | ADS ${cliqueNovo.slice(0, 12)}… (${b.utm_campaign || 's/ campanha'})${variaveis.gclid ? ' → ChatGuru' : ' — já atribuído antes'}`
+        ? ` | ADS ${cliqueNovo.slice(0, 12)}… (${b.utm_campaign || 's/ campanha'})${_destinoGclid}`
         : '';
       console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto} leadCriado=${leadCriado}${_ads}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}${erroLead ? ' | erroLead: ' + erroLead : ''}`);
       // sempre 200 (best-effort): o site segue pro WhatsApp de qualquer jeito
