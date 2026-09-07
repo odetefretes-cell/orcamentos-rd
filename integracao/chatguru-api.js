@@ -116,6 +116,65 @@ async function atualizarContexto({ chatNumber, variaveis }){
   }
 }
 
+/* Grava CAMPOS PERSONALIZADOS do contato (action=chat_update_custom_fields).
+
+   ⚠️ NÃO confundir com atualizarContexto. São dois armazéns diferentes:
+     - variáveis de contexto (`var__X`) vivem em `bot_context` — é o que os
+       diálogos leem, e NÃO aparece na barra lateral do atendimento;
+     - campos personalizados (`field__X`) são o que o atendente VÊ na ficha.
+   O backend só escrevia no primeiro, então o gclid chegava ao ChatGuru mas
+   ficava invisível para quem atende. Ação e parâmetro descobertos por sondagem
+   contra a API em 07/09/2026 (a documentação não estava acessível).
+
+   `campos` = { gclid: 'Cj0KCQ...' } vira field__gclid=Cj0KCQ... */
+async function atualizarCamposPersonalizados({ chatNumber, campos }){
+  const key       = process.env.CHATGURU_API_KEY || '';
+  const accountId = process.env.CHATGURU_ACCOUNT_ID || '';
+  const phoneId   = process.env.CHATGURU_PHONE_ID || '';
+  if(!key || !accountId || !phoneId){
+    throw new Error('Credenciais do ChatGuru não configuradas (CHATGURU_API_KEY/ACCOUNT_ID/PHONE_ID).');
+  }
+  if(!chatNumber) throw new Error('chat_number (telefone) ausente.');
+  if(!campos || !Object.keys(campos).length) throw new Error('nenhum campo para gravar.');
+
+  async function tentar(numero){
+    const body = new URLSearchParams({
+      action: 'chat_update_custom_fields',
+      chat_number: numero,
+      key,
+      account_id: accountId,
+      phone_id: phoneId,
+    });
+    for(const [nome, valor] of Object.entries(campos)){
+      body.append('field__' + nome, String(valor));
+    }
+    const resp = await fetch(CHATGURU_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if(!resp.ok || (json.result && json.result !== 'success')){
+      throw new Error((json && json.description) || ('ChatGuru HTTP ' + resp.status));
+    }
+    return json;
+  }
+
+  // Mesma armadilha do 9º dígito do contexto — e o mais estranho: as duas ações
+  // resolvem o MESMO contato por números diferentes (no teste do guilherme, o
+  // contexto só achou sem o 9 e os campos só acharam COM o 9). Por isso as duas
+  // precisam tentar a variante.
+  const numero = normalizarNumeroBR(chatNumber);
+  try {
+    return await tentar(numero);
+  } catch(e){
+    const alt = /encontrad|not found/i.test(e.message || '') ? variante9(numero) : null;
+    if(!alt) throw e;
+    console.log(`[chatguru-api] campos: ${numero} não achou o chat — tentando ${alt}.`);
+    return await tentar(alt);
+  }
+}
+
 /* Cria/registra um chat no ChatGuru (action=chat_add). Exige o módulo
    "Adicionar Chats" habilitado na conta. Usado no PRÉ-CADASTRO do lead do
    formulário: cria o chat ANTES da mensagem do WhatsApp chegar, pra o chat
@@ -232,4 +291,4 @@ async function executarDialogo({ chatNumber, dialogId }){
   throw new Error('Nenhuma variante de execução de diálogo funcionou: ' + JSON.stringify(erros));
 }
 
-module.exports = { enviarMensagem, atualizarContexto, criarChat, adicionarAnotacao, executarDialogo, normalizarNumeroBR, variante9 };
+module.exports = { enviarMensagem, atualizarContexto, atualizarCamposPersonalizados, criarChat, adicionarAnotacao, executarDialogo, normalizarNumeroBR, variante9 };

@@ -18,7 +18,7 @@
 
 const { onRequest } = require('firebase-functions/v2/https');
 const { getFirestore } = require('firebase-admin/firestore'); // no VPS → pg-compat (Postgres)
-const { criarChat, atualizarContexto } = require('./chatguru-api');
+const { criarChat, atualizarContexto, atualizarCamposPersonalizados } = require('./chatguru-api');
 
 /* RASTREAMENTO DE ORIGEM (Google Ads) — o formulário manda gclid/gbraid/wbraid + UTMs,
    mas o lead era montado com uma lista fixa de campos e eles eram descartados aqui. Sem o
@@ -95,13 +95,13 @@ exports.preCadastrarLead = onRequest(
       if (b.veiculo) variaveis.Veiculo = String(b.veiculo);
       if (b.valor)   variaveis.Valor   = String(b.valor);
 
-      // gclid no contato do ChatGuru (campo personalizado de variável `gclid`), para o
-      // atendente ver que o cliente veio de anúncio. Só grava na PRIMEIRA atribuição:
-      // a API não lê o valor atual antes de escrever, então usamos o lead como memória —
-      // se ele já tem clique guardado, o contato também já foi marcado.
+      // Marca do clique no anúncio. Só na PRIMEIRA atribuição: a API não lê o valor
+      // atual antes de escrever, então o lead serve de memória — se ele já tem clique
+      // guardado, o contato do ChatGuru também já foi marcado.
       const cliqueNovo = String(b.gclid || b.gbraid || b.wbraid || '').trim();
       const cliqueGuardado = String((leadAtual && (leadAtual.gclid || leadAtual.gbraid || leadAtual.wbraid)) || '').trim();
-      if (cliqueNovo && !cliqueGuardado) variaveis.gclid = cliqueNovo;
+      const marcarClique = !!cliqueNovo && !cliqueGuardado;
+      if (marcarClique) variaveis.gclid = cliqueNovo;   // no contexto, p/ os diálogos lerem
 
       // O chat_add cria o chat, mas ele não fica consultável na MESMA hora (às vezes
       // leva mais que 1-2s pra propagar) → chat_update_context dá "Chat não encontrado".
@@ -121,6 +121,15 @@ exports.preCadastrarLead = onRequest(
           if (tentativa < MAX_TENTATIVAS && propagando) { await new Promise(r => setTimeout(r, 1500 + tentativa * 500)); }
           else { console.warn('[preCadastrarLead] chat_update_context falhou:', erroContexto); break; }
         }
+      }
+
+      // 2b) O MESMO gclid no CAMPO PERSONALIZADO do contato — é este que aparece na
+      // ficha do atendimento; a variável de contexto do passo 2 fica só no bot_context
+      // e ninguém vê. Chamada acessória: se falhar, o lead entra do mesmo jeito.
+      let marcouCampo = false, erroCampo = '';
+      if (marcarClique) {
+        try { await atualizarCamposPersonalizados({ chatNumber: telefone, campos: { gclid: cliqueNovo } }); marcouCampo = true; }
+        catch (e) { erroCampo = e.message || String(e); console.warn('[preCadastrarLead] campo gclid falhou:', erroCampo); }
       }
 
       // 3) CRIA O LEAD NO CRM (Postgres) — é isto que se perdia: o form gravava no
@@ -149,8 +158,8 @@ exports.preCadastrarLead = onRequest(
 
       // o gclid vai junto com o Cotando na MESMA chamada — se ela falhou, ele não foi.
       // Dizer "→ ChatGuru" sem isso já enganou uma vez na leitura do log.
-      const _destinoGclid = !variaveis.gclid ? ' — já atribuído antes'
-        : (marcouContexto ? ' → ChatGuru' : ' → ChatGuru FALHOU (chat não encontrado)');
+      const _destinoGclid = !marcarClique ? ' — já atribuído antes'
+        : ` → ficha ${marcouCampo ? 'OK' : 'FALHOU'}${erroCampo ? ' (' + erroCampo + ')' : ''}, contexto ${marcouContexto ? 'OK' : 'FALHOU'}`;
       const _ads = cliqueNovo
         ? ` | ADS ${cliqueNovo.slice(0, 12)}… (${b.utm_campaign || 's/ campanha'})${_destinoGclid}`
         : '';
