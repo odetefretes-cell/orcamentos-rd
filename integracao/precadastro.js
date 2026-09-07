@@ -25,17 +25,25 @@ const { criarChat, atualizarContexto } = require('./chatguru-api');
    gclid guardado no lead é impossível importar "frete fechado" como conversão offline no
    Ads: é ele que liga a venda ao anúncio que a gerou.
 
-   ⚠️ Devolve SÓ o que tem valor. O lead é salvo com `merge:true`, então gravar campo vazio
-   APAGARIA um gclid guardado antes — o caso real é o cliente que chega pelo anúncio, some,
-   e volta pelo orgânico de outro aparelho: o segundo envio não pode zerar o primeiro. */
-function adsDoLead(b) {
+   Nomes em snake_case (fora do padrão camelCase do resto do lead) de propósito: são
+   repasse do que chega no corpo do POST e do que o Google Ads espera no CSV de conversões
+   offline. Traduzir de ida e volta só criaria chance de errar. */
+const CAMPOS_ORIGEM = ['gclid', 'gbraid', 'wbraid', 'utm_source', 'utm_medium',
+  'utm_campaign', 'utm_term', 'utm_content', 'pagina', 'data_lead'];
+
+/* Monta os campos de origem respeitando o `merge:true` do save.
+
+   ⚠️ Um campo vazio NÃO pode sobrescrever um valor já guardado: o caso real é o cliente
+   que chega pelo anúncio, some, e volta dias depois pelo orgânico de outro aparelho — o
+   segundo envio não pode zerar a atribuição do primeiro. Fora essa proteção, grava ''
+   normalmente, para o lead sempre ter as chaves. */
+function origemDoLead(b, leadAtual) {
   const out = {};
-  const par = [['gclid', 'gclid'], ['gbraid', 'gbraid'], ['wbraid', 'wbraid'],
-    ['utm_source', 'utmSource'], ['utm_medium', 'utmMedium'], ['utm_campaign', 'utmCampaign'],
-    ['utm_term', 'utmTerm'], ['utm_content', 'utmContent']];
-  for (const [de, para] of par) {
-    const v = String((b && b[de]) || '').trim();
-    if (v) out[para] = v;
+  for (const k of CAMPOS_ORIGEM) {
+    const veio = String((b && b[k]) || '').trim();
+    if (veio) { out[k] = veio; continue; }
+    const guardado = String((leadAtual && leadAtual[k]) || '').trim();
+    if (!guardado) out[k] = '';    // nada a perder: lead novo ou campo que já era vazio
   }
   return out;
 }
@@ -55,6 +63,20 @@ exports.preCadastrarLead = onRequest(
       const telefone = b.telefone || b.chat_number || b.celular || '';
       if (!telefone) { res.status(400).json({ ok: false, erro: 'telefone ausente' }); return; }
 
+      // Chave do lead (mesma do resto do sistema: últimos 8 dígitos) — calculada aqui em
+      // cima porque o passo 2 já precisa saber se este contato JÁ tem clique atribuído.
+      const soDig = String(telefone).replace(/\D/g, '');
+      const t8 = soDig.slice(-8);
+      const idLead = t8 ? ('lead_wpp_' + t8) : ('lead_site_' + Date.now());
+
+      // Lead que já existe (cliente que voltou). Best-effort: se a leitura falhar, seguimos
+      // tratando como lead novo — o pior caso é não gravar o gclid no ChatGuru desta vez.
+      let leadAtual = null;
+      try {
+        const snap = await getFirestore().collection('crm_leads').doc(idLead).get();
+        if (snap && snap.exists) leadAtual = snap.data() || {};
+      } catch (e) { console.warn('[preCadastrarLead] leitura do lead falhou (segue):', e.message || e); }
+
       // 1) cria o chat (deixa de ser !new_chat quando a mensagem chegar).
       // Esta conta exige "mensagem inicial" no chat_add — usamos uma saudação
       // segura (caso o ChatGuru a entregue ao cliente).
@@ -72,6 +94,14 @@ exports.preCadastrarLead = onRequest(
       if (b.destino) variaveis.Destino = String(b.destino);
       if (b.veiculo) variaveis.Veiculo = String(b.veiculo);
       if (b.valor)   variaveis.Valor   = String(b.valor);
+
+      // gclid no contato do ChatGuru (campo personalizado de variável `gclid`), para o
+      // atendente ver que o cliente veio de anúncio. Só grava na PRIMEIRA atribuição:
+      // a API não lê o valor atual antes de escrever, então usamos o lead como memória —
+      // se ele já tem clique guardado, o contato também já foi marcado.
+      const cliqueNovo = String(b.gclid || b.gbraid || b.wbraid || '').trim();
+      const cliqueGuardado = String((leadAtual && (leadAtual.gclid || leadAtual.gbraid || leadAtual.wbraid)) || '').trim();
+      if (cliqueNovo && !cliqueGuardado) variaveis.gclid = cliqueNovo;
 
       // O chat_add cria o chat, mas ele não fica consultável na MESMA hora (às vezes
       // leva mais que 1-2s pra propagar) → chat_update_context dá "Chat não encontrado".
@@ -98,9 +128,7 @@ exports.preCadastrarLead = onRequest(
       // grava (o fetch do site usa keepalive → chega mesmo saindo pro WhatsApp).
       let leadCriado = false, erroLead = '';
       try {
-        const soDig = String(telefone).replace(/\D/g, '');
-        const t8 = soDig.slice(-8);
-        const id = t8 ? ('lead_wpp_' + t8) : ('lead_site_' + Date.now());
+        const id = idLead;
         const iso = new Date().toISOString();
         const lead = {
           id, nome: b.nome || '', empresa: '', telefone: String(telefone), email: b.email || '', cpfCnpj: '',
@@ -110,7 +138,7 @@ exports.preCadastrarLead = onRequest(
           funciona: b.funciona || '', blindado: b.blindado || '', dataEnvio: iso,
           tipoCliente: b.tipoCliente || '', categoria: b.categoria || '',
           mensagem: b.mensagem || '', dataEntrada: iso.slice(0, 10), ultimaInteracao: iso,
-          ...adsDoLead(b),   // gclid/UTMs do Google Ads — só entram quando existem
+          ...origemDoLead(b, leadAtual),   // gclid/UTMs/página — sem apagar atribuição anterior
           timeline: [{ data: iso, tipo: 'criacao', texto: 'Lead recebido pelo formulário do site' }],
           _origemSite: true,
         };
@@ -119,8 +147,10 @@ exports.preCadastrarLead = onRequest(
         leadCriado = true;
       } catch (e) { erroLead = e.message || String(e); console.warn('[preCadastrarLead] criar lead no CRM falhou:', erroLead); }
 
-      const _ads = b.gclid || b.gbraid || b.wbraid;
-      console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto} leadCriado=${leadCriado}${_ads ? ' | ADS ' + String(_ads).slice(0, 12) + '… (' + (b.utm_campaign || 's/ campanha') + ')' : ''}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}${erroLead ? ' | erroLead: ' + erroLead : ''}`);
+      const _ads = cliqueNovo
+        ? ` | ADS ${cliqueNovo.slice(0, 12)}… (${b.utm_campaign || 's/ campanha'})${variaveis.gclid ? ' → ChatGuru' : ' — já atribuído antes'}`
+        : '';
+      console.log(`[preCadastrarLead] ${telefone}: chat_add=${criouChat} cotando=${marcouContexto} leadCriado=${leadCriado}${_ads}${erroChat ? ' | erroChat: ' + erroChat : ''}${erroContexto ? ' | erroCtx: ' + erroContexto : ''}${erroLead ? ' | erroLead: ' + erroLead : ''}`);
       // sempre 200 (best-effort): o site segue pro WhatsApp de qualquer jeito
       res.json({ ok: true, criouChat, marcouContexto, leadCriado, erroChat: erroChat || undefined, erroContexto: erroContexto || undefined, erroLead: erroLead || undefined });
     } catch (e) {

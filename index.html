@@ -234,6 +234,8 @@
   .saldo-pos{color:var(--ok);font-weight:bold}.saldo-neg{color:#ef4444;font-weight:bold}
   .badge.atraso{background:#ef4444}
   input.num-lock{background:rgba(255,255,255,.05);color:var(--muted,#9aa4b2);font-weight:700;cursor:not-allowed}
+  /* campo preenchido pelo sistema, so leitura (ex.: rastreamento do Google Ads na ficha do lead) */
+  input.so-leitura{background:rgba(255,255,255,.05);color:var(--muted,#9aa4b2);cursor:default}
   .btn-danger{background:#dc2626;color:#fff;border:none;border-radius:9px;cursor:pointer}
   .btn-danger:hover{background:#b91c1c}
   .pend-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
@@ -6507,6 +6509,13 @@ function crmAbrirLead(id){
       <div class="field"><label>Valor médio do frete (R$)</label><input id="crmCotSW" value="${escA(l.valorCotacaoSW||'')}" inputmode="decimal" placeholder="calculado automaticamente"></div>
       <div class="field"><label>⏳ Prazo estimado (dias) — calculado, editável</label><input id="crmPrazoSW" value="${escA(l.prazoSW||'')}" inputmode="numeric" oninput="crmPrazoEdit('${id}')" placeholder="calculado pela rota"></div>
       <div class="field"><label>Data de envio</label><input id="crmDataEnvio" value="${escA(l.dataEnvio||'')}" placeholder="dd/mm/aaaa"></div>
+      <!-- Rastreamento do Google Ads: só leitura. Vem do formulário do site e serve pro
+           operador conferir se o lead veio de anúncio. É o gclid que, no dia em que o frete
+           fechar, liga a venda ao anúncio que a gerou (conversão offline). -->
+      <div class="field"><label>GCLID (Google Ads)</label>
+        <input class="so-leitura" value="${escA(l.gclid||l.gbraid||l.wbraid||'—')}" readonly title="Identificador do clique no anúncio. Preenchido sozinho pelo formulário do site."></div>
+      <div class="field"><label>Campanha</label>
+        <input class="so-leitura" value="${escA(l.utm_campaign||'—')}" readonly title="Campanha do Google Ads que trouxe o lead."></div>
     </div>
     <div class="cm-section">🗓️ Agendamento & Tarefas</div>
     <div class="grid g2">
