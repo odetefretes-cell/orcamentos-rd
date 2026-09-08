@@ -4436,9 +4436,9 @@ function injetarFormPedido(id,f){
     <div class="field" style="margin-top:12px"><label>Observações</label><input id="pc_observacoes" value="${escA(f.observacoes)}" placeholder="Alguma informação adicional"></div>
 
     <div class="sec-cli">🔒 PRIVACIDADE</div>
-    <label style="display:flex;gap:9px;align-items:flex-start;font-size:13.5px;line-height:1.5;cursor:pointer;background:var(--fundo,#f6f7f9);border:1px solid var(--linha);border-radius:10px;padding:12px 14px">
-      <input type="checkbox" id="pc_lgpd" style="margin-top:3px;flex-shrink:0;width:17px;height:17px" ${f.lgpdConsent&&f.lgpdConsent.aceito?'checked':''}>
-      <span>Autorizo a <b>OBS Transportes</b> a coletar e usar os meus dados (nome, contato, endereço e documentos) para <b>emitir e executar o meu frete</b>, conforme a <a href="#privacidade" target="_blank" rel="noopener" style="color:var(--azul)">Política de Privacidade</a>. Meus dados não são vendidos e posso pedir acesso ou exclusão quando quiser.</span>
+    <label style="display:flex;gap:9px;align-items:flex-start;font-size:13.5px;line-height:1.5;cursor:pointer;background:var(--card);color:var(--texto);border:1px solid var(--card-border);border-radius:10px;padding:12px 14px">
+      <input type="checkbox" id="pc_lgpd" style="margin-top:3px;flex-shrink:0;width:17px;height:17px;accent-color:var(--azul2)" ${f.lgpdConsent&&f.lgpdConsent.aceito?'checked':''}>
+      <span>Autorizo a <b>OBS Transportes</b> a coletar e usar os meus dados (nome, contato, endereço e documentos) para <b>emitir e executar o meu frete</b>, conforme a <a href="#privacidade" target="_blank" rel="noopener" style="color:#ff5c64;text-decoration:underline;font-weight:600">Política de Privacidade</a>. Meus dados não são vendidos e posso pedir acesso ou exclusão quando quiser.</span>
     </label>
 
     <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
