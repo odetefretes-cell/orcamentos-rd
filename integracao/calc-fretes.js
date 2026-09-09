@@ -571,6 +571,33 @@ function crmRecalcCalc(l, db){
 // ---- Ganchos de base vizinha (port do crmNosProximos/crmColetarOpcoes do app) + ----
 // ---- GARANTIA GEOGRÁFICA: a opção só vale se a retirada fica perto da origem E a ----
 // ---- entrega perto do destino pedidos (senão o hub trazia rota que nem chega lá). ----
+/* ---------------------------------------------------------------------------
+   A NOSSA BASE É SEMPRE CANDIDATA DE RETIRADA (09/09/2026)
+
+   `crmNosProximos` devolve só as 2 vizinhas MAIS PRÓXIMAS dentro de 42 km. Numa
+   origem cercada de cidades (Osasco, Diadema, São Caetano, Guarulhos…) as duas
+   vagas eram preenchidas por vizinhas quaisquer e **São Bernardo ficava de fora** —
+   aí o motor não tinha escolha senão COMPRAR um trecho até a nossa própria base
+   (São Paulo → SBC por R$ 500, e o frete saía R$ 3.200 em vez de R$ 2.700).
+
+   São Bernardo não é uma vizinha qualquer: é o pátio de onde os embarques saem.
+   Confirmado pelo Luiz (09/09/2026): cliente da região metropolitana leva o carro
+   até lá — a OBS nunca paga prestador para buscar dentro do raio.
+   --------------------------------------------------------------------------- */
+const BASE_OBS = { norm:'sao bernardo do campo', uf:'SP', nome:'São Bernardo do Campo' };
+function ehBaseObs(nome, uf){
+  return normTxt(nome)===BASE_OBS.norm && String(uf||'').toUpperCase()===BASE_OBS.uf;
+}
+function comBaseObs(cands, coords, nc, uf, maxKm){
+  if(ehBaseObs(nc, uf)) return cands;                                  // já é a base
+  if(cands.some(c=>ehBaseObs(c.norm, c.uf))) return cands;             // já entrou pelas 2 mais próximas
+  const a = coords && coords[nc+'|'+String(uf||'').toUpperCase()];
+  const b = coords && coords[BASE_OBS.norm+'|'+BASE_OBS.uf];
+  if(!a || !b) return cands;
+  const d = haversine(a, b);
+  if(d > maxKm) return cands;                                          // fora do raio: cliente não alcança
+  return cands.concat([{ norm:BASE_OBS.norm, uf:BASE_OBS.uf, nome:BASE_OBS.nome, dist:Math.round(d) }]);
+}
 function crmNosProximos(db, coords, nc, uf, maxKm, limite){
   if(!coords) return [];
   const req=coords[nc+'|'+uf]; if(!req) return [];
@@ -589,7 +616,7 @@ function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
   const KM=42, LIM=2, RAIO=45;
   const oHubs = crmNosProximos(db,coords,oR.norm,oR.uf,KM,LIM);
   const dHubs = crmNosProximos(db,coords,dR.norm,dR.uf,KM,LIM);
-  const oCands = [{norm:oR.norm,uf:oR.uf,nome:oR.nome||oR.norm,dist:0}].concat(oHubs);
+  const oCands = comBaseObs([{norm:oR.norm,uf:oR.uf,nome:oR.nome||oR.norm,dist:0}].concat(oHubs), coords, oR.norm, oR.uf, KM);
   const dCands = [{norm:dR.norm,uf:dR.uf,nome:dR.nome||dR.norm,dist:0}].concat(dHubs);
   const seen=new Set(), all=[];
   for(const oc of oCands){ for(const dc of dCands){
@@ -626,6 +653,17 @@ function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
   // Santa Terezinha (R$ 1.100), e a de Marabá (R$ 2.900) para a de Marituba (R$ 2.600).
   // Havendo rota com o nome do par pedido, só ela vale PARA AQUELA transportadora — as
   // outras transportadoras e as combinações seguem disputando pelo mais barato.
+  // NÃO COMPRAR TRECHO PARA CHEGAR NA NOSSA PRÓPRIA BASE. Quando o cliente alcança
+  // São Bernardo (está no raio), uma opção cujo 1º trecho só serve para levar o veículo
+  // até lá é desperdício puro: existe a mesma opção começando na base, sem esse trecho —
+  // garantida pelo comBaseObs acima. Guardas para nunca perder cotação: só filtra se a
+  // base é alcançável E se sobrou pelo menos uma opção saindo dela.
+  const _baseAlcancavel = oCands.some(c=>ehBaseObs(c.norm, c.uf));
+  const _temDaBase = all.some(x=>ehBaseObs(x.legs[0].oNome, x.legs[0].oUF));
+  const allBase = (_baseAlcancavel && _temDaBase)
+    ? all.filter(x=> !(x.legs.length > 1 && ehBaseObs(x.legs[0].dNome, x.legs[0].dUF)))
+    : all;
+
   const _nomeadas = new Map();
   { const _oK = nk(oR.norm,oR.uf), _dK = nk(dR.norm,dR.uf);
     for(const r of db.rotas){
@@ -634,11 +672,11 @@ function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
       if(!_nomeadas.has(k)) _nomeadas.set(k,new Set());
       _nomeadas.get(k).add(String(r.rota||''));
     } }
-  const _all = _nomeadas.size ? all.filter(x=>{
+  const _all = _nomeadas.size ? allBase.filter(x=>{
     if(x.legs.length !== 1) return true;                       // combinação não entra no desempate
     const _s = _nomeadas.get(normTxt(x.legs[0].transportadora));
     return !_s || _s.has(String(x._rotaNome||''));
-  }) : all;
+  }) : allBase;
 
   // GARANTIA GEOGRÁFICA: a retirada (1º trecho) tem que ficar perto da ORIGEM REAL
   // pedida e a entrega (último trecho) perto do DESTINO REAL — usando as coords da

@@ -38,7 +38,12 @@ function montarPares() {
   const origens = [
     'São Bernardo do Campo SP',   // o hub: e onde o corte de combinacoes morde
     'São Paulo SP',               // vizinha do hub (19 km)
+    // Regiao metropolitana: e AQUI que a regra "a base e sempre candidata" pega.
+    // Sem estas, a regressao passa sem nunca exercitar a mudanca — o erro de 04/09.
+    'Osasco SP', 'Diadema SP', 'São Caetano do Sul SP', 'Guarulhos SP', 'Santo André SP',
+    // Fora do raio: o transbordo ate SBC e frete legitimo e tem que CONTINUAR existindo.
     'Rio de Janeiro RJ',
+    'Campinas SP',
     'Betim MG',
     'Campo Grande MS',
     'Recife PE',                  // regionais: o corte nao morde, tem que ficar igual
