@@ -7642,6 +7642,23 @@ function crmGerarOpcoes(db, o, d, cat){
   const saemDaOrigem=[];
   for(const k in adj){ if(!matchKey(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
   if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
+  // ⚠️ A ORDEM DESTA LISTA DECIDE O RESULTADO, por causa do corte em 500 logo abaixo.
+  // Saindo de um hub como São Bernardo, `saemDaOrigem` passa de 4.800 trechos — e o corte
+  // guardava 500 combinações QUAISQUER, na ordem em que a tabela foi lida. Era assim que
+  // São Bernardo → Marituba → Manaus (R$ 4.100) nunca era montada, enquanto São Paulo →
+  // São Bernardo → Marituba → Manaus (R$ 4.600) era: saindo de São Paulo a lista é curta e
+  // o trecho bom cabia. O motor enxergava o trecho ao CHEGAR em SBC, não ao PARTIR dele.
+  // `custo[dN]` é o menor custo daquele ponto até o destino (Dijkstra, sem corte), então
+  // `valor + custo[dN]` é o total da combinação que o trecho geraria: ordenar por ele faz o
+  // corte guardar as MELHORES em vez das primeiras. Quando o corte não morde, o conjunto
+  // gerado é o mesmo de antes — só a ordem de construção muda, e no fim tudo é reordenado
+  // por preço. Nada de `saemDaOrigem.length=0`: foi esse padrão que sumiu com as diretas
+  // em 04/09; aqui montamos uma lista nova e deixamos a original intacta.
+  const _estOrig = a => (a.valor==null?Infinity:a.valor) + (custo[a.dN]==null?Infinity:custo[a.dN]);
+  const _jaVi = new Set();
+  const saidas = saemDaOrigem
+    .filter(a=>{ const k=a.dN+'|'+normTxt(a.transportadora)+'|'+a.valor; if(_jaVi.has(k)) return false; _jaVi.add(k); return true; })
+    .sort((x,y)=>_estOrig(x)-_estOrig(y));
   const combos=[]; const vc=new Set();
   const addCombo = (legs)=>{
     if(!legs.length || legs.some(l=>l.valor==null)) return;
@@ -7651,7 +7668,7 @@ function crmGerarOpcoes(db, o, d, cat){
     if(vc.has(sig)) return; vc.add(sig);
     combos.push({ tipo:'combinacao', legs, total:legs.reduce((s,l)=>s+numMoeda(l.valor),0), prazo:legs.reduce((s,l)=>s+(l.prazo||0),0) });
   };
-  for(const a of saemDaOrigem){
+  for(const a of saidas){
     if(a.valor==null || isDest(a.dN)) continue;
     if(custo[a.dN]!=null){ addCombo([a].concat(recon(a.dN))); }
     for(const b of (adj[a.dN]||[])){

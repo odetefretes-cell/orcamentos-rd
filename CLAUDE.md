@@ -352,6 +352,13 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
      2. **Testar o caminho em que o filtro NÃO se aplica.** A validação usou 103 pares, todos **com** rota nomeada — justamente o único conjunto onde o bug não aparecia. A regressão que valeu foi a que incluiu 120 pares **sem** rota nomeada.
    - ⚠️ Um "ganho" medido com o bug presente **não vale**: o teste que mostrou "Marabá 2.600 → 2.900" rodou com a lista de diretas vazia. Ao validar mudança no motor, conferir antes que o baseline está são.
 
+   **🐞 O corte de 500 combinações escondia a melhor opção (09/09/2026) — CORRIGIDO:** o laço que monta as combinações para em `combos.length>500`, e saindo de um HUB a lista de trechos de saída é enorme (São Bernardo: **4.872**). O corte guardava 500 combinações QUAISQUER, na ordem em que a tabela foi lida — então o motor **enxergava um trecho ao CHEGAR no hub, mas não ao PARTIR dele**. Sintoma reportado pelo Luiz: São Paulo → Manaus comprava um embarque a mais (SP → SBC, R$ 500) em vez de sair de SBC direto.
+   - Diagnóstico: `saemDaOrigem` continha o trecho bom (DOCARMO SBC→Marituba R$ 2.600) e `custo[marituba]` já era 1.500 — a combinação de R$ 4.100 simplesmente nunca era montada.
+   - Correção: dedup + ordenação de `saemDaOrigem` por `valor + custo[dN]` (o total que a combinação teria; `custo` vem do Dijkstra, que não tem corte). O corte passa a guardar as **melhores**, não as primeiras. **Quando o corte não morde, o conjunto gerado é idêntico** — só muda a ordem de construção, e tudo é reordenado por preço no fim.
+   - ⚠️ Feito SEM `saemDaOrigem.length=0`: monta lista nova (`saidas`) e deixa a original intacta. Foi o padrão oposto que sumiu com as diretas em 04/09.
+   - Resultado: São Paulo → Manaus **R$ 5.520 (3 trechos) → R$ 4.910 (2 trechos)**. Regressão: 310 pares, 289 iguais, 9 mais baratos, **0 mais caros, 0 perderam rota**.
+   - **`ferramentas/regressao-motor.js`** (`base` grava o snapshot, `comparar` confere) — a amostra mistura origens que passam pelo hub com pares regionais onde a mudança não pega, que é a lição do incidente de 04/09. Rodar SEMPRE antes de mexer no motor.
+
    **Regras de negócio confirmadas pelo Luiz (04/09):**
    - **Preço: sempre o mais barato**, mesmo que a vaga embarque/entregue numa **cidade vizinha** (o sistema aceita vizinha até 42 km, 2 candidatas).
    - **Transbordo** (ex.: RJ→SBC→Betim) é legítimo, mas prestador **direto** é preferível quando a condição é melhor — já existe `CRM_TETO_DIRETA = 300` (aceita pagar até R$ 300 a mais por um embarque a menos).
