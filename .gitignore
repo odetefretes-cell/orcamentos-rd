@@ -18,3 +18,6 @@ ui-debug.log
 
 # Estado local do Claude Code (nao versionar)
 .claude/
+
+# snapshot gerado pela regressao do motor (recriado com "node ferramentas/regressao-motor.js base")
+ferramentas/baseline.json
