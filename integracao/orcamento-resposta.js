@@ -171,6 +171,20 @@ function montarMensagem(lead){
   return linhas.join('\n');
 }
 
+/* A cidade que aparece no trajeto é uma cidade ATENDIDA pela rota, não o pátio onde
+   o cliente entrega o carro. Em SP isso mandava o cliente para o lugar errado: a rota
+   cobre a capital, mas a nossa base fica em São Bernardo do Campo — a tabela tem 104
+   rotas saindo de "São Bernardo do Campo (SP)" e NENHUMA saindo de "São Paulo (SP)".
+   Só afeta o texto da mensagem; o cálculo e a escolha da rota continuam pela cidade
+   real do trajeto. Se outra base for cadastrada com o nome da região, acrescentar aqui. */
+const BASES_REAIS = { 'sao paulo|SP': 'São Bernardo do Campo' };
+
+function nomeDaBase(cidade, uf){
+  const k = String(cidade||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/\s+/g,' ').trim() + '|' + String(uf||'').toUpperCase();
+  return BASES_REAIS[k] || cidade;
+}
+
 /* Linhas de aviso quando a base de embarque/entrega é diferente da cidade pedida.
    Devolve [] quando embarque e entrega são na própria cidade do cliente. */
 function basesDiferentes(lead, origem, destino){
@@ -180,7 +194,11 @@ function basesDiferentes(lead, origem, destino){
   const chave = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toLowerCase().replace(/\s+[a-z]{2}\s*$/,'').replace(/\s+/g,' ').trim();
   const out = [];
-  const emb = soCidade(trs[0].de), ent = soCidade(trs[trs.length-1].para);
+  const pri = trs[0], ult = trs[trs.length-1];
+  // traduz ANTES de comparar: cliente de São Bernardo não deve receber "embarque na
+  // nossa base de São Bernardo" — para ele a base é a própria cidade.
+  const emb = nomeDaBase(soCidade(pri.de),  pri.oUF);
+  const ent = nomeDaBase(soCidade(ult.para), ult.dUF);
   if(emb && chave(emb) !== chave(origem))  out.push(`🚚 Embarque na nossa base de ${emb}`);
   if(ent && chave(ent) !== chave(destino)) out.push(`🏁 Entrega na nossa base de ${ent}`);
   return out;
