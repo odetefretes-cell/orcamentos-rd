@@ -5565,7 +5565,10 @@ function renderCRM(){
   { const adm=(typeof sessaoUser!=='undefined'&&sessaoUser&&sessaoUser.papel==='admin');
     const bt=$('#crmBtnPerdaLote'); if(bt) bt.style.display=adm?'':'none';
     const ba=$('#crmBtnArquivar'); if(ba) ba.style.display=adm?'':'none';
-    const br=$('#crmBtnRecupPerda'); if(br) br.style.display=adm?'':'none'; }
+    const br=$('#crmBtnRecupPerda'); if(br) br.style.display=adm?'':'none';
+    // o rótulo muda conforme o dia: na segunda ele avisa que cobre o fim de semana inteiro
+    const bp=document.querySelector('[onclick="crmRelatorioPerdasApurar()"]');
+    if(bp && typeof crmRotuloPerdasApurar==='function') bp.textContent = crmRotuloPerdasApurar(); }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const buscaDig = busca.replace(/\D/g,'');   // só dígitos (para casar telefone com qualquer formatação)
   // casa por texto OU por telefone (só dígitos, ignora (), - e espaços). Com 4+ dígitos, busca no telefone.
@@ -5950,29 +5953,73 @@ function crmBaixarExportAds(){
   crmPreviewExportAds();
 }
 
+/* Dias que o relatório deve cobrir. Segunda-feira tem que puxar SEXTA, SÁBADO e DOMINGO
+   — senão as perdas do fim de semana nunca entram no radar e somem (o sistema arquiva
+   sozinho quem fica 10 dias na coluna Perdido). Reportado pelo Luiz em 11/09/2026.
+   Regra: começa em ontem e continua voltando ENQUANTO o dia recolhido for sábado ou
+   domingo; para no primeiro dia útil.
+     segunda  → domingo, sábado, sexta
+     terça a sexta → só ontem
+     domingo  → sábado e sexta
+   ⚠️ NÃO conhece FERIADO. Numa segunda de feriado, a terça cobre só a segunda — as perdas
+   de sexta a domingo ficariam de fora. Nesses casos o operador usa o parâmetro `dias`
+   pelo console, ou roda o relatório manualmente por dia. */
+function crmDiasPerdasApurar(){
+  const dias = [];
+  const d = new Date(); d.setDate(d.getDate()-1);       // começa em ontem
+  for(let i=0;i<7;i++){                                  // trava de segurança: nunca mais de 7
+    dias.push(d.toISOString().slice(0,10));
+    const dow = d.getDay();                              // 0=domingo, 6=sábado
+    if(dow!==0 && dow!==6) break;                        // chegou num dia útil: para
+    d.setDate(d.getDate()-1);
+  }
+  return dias;
+}
+// Rótulo do botão — na segunda precisa dizer que cobre o fim de semana inteiro,
+// senão o operador acha que está vendo só domingo e não confia no número.
+function crmRotuloPerdasApurar(){
+  const ds = crmDiasPerdasApurar();
+  const br = iso => iso.slice(8,10)+'/'+iso.slice(5,7);
+  return ds.length>1
+    ? `📞 Perdas para apurar (${br(ds[ds.length-1])} a ${br(ds[0])})`
+    : '📞 Perdas para apurar (ontem)';
+}
+
 function crmRelatorioPerdasApurar(dias){
-  const d = new Date(); d.setDate(d.getDate() - (dias==null?1:dias));
-  const alvo = d.toISOString().slice(0,10);
+  // `dias` explícito (número) = um único dia, N dias atrás — mantido para uso manual.
+  const alvos = (dias==null)
+    ? crmDiasPerdasApurar()
+    : [ (()=>{ const d=new Date(); d.setDate(d.getDate()-dias); return d.toISOString().slice(0,10); })() ];
+  const conjunto = new Set(alvos);
+  const alvo = alvos[0];
   const todos = Object.values(CRM_LEADS||{});
   // perdido E arquivado: o sistema arquiva sozinho quem fica 10 dias na coluna Perdido,
   // e essas perdas somem do radar — são a maioria (717 de 896 em agosto).
   const lista = todos.filter(l=>{
     if(!l || (l.etapa!=='perdido' && l.etapa!=='arquivado')) return false;
-    if(crmDataPerda(l)!==alvo) return false;
+    if(!conjunto.has(crmDataPerda(l))) return false;
     return crmMotivoInconclusivo(l.motivoPerda);
-  }).sort((a,b)=> String(a.vendedor||'').localeCompare(String(b.vendedor||'')) || String(a.nome||'').localeCompare(String(b.nome||'')));
+  }).sort((a,b)=> String(crmDataPerda(a)).localeCompare(String(crmDataPerda(b)))   // dia da perda primeiro: o operador liga na ordem
+      || String(a.vendedor||'').localeCompare(String(b.vendedor||''))
+      || String(a.nome||'').localeCompare(String(b.nome||'')));
 
-  const dBR = alvo.slice(8,10)+'/'+alvo.slice(5,7)+'/'+alvo.slice(0,4);
+  const _br = iso => iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4);
+  const dBR = alvos.length>1 ? (_br(alvos[alvos.length-1])+' a '+_br(alvos[0])) : _br(alvo);
   if(!lista.length){ flash('Nenhuma perda sem motivo apurado em '+dBR+' ✔','ok'); return; }
 
   const M = v => { const n=numMoeda(v); return n?n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'—'; };
   const tel = t => String(t||'').replace(/\D/g,'');
+  // Com vários dias no mesmo relatório o operador precisa saber de QUANDO é cada perda
+  // (a de sexta já esfriou mais que a de domingo). Num único dia a coluna seria só ruído.
+  const multi = alvos.length>1;
   const linhas = lista.map((l,i)=>{
     const t = tel(l.telefone), wa = t ? (t.length>11?t:('55'+t)) : '';
     const veic = [l.veiculoDesc, l.categoria].filter(Boolean).join(' · ') || '—';
     const rota = [up(l.origem)||'?', up(l.destino)||'?'].join(' → ');
+    const _dia = crmDataPerda(l);
     return `<tr>
       <td class="c">${i+1}</td>
+      ${multi?`<td class="c">${_dia?(_dia.slice(8,10)+'/'+_dia.slice(5,7)):'—'}</td>`:''}
       <td><b>${esc(l.nome||'(sem nome)')}</b>${l.empresa?`<br><span class="s">${esc(l.empresa)}</span>`:''}
           <br><span class="s">${esc(l.origemLead||'—')} · entrou ${esc(l.dataEntrada||'—')}</span></td>
       <td>${t?`<a href="tel:+${wa}">${esc(l.telefone)}</a><br><a class="s" href="https://wa.me/${wa}" target="_blank" rel="noopener">abrir no WhatsApp</a>`:'<span class="s">sem telefone</span>'}
@@ -6008,9 +6055,9 @@ function crmRelatorioPerdasApurar(dias){
     <div class="box"><b>Como usar:</b> ligue para cada contato e pergunte por que não fechou. Anote o motivo na última coluna e depois registre no CRM (abrir o lead → ❌ marcar perda com o motivo certo).
       Estes leads foram perdidos <b>sem que ninguém conversasse com eles</b> — parte pode ainda fechar.</div>
     <table>
-      <thead><tr><th>#</th><th>Cliente</th><th>Contato</th><th>Frete cotado</th><th>Valor</th><th>Vendedor / motivo atual</th><th>Motivo REAL (anotar)</th></tr></thead>
+      <thead><tr><th>#</th>${multi?'<th>Dia</th>':''}<th>Cliente</th><th>Contato</th><th>Frete cotado</th><th>Valor</th><th>Vendedor / motivo atual</th><th>Motivo REAL (anotar)</th></tr></thead>
       <tbody>${linhas}</tbody>
-      <tfoot><tr><td colspan="4">Total</td><td class="r">${total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td colspan="2"></td></tr></tfoot>
+      <tfoot><tr><td colspan="${multi?5:4}">Total</td><td class="r">${total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td colspan="2"></td></tr></tfoot>
     </table>
     <div class="imp"><button onclick="window.print()">🖨️ Imprimir</button></div>
   </body></html>`;
