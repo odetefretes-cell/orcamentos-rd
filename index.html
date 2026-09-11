@@ -9062,20 +9062,41 @@ function crmEnviarOrcamento(id){
     </table>`:''}
 
     <h2>Formas de pagamento</h2>
-    <div class="pay">• Transferência, Pix ou depósito em conta: <b>${M(V.totalBase)}</b> — 50% na contratação e 50% no destino para liberação.</div>
-    ${(()=>{ const ops=crmLinhasCartao(V.totalBase);
-      if(!ops.length) return '<div class="pay">• Cartão de crédito via link de pagamento online (consulte as parcelas).</div>';
-      const maxN=ops[ops.length-1].parcelas;
+    ${(()=>{
+      // Base a base e porta a porta são PREÇOS DIFERENTES, então cada um tem o seu
+      // parcelamento — a taxa do cartão incide sobre o total cobrado, e coleta/entrega
+      // mudam esse total. Mostrar só um levaria o cliente a fechar porta a porta achando
+      // que paga a parcela do base a base. (Pedido do Luiz, 11/09/2026.)
+      const temPorta = (V.coleta||V.entrega) && V.totalPorta > V.totalBase;
+
+      const pix = temPorta
+        ? `<div class="pay">• Transferência, Pix ou depósito em conta — <b>base a base ${M(V.totalBase)}</b> · <b>porta a porta ${M(V.totalPorta)}</b>.<br>
+             <span style="margin-left:12px">50% na contratação e 50% no destino para liberação.</span></div>`
+        : `<div class="pay">• Transferência, Pix ou depósito em conta: <b>${M(V.totalBase)}</b> — 50% na contratação e 50% no destino para liberação.</div>`;
+
       // Tabela e não lista corrida: o cliente compara as parcelas de relance, e em papel
       // uma linha só com 7 valores separados por ponto vira ruído.
-      return `<div class="parcbox">
-        <p class="parctit">💳 Cartão de crédito — link seguro, em até ${maxN}x</p>
-        <table class="parctab">
-          <tr>${ops.map(o=>`<th>${o.parcelas}x</th>`).join('')}</tr>
-          <tr>${ops.map(o=>`<td>${M(o.valorParcela)}</td>`).join('')}</tr>
-        </table>
-        <p class="parcobs">Valores já com a taxa da operadora inclusa · Visa, Mastercard, Elo e Amex · o link é gerado pela Rede (Itaú)</p>
-      </div>`;
+      const caixa = (rotulo, valor) => {
+        const ops = crmLinhasCartao(valor);
+        if(!ops.length) return '';
+        const maxN = ops[ops.length-1].parcelas;
+        return `<div class="parcbox">
+          <p class="parctit">💳 ${rotulo} — em até ${maxN}x</p>
+          <table class="parctab">
+            <tr>${ops.map(o=>`<th>${o.parcelas}x</th>`).join('')}</tr>
+            <tr>${ops.map(o=>`<td>${M(o.valorParcela)}</td>`).join('')}</tr>
+          </table>
+        </div>`;
+      };
+
+      const boxes = temPorta
+        ? caixa(`Cartão · <u>base a base</u> (${M(V.totalBase)})`, V.totalBase)
+          + caixa(`Cartão · <u>porta a porta</u> (${M(V.totalPorta)})`, V.totalPorta)
+        : caixa('Cartão de crédito — link seguro', V.totalBase);
+
+      if(!boxes) return pix + '<div class="pay">• Cartão de crédito via link de pagamento online (consulte as parcelas).</div>';
+      return pix + boxes
+        + `<p class="parcobs" style="margin:0 0 6px">Valores do cartão já com a taxa da operadora inclusa · Visa, Mastercard, Elo e Amex · o link é gerado pela Rede (Itaú)</p>`;
     })()}
     <div class="pay">• <b>Boleto bancário para PJ</b> (Pessoa Jurídica): até 15 dias após aprovação da ficha.</div>
 
