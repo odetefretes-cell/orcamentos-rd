@@ -5568,7 +5568,14 @@ function renderCRM(){
     const br=$('#crmBtnRecupPerda'); if(br) br.style.display=adm?'':'none';
     // o rótulo muda conforme o dia: na segunda ele avisa que cobre o fim de semana inteiro
     const bp=document.querySelector('[onclick="crmRelatorioPerdasApurar()"]');
-    if(bp && typeof crmRotuloPerdasApurar==='function') bp.textContent = crmRotuloPerdasApurar(); }
+    if(bp && typeof crmRotuloPerdasApurar==='function'){
+      bp.textContent = crmRotuloPerdasApurar();
+      // a marca vem da nuvem: na 1ª vez o rótulo nasce com o piso (fim de semana) e
+      // se corrige sozinho quando ela chega.
+      if(typeof _crmPerdasAteLido!=='undefined' && !_crmPerdasAteLido){
+        crmCarregarPerdasAte().then(()=>{ const b2=document.querySelector('[onclick="crmRelatorioPerdasApurar()"]'); if(b2) b2.textContent = crmRotuloPerdasApurar(); });
+      }
+    } }
   const busca = ($('#crmBusca')?.value||'').toLowerCase();
   const buscaDig = busca.replace(/\D/g,'');   // só dígitos (para casar telefone com qualquer formatação)
   // casa por texto OU por telefone (só dígitos, ignora (), - e espaços). Com 4+ dígitos, busca no telefone.
@@ -5953,43 +5960,122 @@ function crmBaixarExportAds(){
   crmPreviewExportAds();
 }
 
-/* Dias que o relatório deve cobrir. Segunda-feira tem que puxar SEXTA, SÁBADO e DOMINGO
-   — senão as perdas do fim de semana nunca entram no radar e somem (o sistema arquiva
-   sozinho quem fica 10 dias na coluna Perdido). Reportado pelo Luiz em 11/09/2026.
-   Regra: começa em ontem e continua voltando ENQUANTO o dia recolhido for sábado ou
-   domingo; para no primeiro dia útil.
-     segunda  → domingo, sábado, sexta
-     terça a sexta → só ontem
-     domingo  → sábado e sexta
-   ⚠️ NÃO conhece FERIADO. Numa segunda de feriado, a terça cobre só a segunda — as perdas
-   de sexta a domingo ficariam de fora. Nesses casos o operador usa o parâmetro `dias`
-   pelo console, ou roda o relatório manualmente por dia. */
-function crmDiasPerdasApurar(){
+/* Dias que o relatório deve cobrir.
+   O problema original (Luiz, 11/09/2026): pegava só ONTEM, então na segunda mostrava
+   apenas o domingo e as perdas de sexta e sábado nunca entravam no radar — somem, porque
+   o sistema arquiva sozinho quem fica 10 dias na coluna Perdido.
+   A 1ª correção foi a regra de fim de semana. Ela resolvia a segunda, mas NÃO o feriado,
+   as férias, nem o dia em que ninguém abriu o relatório. Por isso a regra agora é:
+
+     COBRIR DESDE O DIA SEGUINTE AO ÚLTIMO JÁ COBERTO ATÉ ONTEM.
+
+   A marca (`perdasApuradasAte`) fica em `crm_config/config`, ou seja, é COMPARTILHADA
+   entre os operadores — se a Yasmim rodou hoje de manhã, o Thiago não recebe a mesma
+   lista de novo e ninguém liga duas vezes para o mesmo cliente.
+   O piso continua sendo a regra de fim de semana: o relatório só pode cobrir MAIS dias
+   que antes, nunca menos, mesmo que a marca esteja adiantada ou corrompida.
+   Teto de 45 dias para a 1ª execução não abrir uma lista impossível de trabalhar.
+
+   ⚠️ RISCO CONHECIDO: quem ABRE o relatório "consome" o período, mesmo sem ligar para
+   ninguém. Os leads continuam no CRM com motivo inconclusivo, mas saem desta lista.
+   Para refazer um dia específico: `crmRelatorioPerdasApurar(n)` no console (n = dias
+   atrás), que roda avulso e NÃO mexe na marca. Se isso incomodar na prática, o certo é
+   carimbar cada lead ao ser listado em vez de guardar um período — mais trabalho, e só
+   vale se o problema aparecer. */
+const CRM_PERDAS_TETO_DIAS = 45;
+let CRM_PERDAS_ATE = null;          // cache da marca (ISO 'AAAA-MM-DD'); null = ainda não lida
+let _crmPerdasAteLido = false;
+
+async function crmCarregarPerdasAte(){
+  if(_crmPerdasAteLido) return CRM_PERDAS_ATE;
+  try{
+    if(_fb && _fb.getDoc){
+      const snap = await _fb.getDoc(_fb.doc(_fb.fs,'crm_config','config'));
+      const v = snap.exists() && snap.data() ? snap.data().perdasApuradasAte : null;
+      if(typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) CRM_PERDAS_ATE = v;
+    }
+  }catch(_){}                        // sem nuvem ou sem permissão: cai no piso (fim de semana)
+  _crmPerdasAteLido = true;
+  return CRM_PERDAS_ATE;
+}
+
+function crmGravarPerdasAte(iso){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return;
+  CRM_PERDAS_ATE = iso; _crmPerdasAteLido = true;
+  try{
+    if(_fb && _fb.setDoc){
+      const r = _fb.setDoc(_fb.doc(_fb.fs,'crm_config','config'), {perdasApuradasAte:iso}, {merge:true});
+      if(r && r.catch) r.catch(()=>{});   // falhar aqui não pode derrubar o relatório
+    }
+  }catch(_){}
+}
+
+// PISO: a regra de fim de semana. Começa em ontem e continua voltando enquanto o dia
+// recolhido for sábado ou domingo; para no primeiro dia útil.
+//   segunda → domingo, sábado, sexta · terça a sexta → só ontem · domingo → sábado e sexta
+function crmDiasFimDeSemana(){
   const dias = [];
-  const d = new Date(); d.setDate(d.getDate()-1);       // começa em ontem
-  for(let i=0;i<7;i++){                                  // trava de segurança: nunca mais de 7
+  const d = new Date(); d.setDate(d.getDate()-1);
+  for(let i=0;i<7;i++){                                  // trava: nunca mais de 7
     dias.push(d.toISOString().slice(0,10));
     const dow = d.getDay();                              // 0=domingo, 6=sábado
-    if(dow!==0 && dow!==6) break;                        // chegou num dia útil: para
+    if(dow!==0 && dow!==6) break;
     d.setDate(d.getDate()-1);
   }
   return dias;
+}
+
+function crmDiasPerdasApurar(){
+  const ontem = new Date(); ontem.setDate(ontem.getDate()-1);
+  const fim = ontem.toISOString().slice(0,10);
+  // Marca no futuro = corrompida (ninguém pode ter apurado o que ainda não aconteceu).
+  // Ignora e cai no piso, senão o relatório ficaria vazio para sempre.
+  const marca = (CRM_PERDAS_ATE && CRM_PERDAS_ATE <= fim) ? CRM_PERDAS_ATE : null;
+
+  if(!marca) return crmDiasFimDeSemana();                // 1ª vez (ou marca inválida): piso
+
+  const dias = new Set();
+  // Teto: nunca começar mais de CRM_PERDAS_TETO_DIAS atrás, para a 1ª execução depois de
+  // muito tempo não abrir uma lista impossível de trabalhar. ⚠️ O que ficar além do teto
+  // NÃO volta depois — o período coberto aparece no título do relatório justamente para
+  // o operador enxergar isso.
+  const lim = new Date(); lim.setDate(lim.getDate()-CRM_PERDAS_TETO_DIAS);
+  const minIso = lim.toISOString().slice(0,10);
+  const inicio = marca >= minIso ? marca : minIso;
+  const d = new Date(inicio + 'T12:00:00Z');
+  for(let i=0;i<=CRM_PERDAS_TETO_DIAS;i++){
+    d.setUTCDate(d.getUTCDate()+1);                      // 1º dia AINDA não coberto
+    const iso = d.toISOString().slice(0,10);
+    if(iso > fim) break;
+    dias.add(iso);
+  }
+  // Piso do fim de semana — mas SÓ o que a marca ainda não cobriu. Sem esse filtro, rodar
+  // duas vezes no mesmo dia repetiria a lista de ontem e dois vendedores ligariam para o
+  // mesmo cliente, que é exatamente o que a marca compartilhada existe para evitar.
+  crmDiasFimDeSemana().forEach(x=>{ if(x > marca) dias.add(x); });
+  return [...dias].sort().reverse();                     // mais recente primeiro
 }
 // Rótulo do botão — na segunda precisa dizer que cobre o fim de semana inteiro,
 // senão o operador acha que está vendo só domingo e não confia no número.
 function crmRotuloPerdasApurar(){
   const ds = crmDiasPerdasApurar();
   const br = iso => iso.slice(8,10)+'/'+iso.slice(5,7);
-  return ds.length>1
-    ? `📞 Perdas para apurar (${br(ds[ds.length-1])} a ${br(ds[0])})`
-    : '📞 Perdas para apurar (ontem)';
+  if(!ds.length) return '📞 Perdas para apurar (em dia)';
+  if(ds.length===1) return '📞 Perdas para apurar ('+br(ds[0])+')';
+  return `📞 Perdas para apurar (${br(ds[ds.length-1])} a ${br(ds[0])} · ${ds.length} dias)`;
 }
 
-function crmRelatorioPerdasApurar(dias){
-  // `dias` explícito (número) = um único dia, N dias atrás — mantido para uso manual.
+async function crmRelatorioPerdasApurar(dias){
+  // `dias` explícito (número) = um único dia, N dias atrás. Uso manual/console:
+  // roda avulso e NÃO mexe na marca, para poder refazer um dia sem consumir o período.
+  if(dias==null) await crmCarregarPerdasAte();
   const alvos = (dias==null)
     ? crmDiasPerdasApurar()
     : [ (()=>{ const d=new Date(); d.setDate(d.getDate()-dias); return d.toISOString().slice(0,10); })() ];
+  if(!alvos.length){
+    flash('Tudo já apurado até '+(CRM_PERDAS_ATE||'ontem').split('-').reverse().join('/')+' ✔','ok');
+    return;
+  }
   const conjunto = new Set(alvos);
   const alvo = alvos[0];
   const todos = Object.values(CRM_LEADS||{});
@@ -6005,7 +6091,11 @@ function crmRelatorioPerdasApurar(dias){
 
   const _br = iso => iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4);
   const dBR = alvos.length>1 ? (_br(alvos[alvos.length-1])+' a '+_br(alvos[0])) : _br(alvo);
-  if(!lista.length){ flash('Nenhuma perda sem motivo apurado em '+dBR+' ✔','ok'); return; }
+  if(!lista.length){
+    // Nada a apurar TAMBÉM fecha o período — senão o intervalo cresceria para sempre.
+    if(dias==null){ crmGravarPerdasAte(alvos[0]); const b=document.querySelector('[onclick="crmRelatorioPerdasApurar()"]'); if(b) b.textContent = crmRotuloPerdasApurar(); }
+    flash('Nenhuma perda sem motivo apurado em '+dBR+' ✔','ok'); return;
+  }
 
   const M = v => { const n=numMoeda(v); return n?n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'—'; };
   const tel = t => String(t||'').replace(/\D/g,'');
@@ -6065,6 +6155,9 @@ function crmRelatorioPerdasApurar(dias){
   const w = window.open('', '_blank');
   if(!w){ flash('O navegador bloqueou a janela — libere os pop-ups para este site.','erro'); return; }
   w.document.write(html); w.document.close();
+  // Só marca como coberto DEPOIS que a janela abriu de verdade. Se o pop-up foi
+  // bloqueado a função já saiu acima, e o período continua pendente para a próxima.
+  if(dias==null){ crmGravarPerdasAte(alvos[0]); const b=document.querySelector('[onclick="crmRelatorioPerdasApurar()"]'); if(b) b.textContent = crmRotuloPerdasApurar(); }
 }
 
 
