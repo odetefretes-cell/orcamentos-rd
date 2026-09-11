@@ -370,6 +370,13 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    node -e "const f=require('fs'),z=require('zlib');f.writeFileSync('/tmp/tabela-producao.json',z.gunzipSync(Buffer.from(f.readFileSync('/tmp/tab.b64','utf8').trim(),'base64')))"
    ```
 
+   **✅ CONFIRMADO PELO LUIZ (11/09/2026) — a transportadora aceita embarcar no MEIO do corredor pelo MESMO preço da rota.** Isso transforma a correção nº 3 (sub-trechos sempre) de dedução geográfica em regra de negócio com respaldo: quando o motor oferece Montes Claros → João Pessoa pelo preço da rota "SBC → João Pessoa", está certo comercialmente, não só matematicamente.
+   - **Por que NÃO cadastrar isso na tabela:** a rota SBC → João Pessoa tem 175 cidades; permitir embarque em cada uma para cada ponto à frente dá ~15 mil pares só nela, e mais de 1 milhão nas 443 rotas. Inviável de manter e de importar. O cálculo geográfico faz o mesmo sob demanda.
+   - **Levantamento da assimetria (11/09):** das **1.187 cidades**, **1.068 (90%) só RECEBEM** — não podem carregar. Só 119 embarcam. São **17.385 pares cidade×rota** de embarque perdido. Inclui BH, Teresina, Anápolis, Canoas, Olinda, Feira de Santana. Medido em 148 cotações das 30 cidades mais movimentadas: **28 mais baratas (R$ 8.475), 107 iguais, 0 rotas perdidas**, 10 mais caras trocando um transbordo por trecho direto (dentro do teto de R$ 300).
+   - ⚠️ **Lacuna conhecida, NÃO resolvida:** os sub-trechos entram só como PRIMEIRO trecho (`crmArestasDaOrigem` a partir da origem). O Dijkstra (`crmRevAdj`) segue só com os pares explícitos, então uma combinação cujo trecho DO MEIO seria um sub-trecho de corredor ainda não é montada. Incluir isso exigiria reconstruir o grafo com todos os sub-trechos — custo alto, ganho não medido.
+   - ⚠️ **3 casos mais caros sem contrapartida (+R$ 80 a +R$ 180)**, todos em cidades que não existem como embarque e são resolvidas para uma âncora vizinha (Nossa Senhora do Socorro → Aracaju): com mais opções, o motor troca de âncora e a **taxa de base** daquela cidade muda o total. Não investigado até o fim.
+   - **`ferramentas/corredores.js`** mede tudo isso (`<saida.json>` grava, `--diff a.json b.json` compara). Classifica à parte o "mais caro com um embarque a menos dentro do teto" — que é comportamento desejado, não defeito.
+
    **Regras de negócio confirmadas pelo Luiz (04/09):**
    - **Preço: sempre o mais barato**, mesmo que a vaga embarque/entregue numa **cidade vizinha** (o sistema aceita vizinha até 42 km, 2 candidatas).
    - **Transbordo** (ex.: RJ→SBC→Betim) é legítimo, mas prestador **direto** é preferível quando a condição é melhor — já existe `CRM_TETO_DIRETA = 300` (aceita pagar até R$ 300 a mais por um embarque a menos).
