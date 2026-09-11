@@ -5994,6 +5994,13 @@ function crmBaixarExportAds(){
    atrás), que roda avulso e NÃO mexe na marca. Se isso incomodar na prática, o certo é
    carimbar cada lead ao ser listado em vez de guardar um período — mais trabalho, e só
    vale se o problema aparecer. */
+/* MARCO ZERO da apuração de perdas — decisão do Luiz (11/09/2026): "vamos começar a
+   mensurar a partir de 07/09, leads antes disso não puxar".
+   Antes desta data o campo de motivo vinha de texto livre e ficou cheio de perda antiga
+   que não vale mais ligar. A medição começa limpa daqui.
+   ⚠️ Perda SEM data na linha do tempo também fica de fora: sem saber quando foi, não dá
+   para afirmar que é depois do marco — e quase toda perda sem data é das antigas. */
+const CRM_PERDAS_DESDE = '2026-09-07';
 const CRM_PERDAS_TETO_DIAS = 45;
 let CRM_PERDAS_ATE = null;          // cache da marca (ISO 'AAAA-MM-DD'); null = ainda não lida
 let _crmPerdasAteLido = false;
@@ -6020,6 +6027,12 @@ function crmGravarPerdasAte(iso){
       if(r && r.catch) r.catch(()=>{});   // falhar aqui não pode derrubar o relatório
     }
   }catch(_){}
+}
+
+// Perda dentro do período que a OBS decidiu medir (marco zero em CRM_PERDAS_DESDE).
+function crmPerdaNoPeriodo(l){
+  const d = crmDataPerda(l);
+  return !!d && d >= CRM_PERDAS_DESDE;
 }
 
 // PISO: a regra de fim de semana. Começa em ontem e continua voltando enquanto o dia
@@ -6077,6 +6090,7 @@ function crmRotuloPerdasApurar(){
     const ds = new Set(crmDiasPerdasApurar());
     for(const l of Object.values(CRM_LEADS||{})){
       if(!l || (l.etapa!=='perdido' && l.etapa!=='arquivado')) continue;
+      if(!crmPerdaNoPeriodo(l)) continue;
       if(!crmMotivoInconclusivo(l.motivoPerda)) continue;
       n++; if(ds.has(crmDataPerda(l))) novos++;
     }
@@ -6112,6 +6126,7 @@ async function crmRelatorioPerdasApurar(dias){
      essas perdas sumiam do radar — eram a maioria (717 de 896 em agosto). */
   const pendentes = todos.filter(l=>{
     if(!l || (l.etapa!=='perdido' && l.etapa!=='arquivado')) return false;
+    if(!crmPerdaNoPeriodo(l)) return false;          // marco zero: só de 07/09/2026 em diante
     return crmMotivoInconclusivo(l.motivoPerda);
   }).sort((a,b)=> String(crmDataPerda(b)).localeCompare(String(crmDataPerda(a)))   // MAIS RECENTE primeiro: quanto mais fresca a perda, maior a chance de o cliente lembrar (e de ainda fechar)
       || String(a.vendedor||'').localeCompare(String(b.vendedor||''))
@@ -6183,7 +6198,8 @@ async function crmRelatorioPerdasApurar(dias){
     <div class="box"><b>Como usar:</b> ligue para cada contato e pergunte por que não fechou. Anote o motivo na última coluna e depois registre no CRM (abrir o lead → ❌ marcar perda com o motivo certo).
       Estes leads foram perdidos <b>sem que ninguém conversasse com eles</b> — parte pode ainda fechar.<br>
       <b>O lead só sai desta lista quando alguém registra o motivo real.</b> Abrir o relatório não tira ninguém daqui: quem não for apurado hoje volta amanhã.
-      As linhas em amarelo são as perdas novas desde a última vez que o relatório foi aberto.${ocultos?`<br>⚠️ Há mais <b>${ocultos}</b> pendente(s) além dos ${TETO_LINHAS} mais recentes mostrados aqui — eles voltam no próximo relatório.`:''}</div>
+      As linhas em amarelo são as perdas novas desde a última vez que o relatório foi aberto.
+      A medição começa em <b>${CRM_PERDAS_DESDE.split('-').reverse().join('/')}</b> — perdas anteriores a essa data não entram.${ocultos?`<br>⚠️ Há mais <b>${ocultos}</b> pendente(s) além dos ${TETO_LINHAS} mais recentes mostrados aqui — eles voltam no próximo relatório.`:''}</div>
     <table>
       <thead><tr><th>#</th><th>Dia</th><th>Cliente</th><th>Contato</th><th>Frete cotado</th><th>Valor</th><th>Vendedor / motivo atual</th><th>Motivo REAL (anotar)</th></tr></thead>
       <tbody>${linhas}</tbody>
