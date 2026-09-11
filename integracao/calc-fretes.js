@@ -537,16 +537,35 @@ function crmRecalcCalc(l, db){
   };
   setComp('Frete Base', base, true);
   setComp('Seguro', seguro, true);
+  // ⚠️ BASE SEM RECEBIMENTO CADASTRADO NÃO VALE ZERO — VALE "NÃO SEI".
+  // Caso Carlos Eduardo (11/09/2026): Salvador → SBC → Itajaí. Itajaí tem R$ 100 na tabela,
+  // Salvador está com `recebimento: null`. O código somava só o que achava e o oficial saiu
+  // abaixo do custo. O comercial reportou como "somou só uma das bases", mas o somatório
+  // está certo — o que falta é DADO, e a falta era silenciosa.
+  // Já tinha sido reportado 6× (João Pessoa e Natal 29/07, Porto Alegre 29/07, São Luís
+  // 30/07, Itajaí e São José 03/08, Curitiba 06/08) e "resolvido" cadastrando cada cidade.
+  // Por isso agora é regra: registra quais bases estão sem cadastro em `l._basesSemRec`,
+  // e quem emite o oficial é avisado (crmEnviarOrcamento).
+  // Em 11/09 eram 25 das 173 cidades sem recebimento — incluindo Rio, Salvador, Brasília,
+  // Goiânia, Recife, Curitiba, Manaus e Belém. As outras 148 cobram (127 delas R$ 150).
   const prim = trs[0], ult = trs[trs.length-1];
+  l._basesSemRec = [];
   if((prim||ult) && db && db.cidades){
     const cds = db.cidades;
     const recDe = nome => { const c=cds[normTxt((nome||'').split('/')[0])]; return (c && c.recebimento!=null)?c.recebimento:null; };
-    let ro = recDe(prim&&prim.de); if(ro==null) ro = recDe(l.origem);
-    let rd = recDe(ult&&ult.para); if(rd==null) rd = recDe(l.destino);
-    let recTot=0, achou=false;
-    if(ro!=null){ recTot+=ro; achou=true; }
-    if(rd!=null){ recTot+=rd; achou=true; }
-    if(achou) setComp('Recebimento', recTot * q, true);
+    let recTot = 0;
+    for(const [doTrecho, doLead] of [[prim&&prim.de, l.origem], [ult&&ult.para, l.destino]]){
+      let r = recDe(doTrecho); if(r==null) r = recDe(doLead);
+      if(r!=null){ recTot += r; continue; }
+      const nome = String(doTrecho||doLead||'').split('/')[0].trim();
+      // A base da própria OBS (São Bernardo) não cobra recebimento dela mesma — é pátio
+      // nosso, não de parceiro. ⚠️ SUPOSIÇÃO À CONFIRMAR com o Luiz; se estiver errada,
+      // basta tirar esta linha e SBC passa a ser avisada como as outras.
+      if(nome && normTxt(nome) !== 'sao bernardo do campo') l._basesSemRec.push(nome);
+    }
+    // Grava SEMPRE. Antes, quando NENHUMA das duas bases tinha valor, o `if(achou)` pulava
+    // o setComp e o campo ficava com o número do cálculo ANTERIOR (de outra rota).
+    setComp('Recebimento', recTot * q, true);
   }
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
     if(rb){

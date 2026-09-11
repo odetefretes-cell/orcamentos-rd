@@ -8245,16 +8245,35 @@ function crmRecalcCalc(id){
   setComp('Seguro', seguro, true);   // preenche sempre (0 se faltar UF ou valor do veículo)
   // Recebimento: AS DUAS BASES cobram — a de ORIGEM (recebe o veículo p/ carregar) e a de
   // DESTINO (recebe o veículo no fim). Soma as duas taxas (cada uma por veículo).
+  // ⚠️ BASE SEM RECEBIMENTO CADASTRADO NÃO VALE ZERO — VALE "NÃO SEI".
+  // Caso Carlos Eduardo (11/09/2026): Salvador → SBC → Itajaí. Itajaí tem R$ 100 na tabela,
+  // Salvador está com `recebimento: null`. O código somava só o que achava e o oficial saiu
+  // abaixo do custo. O comercial reportou como "somou só uma das bases", mas o somatório
+  // está certo — o que falta é DADO, e a falta era silenciosa.
+  // Já tinha sido reportado 6× (João Pessoa e Natal 29/07, Porto Alegre 29/07, São Luís
+  // 30/07, Itajaí e São José 03/08, Curitiba 06/08) e "resolvido" cadastrando cada cidade.
+  // Por isso agora é regra: registra quais bases estão sem cadastro em `l._basesSemRec`,
+  // e quem emite o oficial é avisado (crmEnviarOrcamento).
+  // Em 11/09 eram 25 das 173 cidades sem recebimento — incluindo Rio, Salvador, Brasília,
+  // Goiânia, Recife, Curitiba, Manaus e Belém. As outras 148 cobram (127 delas R$ 150).
   const prim = trs[0], ult = trs[trs.length-1];
+  l._basesSemRec = [];
   if((prim||ult) && TABELA_FRETES && TABELA_FRETES.cidades){
     const cds = TABELA_FRETES.cidades;
     const recDe = nome => { const c=cds[normTxt((nome||'').split('/')[0])]; return (c && c.recebimento!=null)?c.recebimento:null; };
-    let ro = recDe(prim&&prim.de); if(ro==null) ro = recDe(l.origem);
-    let rd = recDe(ult&&ult.para); if(rd==null) rd = recDe(l.destino);
-    let recTot=0, achou=false;
-    if(ro!=null){ recTot+=ro; achou=true; }
-    if(rd!=null){ recTot+=rd; achou=true; }
-    if(achou) setComp('Recebimento', recTot * q, true);
+    let recTot = 0;
+    for(const [doTrecho, doLead] of [[prim&&prim.de, l.origem], [ult&&ult.para, l.destino]]){
+      let r = recDe(doTrecho); if(r==null) r = recDe(doLead);
+      if(r!=null){ recTot += r; continue; }
+      const nome = String(doTrecho||doLead||'').split('/')[0].trim();
+      // A base da própria OBS (São Bernardo) não cobra recebimento dela mesma — é pátio
+      // nosso, não de parceiro. ⚠️ SUPOSIÇÃO À CONFIRMAR com o Luiz; se estiver errada,
+      // basta tirar esta linha e SBC passa a ser avisada como as outras.
+      if(nome && normTxt(nome) !== 'sao bernardo do campo') l._basesSemRec.push(nome);
+    }
+    // Grava SEMPRE. Antes, quando NENHUMA das duas bases tinha valor, o `if(achou)` pulava
+    // o setComp e o campo ficava com o número do cálculo ANTERIOR (de outra rota).
+    setComp('Recebimento', recTot * q, true);
   }
   // Reembarque: R$100 por ligação de uma transportadora à outra; Belém↔Manaus = R$200.
   { const rb=l.composicao.find(c=>normTxt(c.desc)==='reembarque');
@@ -8661,6 +8680,16 @@ function crmEnviarOrcamento(id){
   const l = CRM_LEADS[id]; if(!l) return;
   const V = crmValoresOrc(l);
   if(!V.totalPorta){ if(!confirm('Nenhum valor calculado. Emitir mesmo assim?')) return; }
+  // Trava do recebimento: emitir com base sem taxa cadastrada é vender abaixo do custo.
+  // Não é bloqueio duro de propósito — enquanto as 25 cidades não forem cadastradas, um
+  // bloqueio pararia a operação. É um aviso que exige confirmação explícita.
+  { const semRec = l._basesSemRec || [];
+    if(semRec.length && !confirm(
+        '⚠️ ATENÇÃO — este orçamento pode sair ABAIXO DO CUSTO.\n\n' +
+        'A taxa de RECEBIMENTO não está cadastrada na tabela para: ' + semRec.join(' e ') + '.\n' +
+        'O sistema cobrou R$ 0,00 dessa(s) base(s). As demais cobram R$ 150 na maioria dos casos.\n\n' +
+        'O certo é cadastrar o recebimento na tabela de preços ANTES de emitir.\n\n' +
+        'Emitir assim mesmo?')) return; }
   const origem = l.origem || (l.trajetos&&l.trajetos[0]&&l.trajetos[0].de) || '—';
   const destino = l.destino || (l.trajetos&&l.trajetos.length&&l.trajetos[l.trajetos.length-1].para) || '—';
   const prazo = crmPrazoTexto(l);
