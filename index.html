@@ -6234,6 +6234,15 @@ const CRM_MOTIVOS_PERDA = [
     { v:'Não comprou o veículo',      ic:'🚗', d:'a compra não se concretizou' },
     { v:'Prazo não atendeu',          ic:'⏱️', d:'precisava mais rápido' },
   ]},
+  /* Grupo criado em 11/09/2026, a partir do caso Maurício dos Santos Santana: o atendente
+     anotou "demora comercial" e não havia motivo para isso. É o ÚNICO grupo que mede falha
+     NOSSA — todos os outros registram decisão do cliente ou limite do nosso serviço.
+     Separar importa: perder por preço é mercado, perder por demora é processo, e só o
+     segundo a OBS conserta sozinha. Sem essa distinção a demora ficava escondida dentro de
+     "Outro" ou, pior, dentro de "Desistiu do transporte" — parecendo decisão do cliente. */
+  { g:'Falha nossa', itens:[
+    { v:'Demora no atendimento',      ic:'🐌', d:'o lead esperou resposta e desistiu / ficou na fila sem ser atendido' },
+  ]},
   { g:'Não atendemos', itens:[
     { v:'Rota que não atendemos',     ic:'🗺️', d:'sem prestador para o trecho' },
     { v:'Veículo que não transportamos', ic:'🛵', d:'tipo de veículo fora do escopo' },
