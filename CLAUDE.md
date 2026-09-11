@@ -359,6 +359,17 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    - Resultado: São Paulo → Manaus **R$ 5.520 (3 trechos) → R$ 4.910 (2 trechos)**. Regressão: 310 pares, 289 iguais, 9 mais baratos, **0 mais caros, 0 perderam rota**.
    - **`ferramentas/regressao-motor.js`** (`base` grava o snapshot, `comparar` confere) — a amostra mistura origens que passam pelo hub com pares regionais onde a mudança não pega, que é a lição do incidente de 04/09. Rodar SEMPRE antes de mexer no motor.
 
+   **🐞 O mesmo padrão apareceu 3× no motor (09–11/09/2026): "recurso melhor existe, mas só é consultado quando não há alternativa nenhuma".** Ao mexer aqui, desconfiar de todo `if(!x.length){ … }` — é a assinatura do problema.
+   1. **Corte de 500 combinações** — guardava as 500 PRIMEIRAS, na ordem da tabela. Corrigido com dedup + ordenação por `valor + custo[dN]`. São Paulo → Manaus: R$ 5.520 (3t) → R$ 4.910 (2t). Regressão 310 pares: 9 mais baratos, 0 mais caros.
+   2. **A base só entrava se fosse uma das 2 vizinhas mais próximas** — numa origem cercada de cidades (Diadema, São Caetano…) São Bernardo ficava de fora e o motor COMPRAVA um trecho até a própria base. `comBaseObs()` põe a base sempre na lista quando está no raio, e `allBase` descarta opção cujo 1º trecho só serve para chegar nela. Guardas: só filtra se a base é alcançável E se sobrou opção saindo dela (nunca perder cotação). Confirmado pelo Luiz: **embarque da região metropolitana sai sempre de SBC, o cliente leva o carro** — a OBS não paga prestador para buscar dentro do raio. Regressão 576 pares: 0 mais caros, 0 sem rota.
+   3. **Sub-trechos do corredor só como último recurso** — `crmAdjacencia` só conhece os pares o→d escritos, e rota de corredor é cadastrada com **1 embarque e N entregas** (Advaldo "SBC → João Pessoa": 1 origem, 175 destinos). Cidade do MEIO não tinha aresta para a frente. `crmArestasDaOrigem` (sub-trechos em ordem geográfica) só rodava se a cidade não tivesse NENHUMA aresta — Montes Claros tem 12 da IDEAL, todas para dentro de MG, então o Montes Claros → João Pessoa da Advaldo (R$ 1.900) era invisível e o frete voltava 824 km até SBC. Agora entram sempre; viável só por causa do item 1 (dedup+ordenação), senão estouraria o corte. **Custo: ~950 arestas por origem; 0,5–2,1 s por orçamento.** Regressão 576 pares: 0 mais caros, 0 sem rota.
+
+   ⚠️ **LIMITE DESTA VALIDAÇÃO — ler antes de confiar nos números acima:** a regressão roda sobre `integracao/tabela-fretes.json` (cópia EMPACOTADA, 443 rotas), não sobre a tabela de produção (487). **Nenhum dos 3 sintomas relatados pelo Luiz se reproduziu localmente** — aqui os casos já saíam certos antes. Ou seja: as correções estão provadas como SEGURAS (não pioram nada), não como EFICAZES. Para reproduzir de verdade, puxar a tabela de produção primeiro:
+   ```
+   su - postgres -c "psql -d obs -At -c \"SELECT data->>'data' FROM fretes WHERE id='_tabela';\"" > /tmp/tab.b64
+   node -e "const f=require('fs'),z=require('zlib');f.writeFileSync('/tmp/tabela-producao.json',z.gunzipSync(Buffer.from(f.readFileSync('/tmp/tab.b64','utf8').trim(),'base64')))"
+   ```
+
    **Regras de negócio confirmadas pelo Luiz (04/09):**
    - **Preço: sempre o mais barato**, mesmo que a vaga embarque/entregue numa **cidade vizinha** (o sistema aceita vizinha até 42 km, 2 candidatas).
    - **Transbordo** (ex.: RJ→SBC→Betim) é legítimo, mas prestador **direto** é preferível quando a condição é melhor — já existe `CRM_TETO_DIRETA = 300` (aceita pagar até R$ 300 a mais por um embarque a menos).
