@@ -412,7 +412,17 @@ function crmGerarOpcoes(db, o, d, cat){
   const legB = b => ({ transportadora:b.carrier, valor:precoCat(b.valores,cat), valores:b.valores, oNome:b.oNome,oUF:b.oUF,dNome:b.dNome,dUF:b.dUF, oN:b.oN, dN:b.to, prazo:b.prazo });
   const saemDaOrigem=[];
   for(const k in adj){ if(!matchKey(k,o)) continue; for(const b of adj[k]) saemDaOrigem.push(legB(b)); }
-  if(!saemDaOrigem.length){ for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b)); }
+  // SUB-TRECHOS SEMPRE, NÃO SÓ COMO ÚLTIMO RECURSO. `crmAdjacencia` só conhece os pares
+  // o→d escritos na tabela, e as rotas de corredor são cadastradas com UMA origem e dezenas
+  // de destinos (a Advaldo "SBC → João Pessoa" tem 1 embarque e 175 entregas). Então uma
+  // cidade DO MEIO do corredor não tem aresta para a frente, mesmo com o caminhão passando
+  // na porta. `crmArestasDaOrigem` monta esses sub-trechos em ordem geográfica — mas só
+  // rodava quando a cidade não tinha NENHUMA aresta. Montes Claros tem 12 (todas da IDEAL,
+  // para dentro de Minas), então o Montes Claros → João Pessoa da Advaldo (R$ 1.900) nunca
+  // aparecia: o motor voltava 824 km até São Bernardo e o frete saía R$ 4.200 em vez de
+  // R$ 3.300. Agora entram sempre; o dedup + ordenação logo abaixo é que torna isso viável
+  // sem estourar o corte de 500.
+  for(const b of crmArestasDaOrigem(db,o)) saemDaOrigem.push(legB(b));
   // ⚠️ A ORDEM DESTA LISTA DECIDE O RESULTADO, por causa do corte em 500 logo abaixo.
   // Saindo de um hub como São Bernardo, `saemDaOrigem` passa de 4.800 trechos — e o corte
   // guardava 500 combinações QUAISQUER, na ordem em que a tabela foi lida. Era assim que
