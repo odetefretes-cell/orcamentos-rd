@@ -66,6 +66,17 @@ const PRECOS_ROTA = [
         comercial confirmar se subiu junto. */
   { transportadora:/ideal transportes 2/i, rota:'Goiânia (GO) - São Luís (MA)',
     valores:{ p:2900 }, fonte:'reporte do comercial 09/09/2026 (Emerson)' },
+
+  /* ---- Relatório do grupo TREINAMENTO IA, item 3 (08/09/2026) ----
+     "Moto P com a Angela: R$ 500 → R$ 700". Angela = TRANSVELLA (confirmado pelo
+     Luiz em 11/09; o relatório usa o nome da pessoa, a tabela o da empresa).
+     A Transvella só tem estas duas rotas, e as DUAS estão com moto a R$ 500 —
+     por isso as duas sobem. O relatório não separou sentido.
+     ⚠️ Se o reajuste valer só num sentido, apagar a linha que não vale. */
+  { transportadora:/transvella/i, rota:'São Bernardo do Campo (SP) - Serra (ES)',
+    valores:{ m300:700 }, fonte:'reporte do comercial 08/09/2026 (Angela = Transvella)' },
+  { transportadora:/transvella/i, rota:'Serra (ES) - São Bernardo do Campo (SP)',
+    valores:{ m300:700 }, fonte:'reporte do comercial 08/09/2026 (Angela = Transvella)' },
 ];
 
 
@@ -97,6 +108,21 @@ const NOVAS_ROTAS = [
     valores:{ p:600, g:700, m300:600 },
     trechos:[['Campina Grande','PB','João Pessoa','PB']],
     fonte:'vaga passada pelo comercial 11/09/2026 (mesmo valor ida e volta)' },
+
+  /* ---- Relatório do grupo TREINAMENTO IA, item 2 (08/09/2026) ----
+     "Vaga rota Caruaru/PE — Advaldo, carro pequeno: R$ 2.000 → R$ 1.900."
+     Caruaru não tinha vaga própria: era só um trajeto da rota "SBC - Natal" e
+     herdava o preço dela. Com a rota nomeada, o desempate do `rotaNomeadaPar`
+     faz o par SBC→Caruaru usar esta vaga.
+     ✔ SÓ Carro Passeio de propósito, e isso é SEGURO: `_nomeada` exige que a rota
+       tenha preço NAQUELA categoria (`preco(r)!=null`), então Carro Grande e moto
+       seguem cotando como hoje. Medido em 11/09 — passeio 2.000 (Kroth) → 1.900
+       (Advaldo); grande 2.100 e moto 800 sem mudança. */
+  { transportadora:/advaldo/i, nomeSeNova:'Advaldo Transportes',
+    rota:'São Bernardo do Campo (SP) - Caruaru (PE)',
+    valores:{ p:1900 },
+    trechos:[['São Bernardo do Campo','SP','Caruaru','PE']],
+    fonte:'reporte do comercial 08/09/2026' },
 ];
 
 /* --------------------------------------------------------------------------
