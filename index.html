@@ -5819,6 +5819,10 @@ function crmMotivoInconclusivo(m){
      Os padrões antigos ficam porque os motivos eram texto livre até agosto/2026.
      ⚠️ "Contato inválido" NÃO entra: o telefone está errado, não adianta ligar — é motivo
      definitivo, não provisório. "Outro" também não: quem escolhe descreve o motivo. */
+  // ⚠️ ORDEM IMPORTA: "Sem retorno — apurado" CONTÉM "sem retorno" e cairia na expressão
+  // abaixo, voltando ao relatório para sempre — exatamente o loop que ele existe para
+  // encerrar. Por isso o definitivo é reconhecido ANTES de qualquer outro teste.
+  if(/apurad/.test(t)) return false;
   if(/^nao conseguimos contato/.test(t)) return true;
   return /sem contato|sem retorno|sem retormo|sem resposta|sem motivo|nao respondeu/.test(t);
 }
@@ -6236,6 +6240,13 @@ const CRM_MOTIVOS_PERDA = [
   ]},
   { g:'Não houve conversa', itens:[
     { v:'Não conseguimos contato',    ic:'📵', d:'a apurar — entra no relatório diário de ligação', prov:true },
+    // Criado em 11/09/2026. O relatório de apuração devolvia SEMPRE os mesmos leads: o
+    // atendente ligava, o cliente nunca respondia, e o único motivo disponível para isso
+    // era "Não conseguimos contato" — que é PROVISÓRIO e devolve o lead à lista no dia
+    // seguinte. A equipe religava nos mesmos contatos indefinidamente. Este motivo é o
+    // DEFINITIVO: já tentamos e encerramos. Sai do relatório e continua contando como
+    // perda, separada de quem nunca chegou a ser procurado.
+    { v:'Sem retorno — apurado',      ic:'🔕', d:'tentamos contato e o cliente nunca respondeu — encerrado' },
     { v:'Contato inválido',           ic:'☎️', d:'telefone/e-mail falso ou errado' },
     { v:'Lead duplicado',             ic:'👥', d:'já existe outro registro do mesmo cliente' },
   ]},
