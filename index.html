@@ -6719,19 +6719,40 @@ async function crmProcessarPerdasLote(){
     if(vistos.has(id)) continue; vistos.add(id);
     resolvidos.push({ id, motivo: it.motivo||'' });
   }
-  const jaPerdidos=resolvidos.filter(r=>CRM_LEADS[r.id].etapa==='perdido');
-  const aMarcar=resolvidos.filter(r=>CRM_LEADS[r.id].etapa!=='perdido');
+  /* Quem JÁ está perdido não é ignorado: tem o MOTIVO CORRIGIDO.
+     Foi o caso de 11/09/2026 — o relatório "Perdas para apurar" só lista leads que já
+     estão perdidos, então a apuração feita em papel pelos atendentes voltava para cá e o
+     botão respondia "18 já perdidos (ignorados)" sem fazer nada. Corrigir um a um, pelo
+     ✏️❌ de cada lead, eram 18 aberturas de ficha. Agora o mesmo lote resolve as duas
+     coisas: marca quem ainda não está perdido e atualiza o motivo de quem já está.
+     Sem motivo na linha não há o que corrigir — esse fica de fora. */
+  const jaPerdidos=resolvidos.filter(r=>{ const e=CRM_LEADS[r.id].etapa; return e==='perdido'||e==='arquivado'; });
+  const aMarcar   =resolvidos.filter(r=>{ const e=CRM_LEADS[r.id].etapa; return e!=='perdido'&&e!=='arquivado'; });
+  const aCorrigir = jaPerdidos.filter(r=> r.motivo && normTxt(r.motivo)!==normTxt(CRM_LEADS[r.id].motivoPerda||''));
+  const semMudanca= jaPerdidos.length - aCorrigir.length;
   const esc=s=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   if(st){
     st.style.display='';
     st.innerHTML=`Encontrados: <b>${resolvidos.length}</b> · A marcar como perdido: <b>${aMarcar.length}</b>`+
-      (jaPerdidos.length?` · Já perdidos (ignorados): <b>${jaPerdidos.length}</b>`:'')+
+      (aCorrigir.length?` · Motivo a corrigir: <b>${aCorrigir.length}</b>`:'')+
+      (semMudanca?` · Sem mudança: <b>${semMudanca}</b>`:'')+
       (naoAchou.length?`<br><span style="color:#f0a0a0">⚠ Não encontrados (${naoAchou.length}): ${naoAchou.slice(0,25).map(esc).join(', ')}${naoAchou.length>25?'…':''}</span>`:'');
   }
-  if(!aMarcar.length) return;
-  const ok=await uiConfirm(`Marcar ${aMarcar.length} lead(s) como PERDIDO?`, {titulo:'Marcar perdas em lote', ok:'Marcar perdidos'});
+  if(!aMarcar.length && !aCorrigir.length) return;
+  const partes=[];
+  if(aMarcar.length)   partes.push(`marcar ${aMarcar.length} lead(s) como PERDIDO`);
+  if(aCorrigir.length) partes.push(`corrigir o motivo de ${aCorrigir.length} já perdido(s)`);
+  const ok=await uiConfirm(partes.join('\ne ')+'?', {titulo:'Marcar perdas em lote', ok:'Confirmar'});
   if(!ok) return;
-  await crmMarcarPerdaLote(aMarcar, st);
+  // A correção do motivo entra na linha do tempo igual à do ✏️❌ de um lead só, para o
+  // histórico mostrar de onde veio a mudança.
+  for(const r of aCorrigir){
+    const l=CRM_LEADS[r.id]; const antes=l.motivoPerda||'';
+    l.motivoPerda=r.motivo;
+    l.ultimaInteracao=new Date().toISOString();
+    crmAddTimeline(r.id,'perda',`Motivo da perda corrigido em lote: ${antes||'(sem motivo)'} → ${r.motivo}`);
+  }
+  await crmMarcarPerdaLote(aMarcar, st, aCorrigir.length);
 }
 // marca a lista de leads como PERDIDO reutilizando a mesma lógica do botão individual (sem prompt), salvando em blocos
 // marca UM lead como perdido SÓ na memória (sem gravar) — usado pelo lote p/ salvar tudo de uma vez
@@ -6746,11 +6767,14 @@ function crmMarcarPerdaSemSalvar(id, motivo){
 // marca a lista TODA em memória e grava UMA vez, AGUARDANDO a nuvem confirmar antes de reportar.
 // (antes: saveCRM por lead, fire-and-forget → sob centenas de leads muitas gravações não chegavam
 //  na nuvem e revertiam no reload. Agora é 1 writeBatch atômico e aguardado.)
-async function crmMarcarPerdaLote(lista, st){
+async function crmMarcarPerdaLote(lista, st, corrigidos){
   const bt=$('#perdaLoteBtnConfirmar'); if(bt) bt.disabled=true;
   let feitos=0;
   for(const item of lista){ if(crmMarcarPerdaSemSalvar(item.id, item.motivo)) feitos++; }   // tudo em memória (síncrono)
-  if(st) st.innerHTML=`Gravando <b>${feitos}</b> na nuvem… aguarde.`;
+  // `corrigidos` já foram alterados em memória por quem chamou; entram na conta só para a
+  // mensagem não dizer "Gravando 0" quando o lote só corrigiu motivos.
+  const totalMem = feitos + (corrigidos||0);
+  if(st) st.innerHTML=`Gravando <b>${totalMem}</b> na nuvem… aguarde.`;
   const vc=$('#viewCrm'); if(vc && vc.style.display!=='none' && typeof renderCRM==='function') renderCRM();
   // aguarda a gravação (writeBatch). Com timeout: se a rede estiver lenta/offline, a persistência
   // offline (IndexedDB) já guardou tudo e sincroniza sozinha — não trava o botão eternamente.
@@ -6762,13 +6786,13 @@ async function crmMarcarPerdaLote(lista, st){
   }catch(e){ resultado='erro'; console.error('perdas lote:', e); }
   if(bt) bt.disabled=false;
   if(resultado==='erro'){
-    if(st) st.innerHTML=`⚠ ${feitos} marcados na tela, mas a gravação na nuvem falhou. Verifique a conexão e tente de novo (F12 → Console).`;
+    if(st) st.innerHTML=`⚠ ${totalMem} alterados na tela, mas a gravação na nuvem falhou. Verifique a conexão e tente de novo (F12 → Console).`;
     flash('⚠ Falha ao gravar as perdas na nuvem — tente novamente.','erro');
     return;
   }
   if(resultado==='timeout'){
-    if(st) st.innerHTML=`⏳ <b>${feitos}</b> marcados e <b>na fila de gravação</b> (a persistência offline garante o envio quando a conexão estabilizar). Pode aguardar alguns segundos antes de recarregar.`;
-    flash(`${feitos} marcados — sincronizando com a nuvem…`);
+    if(st) st.innerHTML=`⏳ <b>${totalMem}</b> alterados e <b>na fila de gravação</b> (a persistência offline garante o envio quando a conexão estabilizar). Pode aguardar alguns segundos antes de recarregar.`;
+    flash(`${totalMem} alterados — sincronizando com a nuvem…`);
     return;
   }
   if(st) st.innerHTML=`✅ Concluído — <b>${feitos}</b> lead(s) marcados como perdido e <b>gravados na nuvem</b>.`;
