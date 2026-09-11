@@ -558,9 +558,9 @@ function crmRecalcCalc(l, db){
       let r = recDe(doTrecho); if(r==null) r = recDe(doLead);
       if(r!=null){ recTot += r; continue; }
       const nome = String(doTrecho||doLead||'').split('/')[0].trim();
-      // A base da própria OBS (São Bernardo) não cobra recebimento dela mesma — é pátio
-      // nosso, não de parceiro. ⚠️ SUPOSIÇÃO À CONFIRMAR com o Luiz; se estiver errada,
-      // basta tirar esta linha e SBC passa a ser avisada como as outras.
+      // ✅ CONFIRMADO PELO LUIZ (11/09/2026): a base da própria OBS (São Bernardo) NÃO
+      // cobra recebimento — é pátio nosso, não de parceiro. Por isso ela não entra no
+      // aviso. As outras 24 cidades sem taxa cadastrada são bases de parceiro e entram.
       if(nome && normTxt(nome) !== 'sao bernardo do campo') l._basesSemRec.push(nome);
     }
     // Grava SEMPRE. Antes, quando NENHUMA das duas bases tinha valor, o `if(achou)` pulava

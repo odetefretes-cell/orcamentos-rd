@@ -400,6 +400,21 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
        I.calcularFreteLead(l,db,c); (l.trajetos||[]).forEach(t=>console.log(t.transportadora,t.de,'>',t.para,t.valor)); })();"
    ```
 
+16. **Taxa de recebimento de base: falta de cadastro entrava como ZERO (11/09/2026) — CORRIGIDO:** o orçamento oficial do cliente Carlos Eduardo (Salvador → SBC → Itajaí) saiu com Recebimento de R$ 100. O comercial reportou como "somou só uma das duas bases", mas o somatório está certo: Itajaí tem R$ 100 cadastrado e **Salvador está com `recebimento: null`**. Base sem cadastro contribuía 0 em silêncio, e o oficial saía abaixo do custo.
+   - **Por isso o defeito voltou 6×** desde julho (João Pessoa e Natal 29/07, Porto Alegre 29/07, São Luís 30/07, Itajaí e São José 03/08, Curitiba 06/08): cada chamado era "resolvido" cadastrando aquela cidade, sem tratar a regra.
+   - **Escala (11/09):** **25 das 173 cidades** sem recebimento — Rio, Salvador, Brasília, Goiânia, Recife, Curitiba, Manaus, Belém, Vitória, Campo Grande, Cuiabá, São Luís, Boa Vista, Macapá, Porto Velho, Rio Branco, Cruzeiro do Sul, Santarém, Alagoinhas, Betim/BH, Pato Branco, Tubarão, Uruguaiana, São Paulo e SBC. As outras 148 cobram (**127 delas R$ 150**).
+   - **Correção:** `l._basesSemRec` guarda as bases do trajeto sem taxa; `crmEnviarOrcamento` exige confirmação explícita antes de emitir. **Não é bloqueio duro de propósito** — com 25 cidades pendentes, travar pararia a operação.
+   - ✅ **CONFIRMADO PELO LUIZ (11/09):** a base da própria OBS (São Bernardo) **não cobra** recebimento — é pátio nosso. Fica fora do aviso; as outras 24 entram.
+   - Corrigido junto um efeito colateral: quando NENHUMA das duas bases tinha valor, o `if(achou)` pulava o `setComp` e o campo ficava com o número do **cálculo anterior**, de outra rota.
+   - ⚠️ **NÃO resolvido:** base do MEIO do trajeto (transbordo) não é considerada — só a primeira origem e o último destino. No caso do Carlos Eduardo o meio era SBC (isenta), mas com outro hub a conta ficaria incompleta. Falta decidir a regra comercial.
+   - ⚠️ **Pendente de dado:** as 24 cidades de parceiro precisam do valor real de recebimento. Enquanto não vierem, o aviso dispara e o operador decide.
+
+17. **Coleta/entrega é por CIDADE, não por transportadora — limite da modelagem (11/09/2026):** o relatório do comercial trouxe as taxas de coleta e entrega do **AMOS/SOMA** (Goiânia 200, Aparecida de Goiânia 250, Anápolis 400, Brasília 250, Brasília Lago Norte/Colorado 350, Palmas 200), mas `tabela.cidades[x].coletaEntrega` é **um valor único por cidade, válido para todas as transportadoras** (ver o importador da planilha no `index.html`). Aplicar os números do SOMA mudaria o preço de todo mundo naquelas praças.
+   - ✅ **CONFIRMADO PELO LUIZ (11/09):** essas taxas são **só do AMOS/SOMA**. Portanto **não foram aplicadas**.
+   - Suportar isso exige `coletaEntrega` por transportadora — mexe na tabela, no importador da planilha e no motor. **Não feito**; anotado como próximo passo.
+   - ⚠️ "Brasília Lago Norte e Colorado R$ 350" é **sub-região de cidade**, granularidade que a tabela também não tem (a chave é cidade+UF).
+   - As 8 rotas do SOMA (SBC ↔ Goiânia/Brasília 1.200/1.300 e 700/800; Goiânia/Brasília ↔ Palmas idem) **já estavam cadastradas e com os preços certos** — o item 5 do relatório estava desatualizado nessa parte.
+
 14. **3ª trava de segurança + lembrete que não repete (05/09/2026):**
    - **Branch de deploy esclarecida:** a automação/app rodam da **`claude/automate-transport-contract-form-tgvad2`** (padrão do `deploy-automacao.sh`, única com `integracao/vps/`). A `claude/obs-leads-automation-backend-kaga7q` ficou paralela e **não** deploya. Ver o aviso na §0.
    - **3ª trava (status ABERTO)** — reforço da proteção anti-"mensagem por cima do atendente" no fluxo de contato direto: `chatguru-webhook` grava `statusChatguru` no intake; `processarLeadCompleto` pula (não pergunta/cota/envia) quando o status é claramente "atendido" (AGUARDANDO/EM ATENDIMENTO/resolvido/fechado), **além** da trava do responsável. Fail-open seguro: `ABERTO`/vazio/desconhecido **não** bloqueia (não trava contato novo). Botão "Gerar Orçamento" (`fechadoManual`) é **isento**. Log: `chat EM ATENDIMENTO (status …) — pula`.
