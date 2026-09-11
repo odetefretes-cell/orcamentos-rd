@@ -8937,7 +8937,11 @@ const CRM_CARTAO_MARGEM   = 0.80;    // p.p. — Elo e Amex custam isso a mais q
 const CRM_CARTAO_MAX      = 12;      // 18 quando a e.Rede estiver ativa
 const CRM_CARTAO_TETO     = 15000;   // teto por link da Rede
 const CRM_CARTAO_PARC_MIN = 150;     // regra comercial da OBS
-const CRM_CARTAO_ANCORAS  = [1,6,12,18];
+// Parcelas que aparecem no orçamento — pedido do Luiz (11/09): 1 a 6 e o 12.
+// O salto de 6 para 12 é de propósito: 7x a 11x não acrescentam decisão nenhuma
+// para o cliente e só alongariam a tabela. O maior prazo possível entra sempre,
+// mesmo fora desta lista (num frete pequeno a parcela mínima corta antes do 12).
+const CRM_CARTAO_ANCORAS  = [1,2,3,4,5,6,12];
 
 function crmCoefCartao(n){
   const t = (CRM_TAXA_REDE[n] + CRM_CARTAO_MARGEM)/100;
@@ -9007,6 +9011,12 @@ function crmEnviarOrcamento(id){
     .pay{font-size:11px;margin:3px 0}
     .foot{margin-top:16px;border-top:2px solid #0a3d91;padding-top:8px;font-size:11px;color:#333;text-align:center}
     .venda{margin:10px 0;border:2px solid #E30613;border-radius:8px;background:#fdeaea;padding:9px 12px}
+    .parcbox{margin:7px 0 9px;border:2px solid #0a3d91;border-radius:8px;background:#f4f8ff;padding:9px 11px}
+    .parctit{font-size:12.5px;font-weight:700;color:#0a3d91;margin:0 0 6px}
+    .parctab{width:100%;border-collapse:collapse;margin:0}
+    .parctab th{background:#0a3d91;color:#fff;text-align:center;font-size:11.5px;font-weight:700;padding:4px 3px;border:1px solid #0a3d91;letter-spacing:0}
+    .parctab td{text-align:center;font-size:12.5px;font-weight:700;color:#111;padding:6px 3px;border:1px solid #b9c8e4;background:#fff;white-space:nowrap}
+    .parcobs{font-size:10.5px;color:#555;margin:6px 0 0}
     .venda div{font-size:12px;color:#7a0a0f;margin:2px 0;font-weight:600}
     @media print{body{padding:0 6mm}}
   </style></head><body>
@@ -9056,9 +9066,16 @@ function crmEnviarOrcamento(id){
     ${(()=>{ const ops=crmLinhasCartao(V.totalBase);
       if(!ops.length) return '<div class="pay">• Cartão de crédito via link de pagamento online (consulte as parcelas).</div>';
       const maxN=ops[ops.length-1].parcelas;
-      return `<div class="pay">• Cartão de crédito, link seguro, em até <b>${maxN}x</b>:</div>`
-        + `<div class="pay" style="margin-left:14px">${ops.map(o=>`<b>${o.parcelas}x</b> de ${M(o.valorParcela)}`).join(' &nbsp;·&nbsp; ')}</div>`
-        + `<div class="pay" style="margin-left:14px;color:#555">Valores já com a taxa da operadora inclusa. Aceita Visa, Mastercard, Elo e Amex.</div>`;
+      // Tabela e não lista corrida: o cliente compara as parcelas de relance, e em papel
+      // uma linha só com 7 valores separados por ponto vira ruído.
+      return `<div class="parcbox">
+        <p class="parctit">💳 Cartão de crédito — link seguro, em até ${maxN}x</p>
+        <table class="parctab">
+          <tr>${ops.map(o=>`<th>${o.parcelas}x</th>`).join('')}</tr>
+          <tr>${ops.map(o=>`<td>${M(o.valorParcela)}</td>`).join('')}</tr>
+        </table>
+        <p class="parcobs">Valores já com a taxa da operadora inclusa · Visa, Mastercard, Elo e Amex · o link é gerado pela Rede (Itaú)</p>
+      </div>`;
     })()}
     <div class="pay">• <b>Boleto bancário para PJ</b> (Pessoa Jurídica): até 15 dias após aprovação da ficha.</div>
 
