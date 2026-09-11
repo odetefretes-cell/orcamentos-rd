@@ -705,12 +705,23 @@ function crmColetarOpcoes(db, coords, oR, dR, cat, oRefCo, dRefCo){
     const f=x.legs[0], u=x.legs[x.legs.length-1];
     return perto(f.oNome,f.oUF, oRefCo) && perto(u.dNome,u.dUF, dRefCo);
   });
+  // ⚠️ O CORTE TEM QUE ESCOLHER PELAS MELHORES, NÃO PELA ORDEM DE EXIBIÇÃO. Este `slice(60)`
+  // vinha depois de um sort que põe DIRETAS primeiro — o que serve à tela, não à qualidade.
+  // Quando os sub-trechos do corredor passaram a gerar muitas diretas, elas ocuparam as 60
+  // vagas e EMPURRARAM PARA FORA combinações mais baratas: Nossa Senhora do Socorro → Porto
+  // Alegre perdeu a opção de R$ 2.375 que embarcava NA PRÓPRIA CIDADE e ficou com R$ 2.555
+  // saindo de Aracaju. Mesmo erro do corte de 500: cortar uma lista ordenada por outra coisa
+  // que não seja o que se quer preservar.
+  // Agora: guarda as 60 MAIS BARATAS (empate → embarque mais perto da origem real) e só
+  // então aplica a ordem de exibição sobre as que sobraram.
+  const _porOrigem = (a,b)=> distA(coDe(a.legs[0].oNome,a.legs[0].oUF),oRefCo) - distA(coDe(b.legs[0].oNome,b.legs[0].oUF),oRefCo);
+  const melhores = lista.slice().sort((a,b)=> (a.total??1e12)-(b.total??1e12) || _porOrigem(a,b)).slice(0, 60);
   // diretas primeiro; depois preço; EMPATE → embarque mais perto da origem real
   // (prefere embarcar na própria cidade, ex.: Uberlândia, não num hub vizinho como Araguari).
-  lista.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta')
+  melhores.sort((a,b)=> (a.tipo!=='direta')-(b.tipo!=='direta')
       || (a.total??1e12)-(b.total??1e12)
-      || distA(coDe(a.legs[0].oNome,a.legs[0].oUF),oRefCo) - distA(coDe(b.legs[0].oNome,b.legs[0].oUF),oRefCo));
-  return lista.slice(0, 60);
+      || _porOrigem(a,b));
+  return melhores;
 }
 // coords da cidade ORIGINAL (string crua "Cidade UF") — base da garantia geográfica.
 function coordsCidadeRaw(coords, raw){
