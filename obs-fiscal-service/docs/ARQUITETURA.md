@@ -24,28 +24,67 @@
 
 ## 2. Canal de integração com a OPHOS
 
-A OPHOS oferece o **Integrador** (https://www.ophos.com.br/suporte/integrador/): aplicativo Windows que faz a ponte com o sistema do cliente em três formatos:
+> ⚠️ **ESTA SEÇÃO FOI REESCRITA EM 11/09/2026.** A versão original descrevia o **Integrador
+> Windows** (aplicativo que monitora pastas `entrada/retorno/processados` com TXT posicional)
+> e dizia que o TXT era o formato principal "porque cobre CIOT". **Isso está errado** — foi
+> suposição feita antes de falar com a OPHOS. O texto antigo está no histórico do git.
 
-| Formato | Descrição | Recomendação |
+**O canal é API REST**, confirmado pelo suporte em 29/08 (Marcelo Vilas Boas) e pelo comercial
+em 31/08 (Angélica, protocolo 26083140616). Documentação **pública**:
+
+| Documento | Spec |
+|---|---|
+| CT-e | `https://developer.ophos.com.br/?url=/api/cte.json` |
+| MDF-e | `https://developer.ophos.com.br/?url=/api/mdfe.json` |
+
+### O que a API cobre — e o que NÃO cobre
+
+| Documento | Pela API? | Como fica |
 |---|---|---|
-| **TXT padrão OPHOS** | Layout posicional por linhas (ex.: linha 023 = CIOT do MDF-e, linha 018 campo 7 = averbação seguradora) | ✅ **Formato principal** — é o mais completo (cobre CIOT e campos de averbação) |
-| **XML padrão SEFAZ** | XML do CT-e 4.00 / MDF-e 3.00 | Alternativa p/ CT-e/MDF-e |
-| **Web Services** | Endpoint HTTP | Preferir SE cobrir CIOT/DC-e — confirmar com suporte |
+| **CT-e** | ✅ sim | emissão, eventos e download de DACTE/XML |
+| **MDF-e** | ✅ sim | inclui **encerramento** de manifesto em aberto |
+| Eventos (cancelamento, carta de correção) | ✅ sim | cobre as rotinas de maior retrabalho hoje |
+| **CIOT** | ⛔ **NÃO** | *"NÃO temos integração ainda"*. Segue manual na tela, ou vira projeto separado direto com a TruckPad/e-Frete |
+| **GNRE** | ⛔ **NÃO** | *"não emitimos GNRE"*. Segue no Portal GNRE, como já é hoje |
+| **DC-e** | ❓ ambíguo | *"possível emitir junto com o CTe"* — não ficou claro se há endpoint próprio ou se sai como anexo. **Confirmar antes de projetar** |
+| Nº de averbação do seguro | ⚠️ condicionado | só volta se a apólice for **AT&M, Porto Seguro, ELT Seguro ou Smart Load**. Confirmar qual é a nossa |
 
-⚠️ **AÇÃO INICIAL (bloqueante):** os layouts oficiais baixados pelo Luiz (arquivos de API/manuais do Integrador) devem ser colocados na pasta `docs/ophos-layouts/` deste repositório ANTES de implementar os builders. Todo parser/builder deve ser gerado a partir desses arquivos, não de suposição. Versão atual do Integrador: **5.24** (contempla Reforma Tributária; layout MDF-e TXT 2.08).
+⚠️ **Consequência de escopo:** `src/validators/ciot.js` continua válido (as regras do §6 valem
+para a emissão manual), mas **o CIOT não entra no pipeline automatizado** — o §5 precisa ser
+lido com isso em mente.
 
-**Arquitetura do Integrador:** ele roda numa máquina Windows (ou VM) monitorando pastas de entrada/saída:
+### Características que mudam o desenho
 
-```
-C:\ophos-integrador\
-  ├── entrada\    ← nosso serviço deposita os TXT/XML de emissão
-  ├── retorno\    ← OPHOS devolve autorização/rejeição (protocolo, chave de acesso, motivo)
-  └── processados\
-```
+- **Não há webhook.** O modelo é assíncrono com **duas chamadas**: uma emite, outra consulta o
+  retorno. Quem pergunta é o nosso sistema → exige **fila, reconsulta com espera progressiva e
+  um estado "aguardando autorização" visível ao operador**.
+- **Sem limite de chamadas** — o polling não vira problema contratual.
+- **A numeração passa a ser NOSSA.** *"A numeração e série você manda pelo seu sistema"*. O
+  `obs-fretes` vira a única fonte do próximo número. ⚠️ Emitir pela tela e pela API ao mesmo
+  tempo **fura a sequência** — separar séries durante a migração.
+- **Tem homologação**, então dá para desenvolver sem emitir documento válido por engano.
+- **Autenticação ainda indefinida:** *"vocês ganham usuário e senha, assim como no Emissor"* —
+  não diz se é Basic Auth em cada chamada ou troca por token com validade. **Pergunta aberta.**
 
-Nosso backend conversa com essas pastas (agente local leve com filesystem watcher + fila HTTP para o backend, ou a própria VM roda o backend).
+### Custo (proposta de 31/08, sem fidelidade nem multa)
 
-**Fallback:** enquanto a integração não cobre 100% (ex.: DC-e, downloads de PDF), manter a automação de navegador atual (skill Claude/Chrome) como executor alternativo do mesmo pipeline — a orquestração é a mesma, muda só o "driver".
+| Item | Faixa 100/mês | Faixa 200/mês |
+|---|---|---|
+| Ativação (uma vez) | R$ 340,00 | R$ 340,00 |
+| Plano CT-e | R$ 168,76 | R$ 275,15 |
+| CT-e excedente (cada) | R$ 1,688 | R$ 1,376 |
+| Plano MDF-e | R$ 126,36 | R$ 206,02 |
+| MDF-e excedente (cada) | R$ 1,264 | R$ 1,030 |
+| **Total mensalidade** | **R$ 295,12** ✅ | R$ 481,17 |
+
+Volume real informado pela própria OPHOS: **129, 142 e 93 CT-e** nos três últimos meses (média
+**122**). Na faixa de 100, os 22 excedentes saem a R$ 1,688 → R$ 205,90 de CT-e. A virada para a
+faixa de 200 fica por volta de **163 documentos/mês**. ⚠️ O **plano WEB atual continua cobrado à
+parte** e seu valor não foi informado — falta para fechar o custo da coexistência.
+
+**Fallback (ativo hoje):** a automação de navegador (skill `ophos-obs-documentos-fiscais`) segue
+como driver. Validação, regras e orquestração não mudam — troca-se só o motor de transmissão
+quando a API estiver ativa. Se o preço não compensar, o driver de navegador fica como definitivo.
 
 ---
 
