@@ -455,6 +455,22 @@ limpa marcas de atenção humana, usa o valor já calculado (só recalcula se fa
    - ⚠️ "Brasília Lago Norte e Colorado R$ 350" é **sub-região de cidade**, granularidade que a tabela também não tem (a chave é cidade+UF).
    - As 8 rotas do SOMA (SBC ↔ Goiânia/Brasília 1.200/1.300 e 700/800; Goiânia/Brasília ↔ Palmas idem) **já estavam cadastradas e com os preços certos** — o item 5 do relatório estava desatualizado nessa parte.
 
+19. **Apuração de perdas — relatório, motivos e lote (11/09/2026):**
+
+   **O relatório "📞 Perdas para apurar"** (`crmRelatorioPerdasApurar` no `index.html`) lista os leads perdidos em que NINGUÉM chegou a falar com o cliente, com telefone clicável, para o operador ligar e descobrir o motivo verdadeiro.
+   - ✅ **Marco zero em 07/09/2026** (`CRM_PERDAS_DESDE`, decisão do Luiz): perda anterior não entra. Perda **sem data** na linha do tempo também fica de fora — sem saber quando foi, não dá para afirmar que é posterior ao marco.
+   - ✅ **O lead só sai da lista quando alguém registra o motivo real.** A 1ª versão filtrava por período e quem apenas ABRISSE o relatório "consumia" os dias — os leads sumiam sem ninguém ter ligado. O período sobrou só para destacar o que é **novo** desde a última apuração (marca `perdasApuradasAte` em `crm_config/config`, compartilhada entre operadores).
+   - Corte de exibição em **200 linhas** (mais recentes primeiro); o excedente volta no relatório seguinte.
+
+   **🐞 O filtro não pegava o caso mais comum.** `crmMotivoInconclusivo` procurava `sem contato`, mas o único motivo provisório da lista oficial é **"Não conseguimos contato"** — que nunca casa depois do `normTxt`. O relatório enxergava só motivo VAZIO. Isso explica o número que originou o trabalho: **78% das perdas de agosto marcadas como "sem contato"** e ninguém sabia o porquê — o relatório que deveria resgatá-las não as via.
+
+   **Dois motivos NOVOS, criados a partir do relatório em papel dos atendentes (10/09):**
+   - **`Sem retorno — apurado`** — das 18 perdas apuradas, **14** foram anotadas como "sem retorno do lead", e esses leads JÁ tinham "Sem retorno após followup". Sem um motivo DEFINITIVO para "tentamos e o cliente nunca respondeu", eles voltariam ao relatório todo dia e a equipe religaria nos mesmos contatos para sempre. ⚠️ **ORDEM IMPORTA em `crmMotivoInconclusivo`:** o texto contém "sem retorno" e cairia na própria expressão que o devolveria à lista — por isso `/apurad/` é testado ANTES de tudo.
+   - **`Demora no atendimento`** (grupo **"Falha nossa"**, novo) — veio do caso Maurício dos Santos Santana ("demora comercial"). É o **único motivo que mede erro NOSSO**; todos os outros registram decisão do cliente ou limite do serviço. Sem ele a demora ficava escondida em "Outro" ou, pior, em "Desistiu do transporte", parecendo decisão do cliente. **Perder por preço é mercado, perder por demora é processo** — e só o segundo a OBS conserta sozinha.
+
+   **O botão "❌ Marcar perdas (lote)" passou a CORRIGIR o motivo de quem já está perdido.** O relatório de apuração só lista leads já perdidos, então a apuração voltava para o lote e o botão respondia "18 já perdidos (ignorados)" sem fazer nada — corrigir um a um eram 18 aberturas de ficha. Agora marca quem falta **e** atualiza o motivo de quem já está; motivo igual conta como "sem mudança"; cada correção entra na linha do tempo do lead.
+   - ⚠️ O lote casa o lead pelos **últimos 8 dígitos** do telefone (ignora DDI/DDD/formatação) ou pelo nome exato.
+
 14. **3ª trava de segurança + lembrete que não repete (05/09/2026):**
    - **Branch de deploy esclarecida:** a automação/app rodam da **`claude/automate-transport-contract-form-tgvad2`** (padrão do `deploy-automacao.sh`, única com `integracao/vps/`). A `claude/obs-leads-automation-backend-kaga7q` ficou paralela e **não** deploya. Ver o aviso na §0.
    - **3ª trava (status ABERTO)** — reforço da proteção anti-"mensagem por cima do atendente" no fluxo de contato direto: `chatguru-webhook` grava `statusChatguru` no intake; `processarLeadCompleto` pula (não pergunta/cota/envia) quando o status é claramente "atendido" (AGUARDANDO/EM ATENDIMENTO/resolvido/fechado), **além** da trava do responsável. Fail-open seguro: `ABERTO`/vazio/desconhecido **não** bloqueia (não trava contato novo). Botão "Gerar Orçamento" (`fechadoManual`) é **isento**. Log: `chat EM ATENDIMENTO (status …) — pula`.
