@@ -8916,6 +8916,56 @@ function crmPrazoTexto(l){
   const soma = (l.trajetos||[]).reduce((s,t)=>s+(parseInt(t.prazo)||0),0);
   return soma>0 ? `${soma} a ${soma+2} dias após o embarque` : 'a combinar';
 }
+/* ===== PARCELAMENTO NO CARTÃO ====================================================
+   Taxa TOTAL da Rede = MDR + antecipação automática (o dinheiro cai em 1 dia útil, e é a
+   antecipação que pesa: dos 17,86% do 18x, 14,44 pontos são dela). Modalidade Link de
+   Pagamento / e.Rede, bandeiras Mastercard e Visa.
+   Conferido no painel userede em 11/09/2026 — ⚠️ RECONFERIR A CADA TRIMESTRE: a taxa de
+   antecipação é renegociável e é o que mais move o custo.
+
+   A conta NÃO é "valor + taxa%". A taxa incide sobre o total COBRADO, então dividir por
+   (1 − taxa) é o que garante o líquido cheio — somar a taxa por cima deixa a OBS recebendo
+   menos que o frete. Ex.: frete 3.000 em 12x a 14,04% → cobrar 3.489,88, não 3.421,20.
+
+   ⚠️ HOJE O TETO É 12x: o Link de Pagamento do painel trava aí. Os 18x exigem a integração
+   e.Rede, cujas taxas já estão contratadas mas a integração não está ligada — quando
+   estiver, é só subir CRM_CARTAO_MAX para 18. */
+const CRM_TAXA_REDE = { 1:4.19, 2:5.33, 3:6.10, 4:6.87, 5:7.64, 6:8.41,
+  7:9.39, 8:10.16, 9:10.93, 10:11.70, 11:12.47, 12:13.24,
+  13:14.01, 14:14.78, 15:15.55, 16:16.32, 17:17.09, 18:17.86 };
+const CRM_CARTAO_MARGEM   = 0.80;    // p.p. — Elo e Amex custam isso a mais que Master/Visa
+const CRM_CARTAO_MAX      = 12;      // 18 quando a e.Rede estiver ativa
+const CRM_CARTAO_TETO     = 15000;   // teto por link da Rede
+const CRM_CARTAO_PARC_MIN = 150;     // regra comercial da OBS
+const CRM_CARTAO_ANCORAS  = [1,6,12,18];
+
+function crmCoefCartao(n){
+  const t = (CRM_TAXA_REDE[n] + CRM_CARTAO_MARGEM)/100;
+  return t >= 0.98 ? null : 1/(1-t);
+}
+// Opções que dá para cobrar DE VERDADE (respeita teto do link e parcela mínima).
+function crmOpcoesCartao(valorFrete, max){
+  const out=[]; const lim = max || CRM_CARTAO_MAX;
+  if(!(valorFrete>0)) return out;
+  for(let n=1; n<=lim; n++){
+    const c = crmCoefCartao(n); if(c===null) break;
+    const parcela = Math.ceil(valorFrete*c/n*100)/100;   // p/ CIMA: nunca receber menos
+    const total   = Math.round(parcela*n*100)/100;
+    if(n>1 && parcela < CRM_CARTAO_PARC_MIN) break;      // parcela pequena demais
+    if(total > CRM_CARTAO_TETO) break;                   // não cabe num link só
+    out.push({ parcelas:n, valorParcela:parcela, total, acrescimo: total-valorFrete });
+  }
+  return out;
+}
+// Linhas do orçamento. Mostra as âncoras + o maior prazo possível, para o cliente ver o
+// extremo sem uma lista de 12 linhas.
+function crmLinhasCartao(valorFrete){
+  const ops = crmOpcoesCartao(valorFrete);
+  if(!ops.length) return [];
+  const maxN = ops[ops.length-1].parcelas;
+  return ops.filter(o=>CRM_CARTAO_ANCORAS.includes(o.parcelas) || o.parcelas===maxN);
+}
+
 function crmEnviarOrcamento(id){
   const l = CRM_LEADS[id]; if(!l) return;
   const V = crmValoresOrc(l);
@@ -9002,8 +9052,14 @@ function crmEnviarOrcamento(id){
     </table>`:''}
 
     <h2>Formas de pagamento</h2>
-    <div class="pay">• Transferência, Pix ou depósito em conta: <b>50% na contratação e 50% no destino</b> para liberação.</div>
-    <div class="pay">• Cartão de crédito em até 12x (com acréscimo) via link de pagamento online.</div>
+    <div class="pay">• Transferência, Pix ou depósito em conta: <b>${M(V.totalBase)}</b> — 50% na contratação e 50% no destino para liberação.</div>
+    ${(()=>{ const ops=crmLinhasCartao(V.totalBase);
+      if(!ops.length) return '<div class="pay">• Cartão de crédito via link de pagamento online (consulte as parcelas).</div>';
+      const maxN=ops[ops.length-1].parcelas;
+      return `<div class="pay">• Cartão de crédito, link seguro, em até <b>${maxN}x</b>:</div>`
+        + `<div class="pay" style="margin-left:14px">${ops.map(o=>`<b>${o.parcelas}x</b> de ${M(o.valorParcela)}`).join(' &nbsp;·&nbsp; ')}</div>`
+        + `<div class="pay" style="margin-left:14px;color:#555">Valores já com a taxa da operadora inclusa. Aceita Visa, Mastercard, Elo e Amex.</div>`;
+    })()}
     <div class="pay">• <b>Boleto bancário para PJ</b> (Pessoa Jurídica): até 15 dias após aprovação da ficha.</div>
 
     <h2>Requisitos para realização do transporte</h2>
