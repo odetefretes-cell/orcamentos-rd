@@ -175,4 +175,24 @@ cron.schedule('5 8-19 * * *', async () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[orquestrador] lembretes agendados: 5 8-19 * * * (America/Sao_Paulo).');
 
+/* ---- 8) CONVERSÕES → planilha do Google Ads (1x por hora) -----------------
+   Lead em Venda Fechada com gclid vira uma linha na planilha que o Google Ads
+   relê toda madrugada (04:00–05:00). Substitui o upload manual de CSV, que o
+   Google aposentou. Anti-duplicação pelo carimbo `conversao_exportada_em`.
+   Sem GOOGLE_SA_KEY_FILE no .env o job só avisa e não faz nada. */
+const { processarConversoes } = require('../conversoes-sheets');
+let rodandoConversoes = false;
+cron.schedule('17 * * * *', async () => {
+  if (rodandoConversoes) return;
+  rodandoConversoes = true;
+  try {
+    const r = await processarConversoes();
+    if (r && (r.escritos || r.candidatos)) console.log('[conversoes] ciclo:', JSON.stringify(r));
+  } catch (e) {
+    // Nunca derruba o orquestrador: a planilha é efeito colateral, não pré-requisito.
+    console.error('[conversoes] erro no ciclo (leads ficam sem carimbo e voltam na próxima):', (e && e.message) || e);
+  } finally { rodandoConversoes = false; }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[orquestrador] conversões Ads agendadas: 17 * * * * (America/Sao_Paulo).');
+
 module.exports = { app, driver, pipeline };
