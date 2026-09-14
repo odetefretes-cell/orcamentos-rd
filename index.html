@@ -6156,7 +6156,7 @@ async function crmRelatorioPerdasApurar(dias){
   // A coluna do dia agora é SEMPRE necessária: a lista mistura perdas de qualquer data,
   // e o operador precisa saber se liga para alguém de ontem ou de três semanas atrás.
   const multi = true;
-  const linhas = lista.map((l,i)=>{
+  const linhaDe = (l,i)=>{
     const t = tel(l.telefone), wa = t ? (t.length>11?t:('55'+t)) : '';
     const veic = [l.veiculoDesc, l.categoria].filter(Boolean).join(' · ') || '—';
     const rota = [up(l.origem)||'?', up(l.destino)||'?'].join(' → ');
@@ -6171,13 +6171,34 @@ async function crmRelatorioPerdasApurar(dias){
           ${l.email?`<br><span class="s">${esc(l.email)}</span>`:''}</td>
       <td>${esc(rota)}<br><span class="s">${esc(veic)}</span></td>
       <td class="r">${M(l.valorEstimado)}</td>
-      <td>${esc(l.vendedor||'—')}<br><span class="s">${esc(l.motivoPerda||'(sem motivo)')}</span></td>
+      <td>${esc(l.motivoPerda||'(sem motivo)')}</td>
       <td class="mot"></td>
     </tr>`;
-  }).join('');
+  };
 
-  const porVend = {}; lista.forEach(l=>{ const v=l.vendedor||'(sem vendedor)'; porVend[v]=(porVend[v]||0)+1; });
-  const resumo = Object.entries(porVend).sort((a,b)=>b[1]-a[1]).map(([v,n])=>`${esc(v)}: <b>${n}</b>`).join(' · ');
+  /* UM BLOCO POR OPERADOR (pedido do Luiz, 14/09/2026): cada vendedor liga para os
+     seus, então o relatório sai agrupado por vendedor, com numeração, total e cabeçalho
+     próprios — e imprime um operador por folha. Os botões no alto filtram um operador
+     só (para imprimir a folha dele) ou mostram todos. A ordem dentro do grupo continua
+     a mais recente primeiro. */
+  const grupos = new Map();
+  lista.forEach(l=>{ const v=l.vendedor||'(sem vendedor)'; if(!grupos.has(v)) grupos.set(v,[]); grupos.get(v).push(l); });
+  const ordemVend = [...grupos.entries()].sort((a,b)=>b[1].length-a[1].length);
+  const fmtBRL = n => n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const cab = `<thead><tr><th>#</th><th>Dia</th><th>Cliente</th><th>Contato</th><th>Frete cotado</th><th>Valor</th><th>Motivo atual</th><th>Motivo REAL (anotar)</th></tr></thead>`;
+  const secoes = ordemVend.map(([v,ls])=>{
+    const tot = ls.reduce((s,l)=>s+(numMoeda(l.valorEstimado)||0),0);
+    const nov = ls.filter(l=>conjunto.has(crmDataPerda(l))).length;
+    return `<section class="op" data-v="${esc(v)}">
+      <h2>👤 ${esc(v)} <span class="s">— ${ls.length} lead(s)${nov?` · <b>${nov} novo(s)</b>`:''} · ${fmtBRL(tot)}</span></h2>
+      <table>${cab}<tbody>${ls.map(linhaDe).join('')}</tbody>
+      <tfoot><tr><td colspan="5">Total de ${esc(v)}</td><td class="r">${fmtBRL(tot)}</td><td colspan="2"></td></tr></tfoot></table>
+    </section>`;
+  }).join('');
+  const botoes = `<button class="f on" data-v="">Todos (${lista.length})</button>` +
+    ordemVend.map(([v,ls])=>`<button class="f" data-v="${esc(v)}">${esc(v)} (${ls.length})</button>`).join('');
+
+  const resumo = ordemVend.map(([v,ls])=>`${esc(v)}: <b>${ls.length}</b>`).join(' · ');
   const total = lista.reduce((s,l)=>s+(numMoeda(l.valorEstimado)||0),0);   // dos exibidos
 
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -6195,7 +6216,12 @@ async function crmRelatorioPerdasApurar(dias){
     tr.novo td{background:#fffbeb}
     .tag{display:inline-block;margin-top:2px;padding:1px 5px;border-radius:3px;background:#b45309;color:#fff;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
     .imp{margin:14px 0 0;text-align:center} button{padding:8px 18px;font-size:13px;cursor:pointer}
-    @media print{.imp{display:none} body{padding:0}}
+    .filtros{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 14px} .filtros span{color:#555;margin-right:4px}
+    .filtros button.f{padding:6px 12px;font-size:12.5px;border:1px solid #9fb3d9;background:#fff;color:#0a3d91;border-radius:6px}
+    .filtros button.f.on{background:#0a3d91;color:#fff;border-color:#0a3d91}
+    section.op{margin:0 0 22px} section.op h2{font-size:15px;margin:0 0 6px;color:#0a3d91} section.op.oculta{display:none}
+    @page{size:A4 landscape;margin:10mm}
+    @media print{.imp,.filtros{display:none} body{padding:0;font-size:11.5px} section.op.quebra{break-after:page;page-break-after:always} section.op h2{margin-top:0} tr{break-inside:avoid;page-break-inside:avoid} thead{display:table-header-group}}
   </style></head><body>
     <h1>📞 Perdas para apurar</h1>
     <p class="sub">${pendentes.length} lead(s) perdidos sem motivo real${novos?` · <b>${novos} novo(s)</b> desde a última apuração (${dBR})`:''} · ${resumo} · valor estimado ${total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</p>
@@ -6204,12 +6230,25 @@ async function crmRelatorioPerdasApurar(dias){
       <b>O lead só sai desta lista quando alguém registra o motivo real.</b> Abrir o relatório não tira ninguém daqui: quem não for apurado hoje volta amanhã.
       As linhas em amarelo são as perdas novas desde a última vez que o relatório foi aberto.
       A medição começa em <b>${CRM_PERDAS_DESDE.split('-').reverse().join('/')}</b> — perdas anteriores a essa data não entram.${ocultos?`<br>⚠️ Há mais <b>${ocultos}</b> pendente(s) além dos ${TETO_LINHAS} mais recentes mostrados aqui — eles voltam no próximo relatório.`:''}</div>
-    <table>
-      <thead><tr><th>#</th><th>Dia</th><th>Cliente</th><th>Contato</th><th>Frete cotado</th><th>Valor</th><th>Vendedor / motivo atual</th><th>Motivo REAL (anotar)</th></tr></thead>
-      <tbody>${linhas}</tbody>
-      <tfoot><tr><td colspan="5">Total</td><td class="r">${total.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</td><td colspan="2"></td></tr></tfoot>
-    </table>
+    <div class="filtros"><span>Operador:</span>${botoes}<button onclick="window.print()" style="margin-left:auto">🖨️ Imprimir</button></div>
+    ${secoes}
     <div class="imp"><button onclick="window.print()">🖨️ Imprimir</button></div>
+    <script>
+      // Filtro por operador: mostra só a seção dele (para imprimir a folha dele) ou todas.
+      // Na impressão de "Todos", cada operador sai numa folha — a quebra vai em todas as
+      // seções visíveis menos a última, para não sair folha em branco no fim.
+      (function(){
+        const bts=[...document.querySelectorAll('.filtros button.f')], secs=[...document.querySelectorAll('section.op')];
+        function aplicar(v){
+          bts.forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+          const vis=secs.filter(s=>{ const on = !v || s.dataset.v===v; s.classList.toggle('oculta',!on); return on; });
+          vis.forEach((s,i)=>s.classList.toggle('quebra', i<vis.length-1));
+          document.title = 'Perdas para apurar' + (v?' — '+v:'') + ' — ${dBR}';
+        }
+        bts.forEach(b=>b.addEventListener('click',()=>aplicar(b.dataset.v)));
+        aplicar('');
+      })();
+    </script>
   </body></html>`;
 
   const w = window.open('', '_blank');
