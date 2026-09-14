@@ -165,6 +165,19 @@ function carregarChave() {
   if (!k.client_email || !k.private_key) throw new Error('chave da service account sem client_email/private_key');
   return k;
 }
+// Uma frase para o log de boot: de onde a chave vem e se ESTE processo consegue
+// lê-la. Nunca imprime o conteúdo — só o caminho, o e-mail da conta e o erro.
+function diagnosticoChave() {
+  const inline = process.env.GOOGLE_SA_KEY_JSON, arquivo = process.env.GOOGLE_SA_KEY_FILE;
+  if (!inline && !arquivo) return 'NÃO CONFIGURADA (GOOGLE_SA_KEY_FILE ausente no .env) — o job não escreve nada';
+  try {
+    const k = carregarChave();
+    const u = (() => { try { return require('os').userInfo().username; } catch (_) { return '?'; } })();
+    return `OK — ${inline ? 'inline' : arquivo} (${k.client_email}), lida pelo usuário ${u}`;
+  } catch (e) {
+    return `ERRO ao ler ${inline ? 'GOOGLE_SA_KEY_JSON' : arquivo}: ${(e && e.message) || e} — o job vai falhar toda hora até corrigir`;
+  }
+}
 
 let _token = null;   // { valor, expiraEm }
 async function tokenAcesso(chave) {
@@ -227,9 +240,9 @@ async function acrescentar(sheetId, token, linhas) {
 
 /* ---------------------------------------------------------------- o ciclo */
 async function processarConversoes({ dryRun = false } = {}) {
-  const chave = carregarChave();
+  const chave = carregarChave();   // lança (ENOENT/EACCES/JSON inválido) → o chamador loga com stack
   if (!chave && !dryRun) {
-    console.warn('[conversoes] GOOGLE_SA_KEY_FILE/GOOGLE_SA_KEY_JSON não configurado — job desligado nesta rodada.');
+    console.error('[conversoes] GOOGLE_SA_KEY_FILE/GOOGLE_SA_KEY_JSON não configurado — NADA foi escrito nesta rodada; fretes fechados com gclid ficam esperando.');
     return { pulado: 'sem chave' };
   }
   const sheetId = process.env.ADS_SHEET_ID || SHEET_ID_PADRAO;
@@ -274,7 +287,7 @@ async function processarConversoes({ dryRun = false } = {}) {
   return resumo;
 }
 
-module.exports = { processarConversoes, _internos: { selecionar, linha, dataAds, numMoeda, compTotal, CABECALHO, ADS_NOME_CONVERSAO } };
+module.exports = { processarConversoes, _internos: { selecionar, linha, dataAds, numMoeda, compTotal, diagnosticoChave, CABECALHO, ADS_NOME_CONVERSAO } };
 
 /* ---------------------------------------------------------------- CLI */
 if (require.main === module) {
@@ -282,6 +295,7 @@ if (require.main === module) {
   if (!dryRun && !process.argv.includes('--once')) {
     console.log('uso: node conversoes-sheets.js --dry-run | --once'); process.exit(2);
   }
+  console.log('[conversoes] chave da service account:', diagnosticoChave());
   processarConversoes({ dryRun })
     .then((r) => { console.log('[conversoes] resultado:', JSON.stringify(r, null, 1)); process.exit(0); })
     .catch((e) => { console.error('[conversoes] ERRO:', (e && e.stack) || e); process.exit(1); });

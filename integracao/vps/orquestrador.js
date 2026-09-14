@@ -180,19 +180,31 @@ console.log('[orquestrador] lembretes agendados: 5 8-19 * * * (America/Sao_Paulo
    relê toda madrugada (04:00–05:00). Substitui o upload manual de CSV, que o
    Google aposentou. Anti-duplicação pelo carimbo `conversao_exportada_em`.
    Sem GOOGLE_SA_KEY_FILE no .env o job só avisa e não faz nada. */
-const { processarConversoes } = require('../conversoes-sheets');
+const { processarConversoes, _internos: { diagnosticoChave } } = require('../conversoes-sheets');
+// No boot, diz no log se a chave está configurada E legível POR ESTE PROCESSO (o
+// serviço roda como obsrobo; a CLI avulsa costuma rodar como root — os dois podem
+// discordar por permissão do arquivo). Sem isso o job pulava calado hora após hora.
+console.log('[conversoes] chave da service account:', diagnosticoChave());
+
 let rodandoConversoes = false;
-cron.schedule('17 * * * *', async () => {
-  if (rodandoConversoes) return;
+async function cicloConversoes(origem) {
+  if (rodandoConversoes) { console.warn(`[conversoes] ciclo anterior ainda rodando — pula (${origem}).`); return; }
   rodandoConversoes = true;
+  const t0 = Date.now();
   try {
     const r = await processarConversoes();
-    if (r && (r.escritos || r.candidatos)) console.log('[conversoes] ciclo:', JSON.stringify(r));
+    // SEMPRE uma linha por ciclo, mesmo sem nada a escrever: é o que responde
+    // "o job rodou?" quando um frete fechado não aparece na planilha.
+    console.log(`[conversoes] ciclo ${origem} em ${Date.now() - t0}ms:`, JSON.stringify(r));
   } catch (e) {
     // Nunca derruba o orquestrador: a planilha é efeito colateral, não pré-requisito.
-    console.error('[conversoes] erro no ciclo (leads ficam sem carimbo e voltam na próxima):', (e && e.message) || e);
+    console.error(`[conversoes] ERRO no ciclo ${origem} (leads ficam sem carimbo e voltam na próxima):`, (e && e.stack) || e);
   } finally { rodandoConversoes = false; }
-}, { timezone: 'America/Sao_Paulo' });
-console.log('[orquestrador] conversões Ads agendadas: 17 * * * * (America/Sao_Paulo).');
+}
+cron.schedule('17 * * * *', () => cicloConversoes('cron'), { timezone: 'America/Sao_Paulo' });
+// Uma rodada logo após subir: um restart/deploy às 09:10 não pode deixar o frete
+// fechado às 09:04 esperando até o próximo :17 — e serve de teste do deploy.
+setTimeout(() => cicloConversoes('boot'), 90 * 1000).unref();
+console.log('[orquestrador] conversões Ads agendadas: 17 * * * * (America/Sao_Paulo) + 1 rodada 90s após o boot.');
 
 module.exports = { app, driver, pipeline };
