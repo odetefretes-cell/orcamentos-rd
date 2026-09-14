@@ -157,6 +157,27 @@ const REMOVER_TRECHOS = [
     remover:[['Brasília','DF']], fonte:'reporte do comercial 04/09/2026' },
 ];
 
+/* --------------------------------------------------------------------------
+ *  COPIAR_CATEGORIA — preenche uma faixa VAZIA com o preço de outra faixa da
+ *  mesma rota. Só mexe onde não há valor: faixa já preenchida fica como está.
+ *
+ *  Caso de 14/09/2026 (Oseias, João Pessoa → Fortaleza, moto acima de 300cc):
+ *  nenhuma transportadora do Nordeste tinha preço para "Moto até 700cc" nem
+ *  "Moto acima de 700cc", então o motor só achava a FMartins — e o único
+ *  caminho dela passa por São Bernardo (R$ 2.400, dois embarques). O Anilton
+ *  faz direto por R$ 800. ✅ Confirmado pelo Luiz em 14/09: para essas
+ *  transportadoras, moto acima de 300cc paga o preço do Carro Passeio.
+ *  ⚠️ Regra por transportadora, NÃO do motor: outras (FMartins) têm preço
+ *     próprio de moto grande, e uma que não leva moto grande não pode ganhar
+ *     preço inventado. Por isso é lista fechada aqui, e não um fallback no cálculo.
+ *  Toninho ficou de fora: só tem carro cadastrado e o Luiz não confirmou moto.
+ * ------------------------------------------------------------------------ */
+const COPIAR_CATEGORIA = [
+  { transportadora:/anilton/i,     de:'p', para:['m700','m700+'], fonte:'Luiz 14/09/2026: moto acima de 300cc = preço de carro' },
+  { transportadora:/diniz/i,       de:'p', para:['m700','m700+'], fonte:'Luiz 14/09/2026: moto acima de 300cc = preço de carro' },
+  { transportadora:/expresso car/i, de:'p', para:['m700','m700+'], fonte:'Luiz 14/09/2026: moto acima de 300cc = preço de carro' },
+];
+
 /* Categorias como estão cadastradas na tabela (a busca é tolerante a acento/caixa). */
 const CATS = { p:'Carro Passeio', g:'Carro Grande', m300:'Moto até 300cc', m700:'Moto até 700cc', 'm700+':'Moto acima de 700cc' };
 const norm = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
@@ -252,6 +273,26 @@ for(const item of PRECOS_ROTA){
   }
 }
 
+
+/* ---- COPIAR_CATEGORIA: faixa vazia recebe o preço de outra faixa da rota ---- */
+for(const c of COPIAR_CATEGORIA){
+  const daTransp = tabela.rotas.filter(r => c.transportadora.test(r.transportadora||''));
+  if(!daTransp.length){ naoAchadas.push(`${String(c.transportadora)} — transportadora não encontrada (cópia de categoria ignorada)`); continue; }
+  const nomeDe = CATS[c.de];
+  for(const rota of daTransp){
+    const catDe = Object.keys(rota.valores||{}).find(k => norm(k) === norm(nomeDe));
+    const origem = catDe != null ? rota.valores[catDe] : null;
+    if(origem == null || !(Number(origem) > 0)){ naoAchadas.push(`${rota.transportadora} · ${rota.rota} — sem ${nomeDe}, nada a copiar`); continue; }
+    for(const chave of c.para){
+      const nomeCat = CATS[chave]; if(!nomeCat) continue;
+      const catReal = Object.keys(rota.valores||{}).find(k => norm(k) === norm(nomeCat));
+      const atual = catReal != null ? rota.valores[catReal] : undefined;
+      if(atual != null && Number(atual) > 0) continue;                 // já tem preço próprio: não mexe
+      mudancas.push({ rota, cat: catReal || nomeCat, de: atual, para: Number(origem),
+        txt: `${rota.transportadora} · ${rota.rota} · ${nomeCat}: (sem valor) → R$ ${origem} (copiado de ${nomeDe}) — ${c.fonte}` });
+    }
+  }
+}
 
 /* ---- NOVAS_ROTAS: cria a vaga que faltava ---- */
 const rotasNovas = [];
